@@ -1,4 +1,5 @@
 import csv
+import sys
 from pathlib import Path
 
 from core.pdf_reader import PDFReader
@@ -6,12 +7,17 @@ from core.ocr_engine import OCREngine
 from core.section_detector import SectionDetector
 
 
-PDF_PATH = Path(r"data\sample.pdf")
-OUTPUT_PATH = Path(r"data\chapter_index.csv")
+def build_chapter_index(
+    pdf_path: str | Path,
+    output_path: str | Path,
+):
+    pdf_path = Path(pdf_path)
+    output_path = Path(output_path)
 
+    if not pdf_path.exists():
+        raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-def main():
-    reader = PDFReader(str(PDF_PATH))
+    reader = PDFReader(str(pdf_path))
     ocr = OCREngine()
     detector = SectionDetector()
 
@@ -30,6 +36,11 @@ def main():
         )
 
         if section is not None:
+            # Ignore OCR false positives where the detected
+            # chapter title is simply a page/header marker.
+            if section.title.strip().upper() == "PAGE":
+                continue
+
             chapters.append(section)
 
             print(
@@ -38,7 +49,9 @@ def main():
                 f"| PDF page {section.page_number}"
             )
 
-    with OUTPUT_PATH.open(
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with output_path.open(
         "w",
         newline="",
         encoding="utf-8",
@@ -64,7 +77,24 @@ def main():
 
     print()
     print(f"Chapters found: {len(chapters)}")
-    print(f"Saved: {OUTPUT_PATH}")
+    print(f"Saved: {output_path}")
+
+    return chapters
+
+
+def main():
+    if len(sys.argv) != 3:
+        print(
+            "Usage:\n"
+            "  python -m core.chapter_indexer "
+            "data\\mybook.pdf data\\mybook_chapter_index.csv"
+        )
+        raise SystemExit(1)
+
+    build_chapter_index(
+        sys.argv[1],
+        sys.argv[2],
+    )
 
 
 if __name__ == "__main__":
