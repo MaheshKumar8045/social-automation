@@ -1,0 +1,135 @@
+====================================================================
+SOCIAL-AUTOMATION — USER GUIDE
+Last updated: [update this date whenever you edit this file]
+====================================================================
+
+WHAT THIS PROJECT IS
+---------------------
+Reads a scanned PDF book one section (chapter) at a time, will
+eventually turn each section into AI-generated content and post it
+daily to Facebook, Instagram, and YouTube. Runs entirely on this
+machine — no cloud costs.
+
+Currently working: turning a scanned PDF into a list of chapters
+with page numbers (the "chapter index"). Nothing beyond that is
+built yet — see "WHAT'S NOT BUILT YET" at the bottom.
+
+
+EVERY TIME YOU SIT DOWN TO WORK ON THIS
+-----------------------------------------
+1. Open PowerShell.
+
+2. Go to the project folder:
+     cd M:\social-automation
+
+3. Activate the virtual environment:
+     .venv\Scripts\Activate.ps1
+
+   Your prompt should now start with "(.venv)" — that confirms it
+   worked. If you see an error about execution policy, run this
+   ONCE per machine, then try activating again:
+     Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+
+4. Check nothing is left half-finished from last time:
+     git status
+
+   If it says "nothing to commit, working tree clean" — good,
+   start fresh. If it lists modified/untracked files, figure out
+   whether that's unfinished work you meant to commit, or clutter
+   to delete, before doing anything new.
+
+You're now ready to run commands.
+
+
+PROJECT FOLDER MAP
+--------------------
+  core/       — all the reusable Python modules (the actual logic)
+  data/       — your PDFs go in here, and all generated CSVs land
+                here too
+  logs/       — reserved for future run logs (not used yet)
+  services/   — reserved for future AI/platform-posting code
+                (empty right now)
+  tests/      — reserved for future automated tests (empty right
+                now)
+  main.py     — reserved for the future daily orchestrator (empty
+                right now)
+  requirements.txt — the list of Python packages this project
+                needs; reinstall with:
+                  pip install -r requirements.txt
+  PROGRESS.md — a running log of build decisions, for picking up
+                a session (human or AI) without re-reading
+                everything
+
+
+HOW TO BUILD A CHAPTER INDEX FOR A BOOK (what currently works)
+------------------------------------------------------------------
+This is a ONE-TIME step per book. It scans every page of the PDF
+with OCR, finds chapter headings, and writes out a CSV listing each
+chapter's number, title, and starting page. This does NOT extract
+the actual chapter text — it just builds a map.
+
+1. Put your PDF in the data\ folder, e.g.:
+     data\mybook.pdf
+
+2. Run the full pipeline in one command:
+     python -m core.pipeline "data\mybook.pdf"
+
+   This will:
+     - OCR every page (slow — GPU-accelerated, but still takes a
+       few minutes for a long book — this is normal, let it run)
+     - Print each chapter it finds as it goes, e.g.:
+         FOUND: Chapter XI | A MISSING COMPANION. | PDF page 150
+     - Write data\mybook_chapter_index.csv (raw OCR output)
+     - Write data\mybook_sections.csv (cleaned — fixes OCR text
+       artifacts like garbled apostrophes/dashes)
+
+3. Open data\mybook_sections.csv in Excel or a text editor to spot-
+   check it looks right — every real chapter present, no obvious
+   junk rows.
+
+IMPORTANT LIMITATION: the chapter detector currently only
+recognizes headings written exactly as "CHAPTER <roman numeral>."
+on their own line (e.g. "CHAPTER XI."). A book using a different
+style ("Chapter One", "1.", "PART TWO") will NOT be detected
+correctly without changing the code first. Don't assume a new book
+worked just because the command ran without errors — always check
+the output CSV.
+
+
+COMMON PROBLEMS
+------------------
+- "python: command not found"
+    -> You forgot to activate the venv. See step 3 above.
+
+- git diff / git log opens a weird screen you can't type in
+    -> You're stuck in git's pager. Press "q" to exit. To stop
+       this happening again, run once:
+         git config --global core.pager cat
+
+- pip install fails or a module is missing when you run something
+    -> Confirm (.venv) is showing in your prompt, then run:
+         pip install -r requirements.txt
+
+- OCR is very slow
+    -> Normal for a full-book scan (one-time chapter index step).
+       Extracting a single day's section later will be much
+       faster since it only OCRs a few pages, not the whole book.
+
+
+WHAT'S NOT BUILT YET (don't expect these to work)
+-----------------------------------------------------
+- Extracting daily section TEXT (not just the index) and tracking
+  which day you're on — files exist (core\state_manager.py,
+  core\section_text.py) but are UNTESTED, written but never run.
+- Any AI text or image generation
+- Any posting to Facebook, Instagram, or YouTube
+- Any daily scheduling
+- A truly generic chapter detector that works on any book without
+  code changes (three options were scoped out, none built yet —
+  see PROGRESS.md for details)
+
+
+WHERE TO LOOK NEXT
+---------------------
+Read PROGRESS.md for the current decision-in-progress and exactly
+what the next build step is.
