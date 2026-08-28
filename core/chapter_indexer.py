@@ -1,62 +1,40 @@
 import csv
-import sys
 from pathlib import Path
 
-from core.pdf_reader import PDFReader
-from core.ocr_engine import OCREngine
-from core.section_detector import SectionDetector
+from core.structure_scanner import StructureScanner
 
 
 def build_chapter_index(
     pdf_path: str | Path,
     output_path: str | Path,
 ):
+    """
+    Build a structural section index for any supported PDF.
+
+    Detection is delegated to StructureScanner so the CLI and the
+    structural pipeline use the same generic detection/recovery logic.
+    """
     pdf_path = Path(pdf_path)
     output_path = Path(output_path)
 
     if not pdf_path.exists():
-        raise FileNotFoundError(f"PDF not found: {pdf_path}")
-
-    reader = PDFReader(str(pdf_path))
-    ocr = OCREngine()
-    detector = SectionDetector()
-
-    chapters = []
-
-    print(f"PDF pages: {reader.page_count}")
-    print("Scanning for chapters...")
-    print()
-
-    for page_number, image in reader.iter_pages(0, reader.page_count):
-        result = ocr.process(image, page_number)
-
-        section = detector.detect(
-            page_number,
-            result.lines,
+        raise FileNotFoundError(
+            f"PDF not found: {pdf_path}"
         )
 
-        if section is not None:
-            # Ignore OCR false positives where the detected
-            # chapter title is simply a page/header marker.
-            if section.title.strip().upper() == "PAGE":
-                continue
+    structure = StructureScanner().scan(pdf_path)
 
-            chapters.append(section)
-
-            print(
-                f"FOUND: Chapter {section.section_number} "
-                f"| {section.title} "
-                f"| PDF page {section.page_number}"
-            )
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     with output_path.open(
         "w",
         newline="",
         encoding="utf-8",
-    ) as f:
-        writer = csv.writer(f)
+    ) as handle:
+        writer = csv.writer(handle)
 
         writer.writerow(
             [
@@ -66,28 +44,31 @@ def build_chapter_index(
             ]
         )
 
-        for chapter in chapters:
+        for section in structure.sections:
             writer.writerow(
                 [
-                    chapter.section_number,
-                    chapter.title,
-                    chapter.page_number,
+                    section.section_number or "",
+                    section.title,
+                    section.page_number,
                 ]
             )
 
     print()
-    print(f"Chapters found: {len(chapters)}")
+    print(f"Chapters found: {len(structure.sections)}")
     print(f"Saved: {output_path}")
 
-    return chapters
+    return structure.sections
 
 
 def main():
+    import sys
+
     if len(sys.argv) != 3:
         print(
             "Usage:\n"
             "  python -m core.chapter_indexer "
-            "data\\mybook.pdf data\\mybook_chapter_index.csv"
+            "data\\mybook.pdf "
+            "data\\mybook_chapter_index.csv"
         )
         raise SystemExit(1)
 
