@@ -14,17 +14,18 @@ class VisualKnowledgeBible:
       'eyes':[re.compile(r'\b((?:blue|green|grey|gray|brown|black|hazel|dark|bright|deep|large|small|piercing|keen|sharp)\s+eyes?)\b',re.I)],
       'complexion':[re.compile(r'\b((?:pale|fair|dark|ruddy|florid|sallow|swarthy|tanned|sunburnt|sunburned|weathered|fresh|healthy|worn|haggard)\s+(?:face|complexion|skin))\b',re.I)],
       'face':[re.compile(r'\b((?:round|oval|long|broad|thin|narrow|square|angular|handsome|ugly|rugged|stern|kind|intelligent|expressive)\s+(?:face|features|countenance))\b',re.I)],
-      'distinctive_mark':[re.compile(r'\b(?:scar|scars|mark|marks|birthmark|tattoo|wound|injury)\b[^.;]{0,100}',re.I)],
+      'distinctive_mark':[re.compile(r'\b(?:scar|scars|birthmark|tattoo)\b[^.;]{0,100}',re.I)],
       'clothing':[re.compile(r'\b(?:wearing|wore|dressed in|clad in|attired in)\s+([^.;]{3,140})',re.I)],
       'expression':[re.compile(r'\b((?:smiling|smiled|laughing|laughed|angry|furious|frightened|afraid|terrified|calm|anxious|worried|sad|joyful|cheerful|stern|serious|grave|excited|astonished|surprised|pale with fear))\b',re.I)],
-      'mannerism':[re.compile(r'\b((?:habitually|always|often|usually|constantly)\s+[^.;]{3,120})',re.I)]}
+      'mannerism':[]}
     OBJECT_TERMS={'map','compass','lantern','lamp','rope','pickaxe','axe','hammer','rifle','gun','pistol','knife','dagger','sword','bag','backpack','satchel','bottle','flask','book','journal','diary','letter','parchment','instrument','thermometer','barometer','telescope','microscope','boat','raft','carriage','wagon','vehicle','machine','key','door','bridge'}
-    def __init__(self,database_path): self.database_path=Path(database_path)
+    MANNERISM_RE=re.compile(r'\b(?:always|often|usually|habitually|constantly)\s+((?:[A-Za-z][\w-]*\s+){1,24}(?:walked|walks|spoke|speaks|looked|looks|kept|keeps|took|takes|carried|carries|held|holds|stood|stands|went|goes|sat|sits|smoked|smokes|laughed|laughs|smiled|smiles|watched|watches|hunted|hunts|travelled|traveled|travel|rode|rides|remained|remains|returned|returns|followed|follows|guarded|guards|observed|observes|examined|examines|congratulated|congratulates|yielded|yields|preferred|prefers|used|uses)\b[^.;]{0,80})',re.I)
+    def __init__(self,database_path):self.database_path=Path(database_path)
     def build(self,document_id):
       with sqlite3.connect(self.database_path) as con:
        con.row_factory=sqlite3.Row;con.execute('PRAGMA foreign_keys=ON');con.executescript(SCHEMA);self._clear(con,document_id)
        scenes=con.execute('SELECT id,story_id,title,page_start,page_end,text FROM scenes WHERE document_id=? ORDER BY story_id,scene_order',(document_id,)).fetchall()
-       canon=con.execute('SELECT cc.id,cc.identity_group_id,cc.canonical_name,cc.confidence,ig.canonical_entity_id FROM canonical_characters cc JOIN character_identity_groups ig ON ig.id=cc.identity_group_id WHERE cc.document_id=? AND cc.status IN (\'confirmed\',\'likely\',\'singleton\') ORDER BY cc.id',(document_id,)).fetchall()
+       canon=con.execute("SELECT cc.id,cc.identity_group_id,cc.canonical_name,cc.confidence,ig.canonical_entity_id FROM canonical_characters cc JOIN character_identity_groups ig ON ig.id=cc.identity_group_id WHERE cc.document_id=? AND cc.status IN ('confirmed','likely','singleton') ORDER BY cc.id",(document_id,)).fetchall()
        entity_profiles={}
        for cc in canon:
         eid=cc['canonical_entity_id'];pid=self._profile(con,document_id,eid,'character',cc['canonical_name'],float(cc['confidence'] or 0))
@@ -38,33 +39,32 @@ class VisualKnowledgeBible:
        return {'profiles':con.execute('SELECT COUNT(*) FROM visual_profiles WHERE document_id=?',(document_id,)).fetchone()[0],'facts':con.execute('SELECT COUNT(*) FROM visual_facts vf JOIN visual_profiles vp ON vp.id=vf.profile_id WHERE vp.document_id=?',(document_id,)).fetchone()[0],'objects':con.execute('SELECT COUNT(*) FROM visual_objects WHERE document_id=?',(document_id,)).fetchone()[0],'object_mentions':con.execute('SELECT COUNT(*) FROM visual_object_mentions WHERE document_id=?',(document_id,)).fetchone()[0],'scene_context':con.execute('SELECT COUNT(*) FROM scene_visual_context WHERE document_id=?',(document_id,)).fetchone()[0]}
     def _extract(self,con,pid,name,sid,ps,pe,text,bc):
       if not name or not text:return
-      nr=re.escape(name.strip());match=re.search(nr,text,re.I)
+      match=re.search(re.escape(name.strip()),text,re.I)
       if not match:return
-      # Mention context is only a bounded source window. Extract descriptors from
-      # the local clause immediately around the actual mention, allowing the
-      # description to occur either before or after the name.
       start=max(0,match.start()-180);end=min(len(text),match.end()+180);local=text[start:end]
-      rel_start=match.start()-start
-      def related(m):
-       dist=min(abs(m.start()-rel_start),abs(m.end()-rel_start))
-       return dist<=180
       for attr,patterns in self.CHARACTER_PATTERNS.items():
        for pat in patterns:
         for m in pat.finditer(local):
-         if not related(m):continue
          val=self._clean(m.group(1) if m.lastindex else m.group(0))
          if not val:continue
-         # Semantic guards for highly polysemous adjectives.
          if attr=='build':
-          value=re.escape(val)
-          ok=(re.search(rf'(?is)\b(?:{nr})\b[^.!?;:]{{0,90}}\b(?:was|were|is|looked|appeared|seemed|stood)\b[^.!?;:]{{0,70}}\b{value}\b',local) or re.search(rf'(?is)\b{value}\b[^.!?;:]{{0,70}}\b(?:man|woman|person|figure|fellow|hunter|astronomer|colonel|professor|doctor)\b[^.!?;:]{{0,50}}\b(?:{nr})\b',local) or re.search(rf'(?is)\b{value}\s+(?:man|woman|person|figure|fellow)\b',local))
-          if not ok:continue
+          v=re.escape(val)
+          if not (re.search(rf'(?is)\b{re.escape(name)}\b[^.!?;:]{{0,90}}\b(?:was|were|is|looked|appeared|seemed|stood)\b[^.!?;:]{{0,70}}\b{v}\b',local) or re.search(rf'(?is)\b{v}\b[^.!?;:]{{0,70}}\b(?:man|woman|person|figure|fellow|hunter|astronomer|colonel|professor|doctor)\b',local)):continue
+         if attr=='height':
+          if not re.search(rf'(?is)\b{re.escape(name)}\b[^.!?;:]{{0,80}}\b(?:man|woman|person|figure)\b[^.!?;:]{{0,50}}\b(?:high|tall)\b|\b(?:man|woman|person|figure)\b[^.!?;:]{{0,60}}\b{re.escape(name)}\b',local):continue
          if attr=='expression':
-          value=re.escape(val)
-          ok=re.search(rf'(?is)\b(?:{nr}|his|her|their)\b[^.!?;:]{{0,90}}\b(?:face|features|countenance|expression|look|air|manner)\b[^.!?;:]{{0,60}}\b{value}\b|\b{value}\b[^.!?;:]{{0,60}}\b(?:face|features|countenance|expression|look|air|manner)\b[^.!?;:]{{0,70}}\b(?:{nr}|his|her|their)\b',local)
-          if not ok:continue
-         cat='appearance' if attr not in {'clothing','expression','mannerism'} else attr
-         self._add(con,pid,cat,attr,val,'scene',None,sid,ps,pe,self._evidence(local,m.start(),m.end()),min(.98,max(.35,bc)),'source_pattern_local')
+          v=re.escape(val)
+          if not re.search(rf'(?is)\b(?:face|features|countenance|expression|look|air|manner)\b[^.!?;:]{{0,60}}\b{v}\b|\b{v}\b[^.!?;:]{{0,60}}\b(?:face|features|countenance|expression|look|air|manner)\b',local):continue
+         self._add(con,pid,'appearance' if attr not in {'clothing','expression','mannerism'} else attr,attr,val,'scene',None,sid,ps,pe,self._evidence(local,m.start(),m.end()),min(.98,max(.35,bc)),'source_pattern_local')
+      for m in self.MANNERISM_RE.finditer(local):
+       val=self._clean(m.group(0))
+       if not val:continue
+       # The recurrence marker must be in the same clause as the character
+       # name, or an immediately adjacent pronoun referring to that character.
+       clause_start=max(0,local.rfind('.',0,m.start())+1);clause_end=local.find('.',m.end());clause_end=len(local) if clause_end<0 else clause_end
+       clause=local[clause_start:clause_end]
+       if re.search(re.escape(name.strip()),clause,re.I) or re.search(r'\b(?:he|she|they|his|her|their)\b',clause,re.I):
+        self._add(con,pid,'mannerism','mannerism',val,'scene',None,sid,ps,pe,self._evidence(local,m.start(),m.end()),min(.9,max(.4,bc)),'source_mannerism_local')
     def _clear(self,con,d):
       con.execute('DELETE FROM scene_visual_context WHERE document_id=?',(d,));con.execute('DELETE FROM visual_object_mentions WHERE document_id=?',(d,));con.execute('DELETE FROM visual_objects WHERE document_id=?',(d,));con.execute('DELETE FROM visual_facts WHERE profile_id IN (SELECT id FROM visual_profiles WHERE document_id=?)',(d,));con.execute('DELETE FROM visual_profiles WHERE document_id=?',(d,))
     def _profile(self,con,d,e,t,n,c):con.execute('INSERT INTO visual_profiles(document_id,entity_id,profile_type,canonical_name,confidence) VALUES(?,?,?,?,?)',(d,e,t,n,c));return con.execute('SELECT last_insert_rowid()').fetchone()[0]
