@@ -89,6 +89,9 @@ class StructureScanner:
                         source=processed.source,
                         text=processed.text,
                         ocr_used=processed.source == "ocr",
+                        raw_text=processed.raw_text,
+                        quality_score=processed.quality_score,
+                        normalization_method=processed.normalization_method,
                     )
                 )
                 continue
@@ -106,6 +109,9 @@ class StructureScanner:
                         source=processed.source,
                         text=processed.text,
                         ocr_used=processed.source == "ocr",
+                        raw_text=processed.raw_text,
+                        quality_score=processed.quality_score,
+                        normalization_method=processed.normalization_method,
                     )
                 )
                 continue
