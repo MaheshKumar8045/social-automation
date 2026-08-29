@@ -4,22 +4,13 @@ from pathlib import Path
 
 SCHEMA='''CREATE TABLE IF NOT EXISTS visual_profiles (id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE, entity_id INTEGER REFERENCES entities(id) ON DELETE SET NULL, profile_type TEXT NOT NULL, canonical_name TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', metadata_json TEXT NOT NULL DEFAULT '{}', confidence REAL NOT NULL DEFAULT 0, UNIQUE(document_id, profile_type, canonical_name)); CREATE TABLE IF NOT EXISTS visual_facts (id INTEGER PRIMARY KEY, profile_id INTEGER NOT NULL REFERENCES visual_profiles(id) ON DELETE CASCADE, category TEXT NOT NULL, attribute TEXT NOT NULL, value TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'supported', source_type TEXT NOT NULL, source_id INTEGER, scene_id INTEGER, page_start INTEGER, page_end INTEGER, evidence TEXT NOT NULL DEFAULT '', confidence REAL NOT NULL DEFAULT 0, extraction_method TEXT NOT NULL, UNIQUE(profile_id, category, attribute, value, source_type, source_id, scene_id)); CREATE INDEX IF NOT EXISTS idx_visual_profiles_document ON visual_profiles(document_id, profile_type); CREATE INDEX IF NOT EXISTS idx_visual_facts_profile ON visual_facts(profile_id, category, attribute); CREATE INDEX IF NOT EXISTS idx_visual_facts_scene ON visual_facts(scene_id); CREATE TABLE IF NOT EXISTS scene_visual_context (id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE, scene_id INTEGER NOT NULL REFERENCES scenes(id) ON DELETE CASCADE, character_profile_ids TEXT NOT NULL DEFAULT '[]', environment_profile_ids TEXT NOT NULL DEFAULT '[]', object_mentions TEXT NOT NULL DEFAULT '[]', continuity_json TEXT NOT NULL DEFAULT '{}', evidence_json TEXT NOT NULL DEFAULT '[]', UNIQUE(document_id, scene_id)); CREATE TABLE IF NOT EXISTS visual_objects (id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE, canonical_name TEXT NOT NULL, profile_text TEXT NOT NULL DEFAULT '', confidence REAL NOT NULL DEFAULT 0, discovery_method TEXT NOT NULL, UNIQUE(document_id, canonical_name)); CREATE TABLE IF NOT EXISTS visual_object_mentions (id INTEGER PRIMARY KEY, document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE, object_id INTEGER NOT NULL REFERENCES visual_objects(id) ON DELETE CASCADE, scene_id INTEGER NOT NULL REFERENCES scenes(id) ON DELETE CASCADE, page_start INTEGER, page_end INTEGER, evidence TEXT NOT NULL DEFAULT '', confidence REAL NOT NULL DEFAULT 0, UNIQUE(object_id, scene_id));'''
 
+BUILD_WORDS=r'(?:tall|short|large|small|slender|thin|lean|slight|stout|stocky|broad|muscular|powerful|robust|strong|weak|lanky|massive|heavy|delicate)'
+EXPRESSION_WORDS=r'(?:smiling|smiled|laughing|laughed|angry|furious|frightened|afraid|terrified|calm|anxious|worried|sad|joyful|cheerful|stern|serious|grave|excited|astonished|surprised)'
+HAIR_WORDS=r'(?:long|short|thick|thin|curly|straight|wavy|dark|black|brown|fair|blond|blonde|grey|gray|white|red|auburn)'
+
 class VisualKnowledgeBible:
-    CHARACTER_PATTERNS={
-      'age':[re.compile(r'\b(?:aged|age[d]?|about|nearly|approximately)\s+(\d{1,3})\s*(?:years?|yrs?)\b',re.I),re.compile(r'\b(\d{1,3})[- ]year[- ]old\b',re.I)],
-      'height':[re.compile(r'\b(?:about|nearly|approximately|some)\s+([\d\'\".,]+\s*(?:feet|foot|ft|inches|inch|in|metres|meters|m|cm))\b',re.I),re.compile(r'\b([\d]+\s*(?:feet|foot|ft|inches|inch|in|metres|meters|m|cm))\s+(?:high|tall)\b',re.I)],
-      'build':[re.compile(r'\b((?:very|quite|rather|extremely|remarkably|slightly)?\s*(?:tall|short|large|small|slender|thin|lean|slight|stout|stocky|broad|muscular|powerful|robust|strong|weak|lanky|massive|heavy|delicate))\b',re.I)],
-      'hair':[re.compile(r'\b((?:long|short|thick|thin|curly|straight|wavy|dark|black|brown|fair|blond|blonde|grey|gray|white|red|auburn)\s+(?:hair|locks|tresses))\b',re.I),re.compile(r'\b(?:hair|beard|moustache|mustache)\s+(?:was|were|is|of)\s+([^.;,]{2,50})',re.I)],
-      'facial_hair':[re.compile(r'\b((?:long|short|full|thick|heavy|bushy|black|brown|grey|gray|white|red)?\s*(?:beard|moustache|mustache|whiskers))\b',re.I)],
-      'eyes':[re.compile(r'\b((?:blue|green|grey|gray|brown|black|hazel|dark|bright|deep|large|small|piercing|keen|sharp)\s+eyes?)\b',re.I)],
-      'complexion':[re.compile(r'\b((?:pale|fair|dark|ruddy|florid|sallow|swarthy|tanned|sunburnt|sunburned|weathered|fresh|healthy|worn|haggard)\s+(?:face|complexion|skin))\b',re.I)],
-      'face':[re.compile(r'\b((?:round|oval|long|broad|thin|narrow|square|angular|handsome|ugly|rugged|stern|kind|intelligent|expressive)\s+(?:face|features|countenance))\b',re.I)],
-      'distinctive_mark':[re.compile(r'\b(?:scar|scars|birthmark|tattoo)\b[^.;]{0,100}',re.I)],
-      'clothing':[re.compile(r'\b(?:wearing|wore|dressed in|clad in|attired in)\s+([^.;]{3,140})',re.I)],
-      'expression':[re.compile(r'\b((?:smiling|smiled|laughing|laughed|angry|furious|frightened|afraid|terrified|calm|anxious|worried|sad|joyful|cheerful|stern|serious|grave|excited|astonished|surprised|pale with fear))\b',re.I)],
-      'mannerism':[]}
     OBJECT_TERMS={'map','compass','lantern','lamp','rope','pickaxe','axe','hammer','rifle','gun','pistol','knife','dagger','sword','bag','backpack','satchel','bottle','flask','book','journal','diary','letter','parchment','instrument','thermometer','barometer','telescope','microscope','boat','raft','carriage','wagon','vehicle','machine','key','door','bridge'}
-    MANNERISM_RE=re.compile(r'\b(?:always|often|usually|habitually|constantly)\s+((?:[A-Za-z][\w-]*\s+){1,24}(?:walked|walks|spoke|speaks|looked|looks|kept|keeps|took|takes|carried|carries|held|holds|stood|stands|went|goes|sat|sits|smoked|smokes|laughed|laughs|smiled|smiles|watched|watches|hunted|hunts|travelled|traveled|travel|rode|rides|remained|remains|returned|returns|followed|follows|guarded|guards|observed|observes|examined|examines|congratulated|congratulates|yielded|yields|preferred|prefers|used|uses)\b[^.;]{0,80})',re.I)
+    MANNERISM_VERBS=r'(?:walked|walks|spoke|speaks|looked|looks|kept|keeps|took|takes|carried|carries|held|holds|stood|stands|went|goes|sat|sits|smoked|smokes|laughed|laughs|smiled|smiles|watched|watches|hunted|hunts|travelled|traveled|travel|rode|rides|remained|remains|returned|returns|followed|follows|guarded|guards|observed|observes|examined|examines|congratulated|congratulates|yielded|yields|preferred|prefers|used|uses)'
     def __init__(self,database_path):self.database_path=Path(database_path)
     def build(self,document_id):
       with sqlite3.connect(self.database_path) as con:
@@ -41,30 +32,58 @@ class VisualKnowledgeBible:
       if not name or not text:return
       match=re.search(re.escape(name.strip()),text,re.I)
       if not match:return
-      start=max(0,match.start()-180);end=min(len(text),match.end()+180);local=text[start:end]
-      for attr,patterns in self.CHARACTER_PATTERNS.items():
-       for pat in patterns:
-        for m in pat.finditer(local):
-         val=self._clean(m.group(1) if m.lastindex else m.group(0))
-         if not val:continue
-         if attr=='build':
-          v=re.escape(val)
-          if not (re.search(rf'(?is)\b{re.escape(name)}\b[^.!?;:]{{0,90}}\b(?:was|were|is|looked|appeared|seemed|stood)\b[^.!?;:]{{0,70}}\b{v}\b',local) or re.search(rf'(?is)\b{v}\b[^.!?;:]{{0,70}}\b(?:man|woman|person|figure|fellow|hunter|astronomer|colonel|professor|doctor)\b',local)):continue
-         if attr=='height':
-          if not re.search(rf'(?is)\b{re.escape(name)}\b[^.!?;:]{{0,80}}\b(?:man|woman|person|figure)\b[^.!?;:]{{0,50}}\b(?:high|tall)\b|\b(?:man|woman|person|figure)\b[^.!?;:]{{0,60}}\b{re.escape(name)}\b',local):continue
-         if attr=='expression':
-          v=re.escape(val)
-          if not re.search(rf'(?is)\b(?:face|features|countenance|expression|look|air|manner)\b[^.!?;:]{{0,60}}\b{v}\b|\b{v}\b[^.!?;:]{{0,60}}\b(?:face|features|countenance|expression|look|air|manner)\b',local):continue
-         self._add(con,pid,'appearance' if attr not in {'clothing','expression','mannerism'} else attr,attr,val,'scene',None,sid,ps,pe,self._evidence(local,m.start(),m.end()),min(.98,max(.35,bc)),'source_pattern_local')
-      for m in self.MANNERISM_RE.finditer(local):
-       val=self._clean(m.group(0))
-       if not val:continue
-       # The recurrence marker must be in the same clause as the character
-       # name, or an immediately adjacent pronoun referring to that character.
-       clause_start=max(0,local.rfind('.',0,m.start())+1);clause_end=local.find('.',m.end());clause_end=len(local) if clause_end<0 else clause_end
-       clause=local[clause_start:clause_end]
-       if re.search(re.escape(name.strip()),clause,re.I) or re.search(r'\b(?:he|she|they|his|her|their)\b',clause,re.I):
-        self._add(con,pid,'mannerism','mannerism',val,'scene',None,sid,ps,pe,self._evidence(local,m.start(),m.end()),min(.9,max(.4,bc)),'source_mannerism_local')
+      start=max(0,match.start()-220);end=min(len(text),match.end()+220);local=text[start:end]
+      nr=re.escape(name.strip())
+      # Only accept facts from the sentence/clause containing the source alias.
+      # This is deliberately conservative: unrelated adjectives elsewhere in
+      # the mention window must never become character attributes.
+      clauses=[c.strip() for c in re.split(r'(?<=[.!?;])\s+|\n+',local) if c.strip()]
+      for clause in clauses:
+       if not re.search(r'\b'+nr+r'\b',clause,re.I):continue
+       self._extract_direct(con,pid,name,sid,ps,pe,clause,bc,nr)
+    def _extract_direct(self,con,pid,name,sid,ps,pe,clause,bc,nr):
+      def add(cat,attr,val,method,conf=None):
+       val=self._clean(val)
+       if val:self._add(con,pid,cat,attr,val,'scene',None,sid,ps,pe,clause,min(.98,max(.35,bc if conf is None else conf)),method)
+      # Build: explicit character copula/appearance relation OR adjective+noun
+      # phrase whose noun is tied to the alias in the same clause.
+      p1=re.search(rf'\b{nr}\b[^,;:!?]{{0,100}}\b(?:was|were|is|are|looked|appeared|seemed|stood)\s+(?:to be\s+)?((?:very|quite|rather|extremely|remarkably|slightly)?\s*{BUILD_WORDS})\b',clause,re.I)
+      p2=re.search(rf'\b((?:very|quite|rather|extremely|remarkably|slightly)?\s*{BUILD_WORDS})\s+(?:man|woman|person|figure|fellow|hunter|astronomer|colonel|professor|doctor)\b[^,;:!?]{{0,100}}\b{nr}\b',clause,re.I)
+      if p1:add('appearance','build',p1.group(1),'character_subject_build')
+      elif p2:add('appearance','build',p2.group(1),'character_subject_build')
+      # Numeric height: only when explicitly attached to a person/character.
+      p=re.search(rf'\b{nr}\b[^,;:!?]{{0,100}}\b(?:was|were|stood|measured)\s+(?:about|nearly|approximately)?\s*([\d]+\s*(?:feet|foot|ft|inches|inch|in|metres|meters|m|cm))\b(?:\s+(?:high|tall))?',clause,re.I)
+      if p:add('appearance','height',p.group(1),'character_subject_height')
+      p=re.search(rf'\b([\d]+\s*(?:feet|foot|ft|inches|inch|in|metres|meters|m|cm))\s+(?:high|tall)\b[^,;:!?]{{0,100}}\b(?:man|woman|person|figure)\b[^,;:!?]{{0,100}}\b{nr}\b',clause,re.I)
+      if p:add('appearance','height',p.group(1),'character_subject_height')
+      # Hair / facial hair: require hair/beard terminology in the same clause.
+      p=re.search(rf'\b{nr}\b[^.;!?]{{0,100}}\b({HAIR_WORDS}\s+(?:hair|locks|tresses))\b',clause,re.I)
+      if p:add('appearance','hair',p.group(1),'character_subject_hair')
+      p=re.search(rf'\b({HAIR_WORDS}\s+(?:hair|locks|tresses))\b[^.;!?]{{0,100}}\b{nr}\b',clause,re.I)
+      if p:add('appearance','hair',p.group(1),'character_subject_hair')
+      p=re.search(rf'\b{nr}\b[^.;!?]{{0,100}}\b((?:long|short|full|thick|heavy|bushy|black|brown|grey|gray|white|red)?\s*(?:beard|moustache|mustache|whiskers))\b',clause,re.I)
+      if p:add('appearance','facial_hair',p.group(1),'character_subject_facial_hair')
+      # Eyes / complexion / face descriptors require the anatomical noun.
+      for attr,words,nouns in [('eyes',r'(?:blue|green|grey|gray|brown|black|hazel|dark|bright|deep|large|small|piercing|keen|sharp)',r'eyes?'),('complexion',r'(?:pale|fair|dark|ruddy|florid|sallow|swarthy|tanned|sunburnt|sunburned|weathered|fresh|healthy|worn|haggard)',r'(?:face|complexion|skin)'),('face',r'(?:round|oval|long|broad|thin|narrow|square|angular|handsome|ugly|rugged|stern|kind|intelligent|expressive)',r'(?:face|features|countenance)')]:
+       p=re.search(rf'\b(({words})\s+{nouns})\b',clause,re.I)
+       if p and re.search(r'\b'+nr+r'\b',clause[:p.start()+1]+' '+clause[p.end():],re.I):add('appearance',attr,p.group(1),f'character_subject_{attr}')
+      # Clothing: capture only a bounded wearing/dressed construction.
+      p=re.search(r'\b(?:wearing|wore|dressed in|clad in|attired in)\s+([^.;!?]{3,100})',clause,re.I)
+      if p and re.search(r'\b'+nr+r'\b',clause,re.I):add('clothing','clothing',p.group(1),'character_subject_clothing')
+      # Expression: adjective must be connected to an explicit facial/air/look term.
+      p=re.search(rf'\b({EXPRESSION_WORDS})\b[^.;!?]{{0,45}}\b(?:face|features|countenance|expression|look|air|manner)\b|\b(?:face|features|countenance|expression|look|air|manner)\b[^.;!?]{{0,45}}\b({EXPRESSION_WORDS})\b',clause,re.I)
+      if p and re.search(r'\b'+nr+r'\b',clause,re.I):add('expression','expression',p.group(1) or p.group(2),'character_subject_expression')
+      # Mannerism: recurrence marker + real behavior verb, with the character
+      # alias in the same clause. This prevents "always ready pitched" and
+      # other noun/object phrases from becoming character behavior.
+      p=re.search(rf'\b(?:always|often|usually|habitually|constantly)\b[^.;!?]{{0,100}}\b({self.MANNERISM_VERBS})\b[^.;!?]{{0,80}}',clause,re.I)
+      if p and re.search(r'\b'+nr+r'\b',clause,re.I):
+       marker=re.search(r'\b(?:always|often|usually|habitually|constantly)\b',clause,re.I)
+       add('mannerism','mannerism',clause[marker.start():p.end()],'source_mannerism_local')
+      # Distinctive marks: only scar/birthmark/tattoo, and require the alias
+      # plus a possessive/body relation in the same clause.
+      p=re.search(r'\b((?:scar|scars|birthmark|tattoo)(?:[^.;!?]{0,80}))',clause,re.I)
+      if p and re.search(r'\b'+nr+r'\b',clause,re.I):add('appearance','distinctive_mark',p.group(1),'character_subject_mark')
     def _clear(self,con,d):
       con.execute('DELETE FROM scene_visual_context WHERE document_id=?',(d,));con.execute('DELETE FROM visual_object_mentions WHERE document_id=?',(d,));con.execute('DELETE FROM visual_objects WHERE document_id=?',(d,));con.execute('DELETE FROM visual_facts WHERE profile_id IN (SELECT id FROM visual_profiles WHERE document_id=?)',(d,));con.execute('DELETE FROM visual_profiles WHERE document_id=?',(d,))
     def _profile(self,con,d,e,t,n,c):con.execute('INSERT INTO visual_profiles(document_id,entity_id,profile_type,canonical_name,confidence) VALUES(?,?,?,?,?)',(d,e,t,n,c));return con.execute('SELECT last_insert_rowid()').fetchone()[0]
