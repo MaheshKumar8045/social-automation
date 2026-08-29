@@ -12,6 +12,7 @@ STEPS = [
     ("Canonical Visual Bible", "core.canonical_visual_bible"),
     ("Visual Fact Reconciliation", "core.visual_fact_reconciler"),
     ("Visual Conflict Classification", "core.visual_conflict_classifier"),
+    ("Continuity State", "core.continuity_state"),
 ]
 
 
@@ -39,6 +40,19 @@ def scene_smoke_test(db: str, document_id: int, scene_id: int) -> dict:
     return state
 
 
+def generation_smoke_test(db: str, document_id: int, scene_id: int) -> dict:
+    result = subprocess.run([sys.executable, "-m", "core.generation_context", db, str(document_id), str(scene_id), "--summary"], text=True, encoding="utf-8", errors="replace", capture_output=True)
+    if result.returncode != 0:
+        raise SystemExit(f"FAIL: generation context failed for scene {scene_id}: {result.stderr.strip()}")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"FAIL: generation context scene {scene_id} returned invalid JSON: {exc}")
+    if payload.get("continuity_available") is not True:
+        raise SystemExit(f"FAIL: generation context scene {scene_id} has no continuity state")
+    return payload
+
+
 def validate(db: str, document_id: int) -> None:
     with sqlite3.connect(db) as con:
         checks = {}
@@ -51,8 +65,10 @@ def validate(db: str, document_id: int) -> None:
         checks["canonical_without_source_profile"] = con.execute("""SELECT COUNT(*) FROM canonical_characters cc LEFT JOIN canonical_visual_profiles cvp ON cvp.canonical_character_id=cc.id AND cvp.document_id=cc.document_id WHERE cc.document_id=? AND cc.status IN ('confirmed','likely','singleton') AND cvp.id IS NULL""", (document_id,)).fetchone()[0]
         checks["scene_context_rows"] = con.execute("SELECT COUNT(*) FROM scene_visual_context WHERE document_id=?", (document_id,)).fetchone()[0]
         checks["object_mentions"] = con.execute("SELECT COUNT(*) FROM visual_object_mentions WHERE document_id=?", (document_id,)).fetchone()[0]
+        checks["continuity_rows"] = con.execute("SELECT COUNT(*) FROM visual_scene_continuity WHERE document_id=?", (document_id,)).fetchone()[0]
+        checks["continuity_state_rows"] = con.execute("SELECT COUNT(*) FROM visual_entity_state WHERE document_id=?", (document_id,)).fetchone()[0]
 
-    print("\n=== VISUAL PIPELINE VALIDATION ===")
+    print("\n=== VISUAL + CONTINUITY VALIDATION ===")
     for key, value in checks.items():
         print(f"{key}: {value}")
 
@@ -72,16 +88,20 @@ def validate(db: str, document_id: int) -> None:
         raise SystemExit("FAIL: scene visual context is empty")
     if checks["object_mentions"] == 0:
         raise SystemExit("FAIL: object mention layer is empty")
+    if checks["continuity_rows"] == 0 or checks["continuity_state_rows"] == 0:
+        raise SystemExit("FAIL: continuity state is empty")
 
     for scene_id in (1, 8, 21, 78, 200, 291):
         state = scene_smoke_test(db, document_id, scene_id)
         print(f"scene_{scene_id}: characters={len(state.get('characters', []))}")
+        payload = generation_smoke_test(db, document_id, scene_id)
+        print(f"generation_{scene_id}: characters={payload['characters']} visual_facts={payload['visual_fact_count']} objects={payload['objects']} events={payload['events']}")
 
     print("RESULT: PASS")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the complete visual knowledge pipeline and regression checks")
+    parser = argparse.ArgumentParser(description="Run visual, continuity, and generation-context regression checks")
     parser.add_argument("database")
     parser.add_argument("document_id", type=int)
     args = parser.parse_args()
