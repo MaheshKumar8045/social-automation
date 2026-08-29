@@ -36,8 +36,15 @@ def validate(db: str, document_id: int) -> None:
         checks["canonical_profiles"] = con.execute(
             "SELECT COUNT(*) FROM canonical_visual_profiles WHERE document_id=?", (document_id,)
         ).fetchone()[0]
+        # canonical_visual_facts is keyed through canonical_visual_profile_id;
+        # it does not carry document_id directly.
         checks["canonical_facts"] = con.execute(
-            "SELECT COUNT(*) FROM canonical_visual_facts WHERE document_id=?", (document_id,)
+            """SELECT COUNT(*)
+               FROM canonical_visual_facts cvf
+               JOIN canonical_visual_profiles cvp
+                 ON cvp.id=cvf.canonical_visual_profile_id
+               WHERE cvp.document_id=?""",
+            (document_id,),
         ).fetchone()[0]
         checks["strong_conflicts"] = con.execute(
             "SELECT COUNT(*) FROM visual_conflict_classification WHERE document_id=? AND classification='strong_conflict'",
@@ -56,13 +63,31 @@ def validate(db: str, document_id: int) -> None:
                       OR LOWER(value) LIKE '%200 feet%')""",
             (document_id,),
         ).fetchone()[0]
+        checks["canonical_characters"] = con.execute(
+            "SELECT COUNT(*) FROM canonical_characters WHERE document_id=? AND status IN ('confirmed','likely','singleton')",
+            (document_id,),
+        ).fetchone()[0]
+        checks["canonical_without_source_profile"] = con.execute(
+            """SELECT COUNT(*)
+               FROM canonical_visual_profiles cvp
+               LEFT JOIN visual_profiles vp
+                 ON vp.document_id=cvp.document_id
+                AND vp.profile_type='character'
+                AND vp.entity_id IN (
+                    SELECT cca.entity_id
+                    FROM canonical_character_aliases cca
+                    WHERE cca.canonical_character_id=cvp.canonical_character_id
+                )
+               WHERE cvp.document_id=? AND vp.id IS NULL""",
+            (document_id,),
+        ).fetchone()[0]
 
     print("\n=== VISUAL PIPELINE VALIDATION ===")
     for key, value in checks.items():
         print(f"{key}: {value}")
 
-    if checks["canonical_profiles"] != 35:
-        raise SystemExit("FAIL: canonical visual profile count is not 35 for the current sample document")
+    if checks["canonical_profiles"] != checks["canonical_characters"]:
+        raise SystemExit("FAIL: canonical visual profile count does not match usable canonical character count")
     if checks["canonical_facts"] == 0:
         raise SystemExit("FAIL: canonical visual fact layer is empty")
     if checks["known_bad_phrase_facts"] != 0:
@@ -71,6 +96,8 @@ def validate(db: str, document_id: int) -> None:
         raise SystemExit("FAIL: strong visual conflicts detected")
     if checks["unsupported"] != 0:
         raise SystemExit("FAIL: unsupported reconciled facts detected")
+    if checks["canonical_without_source_profile"] != 0:
+        raise SystemExit("FAIL: canonical character has no source visual profile")
 
     print("RESULT: PASS")
 
