@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sqlite3
 from pathlib import Path
 from statistics import mean
@@ -29,7 +28,7 @@ class VisualBibleAudit:
             return report
 
     @staticmethod
-    def _coverage(con: sqlite3.Connection, document_id: int) -> dict[str, int]:
+    def _coverage(con: sqlite3.Connection, document_id: int) -> dict[str, Any]:
         def count(table: str) -> int:
             return int(con.execute(f"SELECT COUNT(*) FROM {table} WHERE document_id=?", (document_id,)).fetchone()[0])
 
@@ -95,11 +94,13 @@ class VisualBibleAudit:
 
     @staticmethod
     def _noise(con: sqlite3.Connection, document_id: int, sample_size: int) -> dict[str, Any]:
-        suspicious = con.execute("""SELECT id, canonical_name, confidence, discovery_method
-                                    FROM visual_profiles
-                                    WHERE document_id=? AND profile_type='character'
-                                      AND (canonical_name LIKE '% % % %' OR LENGTH(canonical_name)>45 OR confidence<0.5)
-                                    ORDER BY confidence ASC, LENGTH(canonical_name) DESC, id
+        suspicious = con.execute("""SELECT vp.id, vp.canonical_name, vp.confidence,
+                                           e.discovery_method
+                                    FROM visual_profiles vp
+                                    LEFT JOIN entities e ON e.id=vp.entity_id
+                                    WHERE vp.document_id=? AND vp.profile_type='character'
+                                      AND (vp.canonical_name LIKE '% % % %' OR LENGTH(vp.canonical_name)>45 OR vp.confidence<0.5)
+                                    ORDER BY vp.confidence ASC, LENGTH(vp.canonical_name) DESC, vp.id
                                     LIMIT ?""", (document_id, sample_size)).fetchall()
         duplicate_norm = con.execute("""SELECT LOWER(REPLACE(REPLACE(canonical_name,'.',''),'  ',' ')) normalized, COUNT(*) n
                                         FROM visual_profiles WHERE document_id=? AND profile_type='character'
