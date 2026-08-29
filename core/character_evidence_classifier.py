@@ -5,7 +5,6 @@ import json
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS character_evidence_classification (
@@ -25,63 +24,100 @@ CREATE INDEX IF NOT EXISTS idx_character_evidence_doc_label
 """
 
 PERSONAL_TITLE = re.compile(r"\b(?:mr|mrs|ms|miss|dr|prof|professor|capt|captain|sir|lady|lord|rev|reverend|colonel|major|lieutenant|herr|monsieur|madame)\.?\b", re.I)
-DIALOGUE_ATTR = re.compile(r"(?:said|asked|replied|answered|cried|shouted|whispered|exclaimed|remarked|observed|continued|added|returned)\s+(?:the\s+)?(?:said\s+)?(?:[A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){0,3})", re.I)
-ACTION_VERB = re.compile(r"\b(?:entered|left|went|came|looked|saw|heard|spoke|said|asked|replied|answered|walked|ran|stood|sat|turned|smiled|laughed|wept|shouted|cried|took|gave|held|carried|followed|follow|returned|arrived|departed|climbed|descended|examined|opened|closed)\b", re.I)
+DIALOGUE_VERB = re.compile(r"\b(?:said|asked|replied|answered|cried|shouted|whispered|exclaimed|remarked|observed|continued|added|returned)\b", re.I)
+ACTION_VERB = re.compile(r"\b(?:entered|left|went|came|looked|saw|heard|spoke|said|asked|replied|answered|walked|ran|stood|sat|turned|smiled|laughed|wept|shouted|cried|took|gave|held|carried|followed|returned|arrived|departed|climbed|descended|examined|opened|closed)\b", re.I)
 PRONOUN_REF = re.compile(r"\b(?:he|she|him|her|his|hers|himself|herself)\b", re.I)
+NON_CHARACTER_TERMS = re.compile(r"\b(?:observatory|institution|institute|university|college|academy|newspaper|advertiser|journal|gazette|railway|company|corporation|government|commission|museum|society)\b", re.I)
+COMMON_NON_NAMES = {
+    "after", "all", "and", "are", "before", "but", "for", "from", "how", "let", "not", "nothing", "now", "one", "some", "still", "suddenly", "that", "the", "then", "this", "while", "with", "yes", "no", "we", "they", "he", "she", "sir", "colonel", "professor", "captain", "mr", "dr", "lady", "lord",
+}
+PLACE_LIKE_NAMES = {
+    "africa", "iceland", "england", "russia", "europe", "europeans", "london", "cape town", "south africa", "greenwich", "zambesi", "kalahari",
+}
+
+
+def name_is_present(text: str, name: str) -> bool:
+    compact = re.sub(r"\s+", " ", text).strip()
+    target = re.escape(name.strip().rstrip(".,;:"))
+    return bool(re.search(rf"(?<!\w){target}(?!\w)", compact, re.I))
 
 
 def classify(name: str, entity_type: str, mentions: list[sqlite3.Row]) -> tuple[str, float, list[str], list[str]]:
     score = 0.0
     reasons: list[str] = []
     evidence: list[str] = []
-    low = name.lower().strip()
+    clean_name = re.sub(r"\s+", " ", name.replace("‐", "-").replace("‑", "-").replace("–", "-").replace("—", "-")).strip(" ,.;:\"'")
+    low = clean_name.lower()
+
     if entity_type in {"location", "environment", "organization", "object", "event"}:
-        return "non_character", 0.98, [f"upstream_{entity_type}_type"], []
-    if PERSONAL_TITLE.search(name):
-        score += 0.28; reasons.append("personal_title")
-    contexts = [str(m["context"] or "") for m in mentions if str(m["context"] or "").strip()]
-    scene_ids = {int(m["scene_id"]) for m in mentions if m["scene_id"] is not None}
-    dialogue_hits = 0
-    action_hits = 0
-    pronoun_hits = 0
-    for text in contexts:
-        if DIALOGUE_ATTR.search(text):
-            dialogue_hits += 1
-        if ACTION_VERB.search(text):
-            action_hits += 1
-        if PRONOUN_REF.search(text):
-            pronoun_hits += 1
+        return "non_character", 0.99, [f"upstream_{entity_type}_type"], []
+    if low in COMMON_NON_NAMES:
+        return "reference", 0.99, ["common_word_or_title_only"], []
+    if low in PLACE_LIKE_NAMES or NON_CHARACTER_TERMS.search(clean_name):
+        return "non_character", 0.98, ["place_institution_or_publication_signal"], []
+    if len(clean_name) > 45:
+        return "reference", 0.95, ["unusually_long_entity_name"], []
+
+    relevant_contexts = []
+    for m in mentions:
+        text = str(m["context"] or "").strip()
+        if text and name_is_present(text, clean_name):
+            relevant_contexts.append(text)
+
+    if not relevant_contexts:
+        return "reference", 0.90, ["no_exact_name_in_mention_context"], []
+
+    if PERSONAL_TITLE.search(clean_name):
+        score += 0.25
+        reasons.append("personal_title")
+    if len(clean_name.split()) in {2, 3}:
+        score += 0.08
+        reasons.append("person_name_shape")
+
+    dialogue_hits = sum(bool(DIALOGUE_VERB.search(t)) for t in relevant_contexts)
+    action_hits = sum(bool(ACTION_VERB.search(t)) for t in relevant_contexts)
+    pronoun_hits = sum(bool(PRONOUN_REF.search(t)) for t in relevant_contexts)
     if dialogue_hits:
-        score += min(0.25, dialogue_hits * 0.08); reasons.append("dialogue_attribution_context")
+        score += min(0.30, dialogue_hits * 0.10)
+        reasons.append("dialogue_context_near_entity")
     if action_hits:
-        score += min(0.22, action_hits * 0.035); reasons.append("human_action_context")
+        score += min(0.18, action_hits * 0.03)
+        reasons.append("human_action_context_near_entity")
     if pronoun_hits:
-        score += min(0.10, pronoun_hits * 0.02); reasons.append("human_pronoun_context")
-    if len(mentions) >= 5:
-        score += 0.12; reasons.append("strong_recurring_mentions")
-    elif len(mentions) >= 2:
-        score += 0.07; reasons.append("recurring_mentions")
-    elif len(mentions) == 1:
-        score -= 0.05; reasons.append("single_mention")
-    if len(name) > 45:
-        score -= 0.30; reasons.append("long_entity_name")
-    if re.search(r"[-‐‑‒–—]$", name):
-        score -= 0.25; reasons.append("line_break_fragment")
-    if any(term in low for term in ("observatory", "institution", "newspaper", "advertiser", "journal", "gazette", "railway", "company", "university")):
-        score -= 0.70; reasons.append("institution_or_publication_signal")
+        score += min(0.08, pronoun_hits * 0.015)
+        reasons.append("human_pronoun_context")
+
+    mention_count = len(mentions)
+    scene_count = len({m["scene_id"] for m in mentions if m["scene_id"] is not None})
+    if mention_count >= 10:
+        score += 0.12
+        reasons.append("strong_recurring_mentions")
+    elif mention_count >= 3:
+        score += 0.07
+        reasons.append("recurring_mentions")
+    elif mention_count == 1:
+        score -= 0.08
+        reasons.append("single_mention")
+    if scene_count >= 5:
+        score += 0.08
+        reasons.append("multi_scene_presence")
+
+    if re.search(r"[-‐‑‒–—]$", clean_name):
+        score -= 0.30
+        reasons.append("line_break_fragment")
+
     score = max(0.0, min(1.0, score))
-    if score >= 0.62:
+    if score >= 0.70:
         label = "validated"
-    elif score >= 0.38:
+    elif score >= 0.45:
         label = "probable"
-    elif score >= 0.18:
+    elif score >= 0.20:
         label = "uncertain"
     else:
         label = "reference"
-    for m in mentions[:3]:
-        text = str(m["context"] or "").strip()
-        if text:
-            evidence.append(text[:500])
+
+    for m in relevant_contexts[:3]:
+        evidence.append(m[:500])
     return label, score, reasons, evidence
 
 
@@ -103,7 +139,7 @@ class CharacterEvidenceClassifier:
                 label, score, reasons, evidence = classify(entity["canonical_name"], entity["entity_type"], mentions)
                 con.execute("""INSERT INTO character_evidence_classification
                     (document_id,entity_id,label,score,mention_count,scene_count,evidence_json,reasons_json)
-                    VALUES(?,?,?,?,?,?,?,?)""", (document_id, entity["id"], label, score, len(mentions), len({m["scene_id"] for m in mentions}), json.dumps(evidence, ensure_ascii=False), json.dumps(reasons)))
+                    VALUES(?,?,?,?,?,?,?,?)""", (document_id, entity["id"], label, score, len(mentions), len({m["scene_id"] for m in mentions}), json.dumps(evidence, ensure_ascii=False), json.dumps(reasons, ensure_ascii=False)))
             con.commit()
             rows = con.execute("SELECT label, COUNT(*) n FROM character_evidence_classification WHERE document_id=? GROUP BY label", (document_id,)).fetchall()
             return {str(r["label"]): int(r["n"]) for r in rows}
