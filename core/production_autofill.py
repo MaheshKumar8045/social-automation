@@ -15,20 +15,20 @@ def _now() -> str:
 
 
 def autofill(database_path: str | Path, document_id: int, job_type: str = "image", limit: int = 25) -> list[dict[str, Any]]:
-    """Queue scenes that have generation context but no completed/queued job of this media type."""
+    """Queue scenes with canonical visual context that have no queued/completed job."""
     ensure_queue_schema(database_path)
     with sqlite3.connect(database_path) as con:
         con.row_factory = sqlite3.Row
         rows = con.execute(
-            """SELECT DISTINCT sc.scene_id
-               FROM scene_context sc
-               WHERE sc.document_id=?
+            """SELECT DISTINCT svc.scene_id
+               FROM scene_visual_context svc
+               WHERE svc.document_id=?
                  AND NOT EXISTS (
                    SELECT 1 FROM generation_queue q
-                   WHERE q.document_id=sc.document_id AND q.scene_id=sc.scene_id AND q.job_type=?
+                   WHERE q.document_id=svc.document_id AND q.scene_id=svc.scene_id AND q.job_type=?
                      AND q.status IN ('queued','completed')
                  )
-               ORDER BY sc.scene_id LIMIT ?""",
+               ORDER BY svc.scene_id LIMIT ?""",
             (document_id, job_type, max(1, limit)),
         ).fetchall()
     return [enqueue(database_path, document_id, row["scene_id"], job_type, _now()) for row in rows]
