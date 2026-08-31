@@ -30,7 +30,9 @@ def validate_registered_asset(database_path: str | Path, asset_id: int, status: 
         plan = build_generation_plan(database_path, asset["document_id"], asset["scene_id"])
         if plan.get("plan_status") != "ready":
             raise ValueError("cannot validate asset without a ready generation plan")
-        con.execute("""UPDATE generation_assets SET validation_status=?, validation_reviewer=?, validation_reason=?, validated_at=? WHERE id=?""", (status, reviewer, reason, _now(), asset_id))
+        metadata = json.loads(asset["metadata_json"] or "{}")
+        metadata.update({"validation_reviewer": reviewer, "validation_reason": reason, "validated_at": _now()})
+        con.execute("UPDATE generation_assets SET validation_status=?, metadata_json=?, updated_at=? WHERE id=?", (status, json.dumps(metadata, ensure_ascii=False), _now(), asset_id))
         con.commit()
     return {"asset_id": asset_id, "generation_job_id": asset["generation_job_id"], "document_id": asset["document_id"], "scene_id": asset["scene_id"], "validation_status": status, "reviewer": reviewer, "reason": reason}
 
