@@ -24,8 +24,9 @@ def enabled_providers(media_type: str, path: str | Path | None = None) -> list[d
         item = providers.get(name, {})
         if not item.get("enabled", False) or media_type not in item.get("media_types", []):
             continue
+        # routing order is authoritative; priority is retained as metadata only.
         result.append({"name": name, "priority": item.get("priority", 100), "routing_index": index, **item})
-    return sorted(result, key=lambda x: (x.get("priority", 100), x.get("routing_index", 0)))
+    return result
 
 
 def provider_env_name(provider: str) -> str:
