@@ -1,0 +1,14 @@
+{
+  "providers": {
+    "mock": {
+      "enabled": true,
+      "media_types": ["image", "video", "audio"],
+      "priority": 999
+    }
+  },
+  "routing": {
+    "image": ["mock"],
+    "video": ["mock"],
+    "audio": ["mock"]
+  }
+}
