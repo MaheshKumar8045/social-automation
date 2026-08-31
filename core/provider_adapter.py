@@ -25,6 +25,7 @@ class MockProvider:
 
 BUILTIN_ADAPTERS = {
     "pixazo": "core.pixazo_provider:PixazoProvider",
+    "pollinations": "core.pollinations_provider:PollinationsProvider",
 }
 
 
