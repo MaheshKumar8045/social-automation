@@ -1,0 +1,19 @@
+{
+  "scheduler": {
+    "max_batch_per_run": 10,
+    "max_autofill_per_run": 25,
+    "stale_job_minutes": 120
+  },
+  "retries": {
+    "max_attempts": 3,
+    "backoff_minutes": [5, 15, 60]
+  },
+  "spending": {
+    "allow_paid": false,
+    "max_cost_per_job": 0,
+    "max_daily_cost": 0
+  },
+  "assets": {
+    "require_validation_before_approval": true
+  }
+}
