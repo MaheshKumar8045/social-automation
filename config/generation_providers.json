@@ -42,6 +42,10 @@
     "prefer_free": true,
     "prefer_expiring_quota": true,
     "allow_paid_fallback": true,
-    "max_cost_per_job": null
+    "max_cost_per_job": null,
+    "require_explicit_paid_enablement": true,
+    "default_media_type": "image",
+    "autofill_limit_per_run": 25,
+    "batch_limit_per_run": 10
   }
 }
