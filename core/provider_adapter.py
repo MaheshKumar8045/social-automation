@@ -49,7 +49,8 @@ class ConfiguredProvider:
 
     def submit(self, job: dict[str, Any]) -> dict[str, Any]:
         return self._adapter.submit(job)
-    def status(self, provider_job_id: str) -> dict[str, Any]) -> dict[str, Any]:
+
+    def status(self, provider_job_id: str) -> dict[str, Any]:
         return self._adapter.status(provider_job_id)
 
 
