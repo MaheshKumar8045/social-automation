@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 from .generation_planner import build_generation_plan
 from .provider_adapter import get_provider
+from .provider_scheduler import choose_provider
 
 
 class GenerationProvider(Protocol):
@@ -54,32 +55,29 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def create_generation_job(database_path: str | Path, document_id: int, scene_id: int, job_type: str = "image", provider: str = "mock") -> dict[str, Any]:
-    if job_type not in {"image", "video"}:
-        raise ValueError("job_type must be image or video")
-    if not provider or provider.strip() != provider:
+def create_generation_job(database_path: str | Path, document_id: int, scene_id: int, job_type: str = "image", provider: str | None = None) -> dict[str, Any]:
+    if job_type not in {"image", "video", "audio"}:
+        raise ValueError("job_type must be image, video, or audio")
+    if provider is not None and (not provider or provider.strip() != provider):
         raise ValueError("provider must be a non-empty name without surrounding whitespace")
     plan = build_generation_plan(database_path, document_id, scene_id)
     if plan.get("plan_status") != "ready":
         raise ValueError(f"generation plan unavailable for scene {scene_id}")
-    prompt_key = "image_prompt" if job_type == "image" else "video_prompt"
-    request = {
-        "document_id": document_id,
-        "scene_id": scene_id,
-        "job_type": job_type,
-        "provider": provider,
-        "plan": plan,
-        "prompt_key": prompt_key,
-        "source_grounded": True,
-        "unknowns_must_remain_unknown": True,
-    }
+    selected_name = provider
+    if selected_name is None:
+        selected = choose_provider(job_type)
+        if selected is None:
+            raise ValueError(f"no enabled provider available for media type '{job_type}'")
+        selected_name = selected["name"]
+    prompt_key = {"image": "image_prompt", "video": "video_prompt", "audio": "audio_prompt"}[job_type]
+    request = {"document_id": document_id, "scene_id": scene_id, "job_type": job_type, "provider": selected_name, "plan": plan, "prompt_key": prompt_key, "source_grounded": True, "unknowns_must_remain_unknown": True}
     now = _now()
     with sqlite3.connect(database_path) as con:
         con.executescript(SCHEMA)
-        con.execute("""INSERT OR REPLACE INTO generation_jobs(document_id,scene_id,job_type,provider,status,request_json,response_json,attempts,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)""", (document_id, scene_id, job_type, provider, "queued", json.dumps(request, ensure_ascii=False), "{}", 0, now, now))
-        row = con.execute("SELECT id,status,attempts,created_at,updated_at FROM generation_jobs WHERE document_id=? AND scene_id=? AND job_type=? AND provider=?", (document_id, scene_id, job_type, provider)).fetchone()
+        con.execute("""INSERT OR REPLACE INTO generation_jobs(document_id,scene_id,job_type,provider,status,request_json,response_json,attempts,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)""", (document_id, scene_id, job_type, selected_name, "queued", json.dumps(request, ensure_ascii=False), "{}", 0, now, now))
+        row = con.execute("SELECT id,status,attempts,created_at,updated_at FROM generation_jobs WHERE document_id=? AND scene_id=? AND job_type=? AND provider=?", (document_id, scene_id, job_type, selected_name)).fetchone()
         con.commit()
-    return {"job_id": row[0], "document_id": document_id, "scene_id": scene_id, "job_type": job_type, "provider": provider, "status": row[1], "attempts": row[2], "created_at": row[3], "updated_at": row[4]}
+    return {"job_id": row[0], "document_id": document_id, "scene_id": scene_id, "job_type": job_type, "provider": selected_name, "status": row[1], "attempts": row[2], "created_at": row[3], "updated_at": row[4]}
 
 
 def run_generation_job(database_path: str | Path, job_id: int, provider: GenerationProvider | None = None) -> dict[str, Any]:
@@ -114,8 +112,8 @@ def main() -> None:
     parser.add_argument("database")
     parser.add_argument("document_id", type=int)
     parser.add_argument("scene_id", type=int)
-    parser.add_argument("--type", choices=("image", "video"), default="image")
-    parser.add_argument("--provider", default="mock")
+    parser.add_argument("--type", choices=("image", "video", "audio"), default="image")
+    parser.add_argument("--provider", default=None)
     parser.add_argument("--run", action="store_true")
     args = parser.parse_args()
     job = create_generation_job(args.database, args.document_id, args.scene_id, args.type, args.provider)
