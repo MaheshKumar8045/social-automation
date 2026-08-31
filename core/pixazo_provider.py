@@ -16,7 +16,7 @@ class PixazoProvider:
     name = "pixazo"
     default_base_url = "https://gateway.pixazo.ai"
     default_endpoints = {
-        "image": "/flux/text-to-image",
+        "image": "/sdxl_lightning/getImage/v1/getSDXLImage",
         "video": "/ltx/text-to-video",
         "audio": "/tracks/generate-music",
     }
@@ -53,7 +53,7 @@ class PixazoProvider:
 
     @staticmethod
     def _extract_url(data: dict[str, Any]) -> str | None:
-        for key in ("output_url", "media_url", "url", "image_url", "video_url", "audio_url"):
+        for key in ("output_url", "media_url", "url", "image_url", "video_url", "audio_url", "imageUrl"):
             value = data.get(key)
             if isinstance(value, str) and value.startswith(("http://", "https://")):
                 return value
@@ -86,6 +86,11 @@ class PixazoProvider:
         model = os.getenv(f"PIXAZO_{media_type.upper()}_MODEL")
         if model:
             payload["model"] = model
+        if media_type == "image":
+            payload.setdefault("height", int(os.getenv("PIXAZO_IMAGE_HEIGHT", "1024")))
+            payload.setdefault("width", int(os.getenv("PIXAZO_IMAGE_WIDTH", "1024")))
+            payload.setdefault("num_steps", int(os.getenv("PIXAZO_IMAGE_STEPS", "20")))
+            payload.setdefault("guidance", float(os.getenv("PIXAZO_IMAGE_GUIDANCE", "5")))
         response = self._request("POST", self.base_url + endpoint, payload)
         request_id = response.get("request_id") or response.get("job_id")
         asset_uri = self._extract_url(response)
