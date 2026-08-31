@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .asset_registry import register_asset
 from .generation_job import create_generation_job, run_generation_job
 from .provider_scheduler import rank_providers
 
@@ -41,11 +42,14 @@ def run_queue_item(database_path: str | Path, queue_id: int) -> dict[str, Any]:
             result = run_generation_job(database_path, job["job_id"])
             if result["status"] not in {"completed", "submitted", "queued"}:
                 raise RuntimeError(f"provider returned status {result['status']}")
+            asset = None
+            if result["status"] == "completed":
+                asset = register_asset(database_path, result["job_id"], item["job_type"], result.get("provider_job_id"), result.get("asset_uri"), {"generation_status": result["status"]})
             with sqlite3.connect(database_path) as con:
-                con.execute("UPDATE generation_queue SET status='completed',attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=?", (_now(), queue_id))
+                con.execute("UPDATE generation_queue SET status=?,attempts=attempts+1,last_error=NULL,updated_at=? WHERE id=?", ("completed" if result["status"] == "completed" else "queued", _now(), queue_id))
                 con.execute("INSERT INTO provider_usage(provider,media_type,job_id,estimated_cost,created_at) VALUES(?,?,?,?,?)", (provider["name"], item["job_type"], result["job_id"], float(provider.get("estimated_cost_per_job", 0) or 0), _now()))
                 con.commit()
-            return {"queue_id": queue_id, "status": "completed", "provider": provider["name"], "job": result}
+            return {"queue_id": queue_id, "status": result["status"], "provider": provider["name"], "job": result, "asset": asset}
         except Exception as exc:
             errors.append({"provider": provider["name"], "error": str(exc)})
     with sqlite3.connect(database_path) as con:
