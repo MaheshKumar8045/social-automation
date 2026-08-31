@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +18,24 @@ class GenerationPlanner:
 
     def __init__(self, database_path: str | Path):
         self.database_path = Path(database_path)
+
+    @staticmethod
+    def _prompt_bundle(scene: dict[str, Any], characters: list[dict[str, Any]], objects: list[dict[str, Any]], events: list[dict[str, Any]], constraints: list[str]) -> dict[str, str]:
+        scene_text = json.dumps(scene, ensure_ascii=False, sort_keys=True)
+        character_text = json.dumps(characters, ensure_ascii=False, sort_keys=True)
+        object_text = json.dumps(objects, ensure_ascii=False, sort_keys=True)
+        event_text = json.dumps(events, ensure_ascii=False, sort_keys=True)
+        constraint_text = "; ".join(constraints)
+        grounded = (
+            "Create media strictly from the supplied source-grounded scene data. "
+            "Do not invent unspecified identity, appearance, clothing, environment, action, camera, dialogue, music, or sound details. "
+            f"Scene={scene_text}. Characters={character_text}. Objects={object_text}. Events={event_text}. Constraints={constraint_text}."
+        )
+        return {
+            "image_prompt": grounded + " Produce a coherent still image for the scene.",
+            "video_prompt": grounded + " Produce a coherent short video while preserving the supplied continuity and scene state.",
+            "audio_prompt": grounded + " Produce only source-compatible audio/sound design; do not invent spoken words or musical facts not present in the source.",
+        }
 
     def build(self, document_id: int, scene_id: int) -> dict[str, Any]:
         context = get_generation_context(self.database_path, document_id, scene_id)
@@ -54,10 +71,11 @@ class GenerationPlanner:
         if not characters:
             visual_constraints.append("No canonical character is source-confirmed as present in this scene.")
 
+        prompts = self._prompt_bundle(context["scene"], characters, context["objects"], context["events"], visual_constraints)
         return {
             "document_id": document_id,
             "scene_id": scene_id,
-            "plan_version": 1,
+            "plan_version": 2,
             "plan_status": "ready",
             "source_grounded": True,
             "unknowns_must_remain_unknown": True,
@@ -69,6 +87,7 @@ class GenerationPlanner:
             "neighbors": context["neighbors"],
             "generation_constraints": context["generation_constraints"],
             "visual_constraints": visual_constraints,
+            **prompts,
             "source_evidence": self._evidence(context),
         }
 
