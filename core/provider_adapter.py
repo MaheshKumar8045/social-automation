@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from .provider_config import ProviderConfig, get_provider_config
+
 
 class GenerationProvider(Protocol):
     """Common contract for image/video generation providers."""
@@ -35,7 +37,26 @@ class MockProvider:
         }
 
 
+class ConfiguredProvider:
+    """Explicit placeholder for a future real provider adapter.
+
+    It intentionally refuses execution until a concrete adapter is installed;
+    this prevents accidentally treating an API configuration as a working
+    provider.
+    """
+
+    def __init__(self, config: ProviderConfig):
+        self.config = config
+        self.name = config.name
+
+    def submit(self, job: dict[str, Any]) -> dict[str, Any]:
+        raise NotImplementedError(f"No concrete adapter registered for provider '{self.name}'")
+
+    def status(self, provider_job_id: str) -> dict[str, Any]:
+        raise NotImplementedError(f"No concrete adapter registered for provider '{self.name}'")
+
+
 def get_provider(name: str) -> GenerationProvider:
     if name == "mock":
         return MockProvider()
-    raise ValueError(f"Unknown generation provider: {name}")
+    return ConfiguredProvider(get_provider_config(name))
