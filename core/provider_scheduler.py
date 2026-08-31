@@ -40,24 +40,26 @@ def _paid_enabled(item: dict[str, Any], policy: dict[str, Any]) -> bool:
     return os.getenv(env, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _quota_available(item: dict[str, Any]) -> bool:
+    remaining = item.get("quota", {}).get("remaining")
+    return remaining is None or remaining > 0
+
+
 def rank_providers(media_type: str, path: str | Path | None = None) -> list[dict[str, Any]]:
     catalog = load_catalog(path)
     policy = catalog.get("policy", {})
-    candidates = [p for p in enabled_providers(media_type, path) if _has_credentials(p) and _paid_enabled(p, policy)]
+    candidates = [
+        p for p in enabled_providers(media_type, path)
+        if _has_credentials(p) and _paid_enabled(p, policy) and _quota_available(p)
+    ]
     max_cost = policy.get("max_cost_per_job")
     if max_cost is not None:
         candidates = [p for p in candidates if float(p.get("estimated_cost_per_job", 0) or 0) <= float(max_cost)]
 
-    def key(p: dict[str, Any]) -> tuple[Any, ...]:
-        quota = p.get("quota", {})
-        billing = p.get("billing", "unknown")
-        free_rank = 0 if policy.get("prefer_free", True) and billing in {"free", "subscription"} else 1
-        expiry = _reset_seconds(p) if policy.get("prefer_expiring_quota", True) else float("inf")
-        remaining = quota.get("remaining")
-        exhausted = 1 if remaining is not None and remaining <= 0 else 0
-        return (exhausted, free_rank, expiry, p.get("priority", 100))
-
-    return sorted(candidates, key=key)
+    # enabled_providers preserves the configured routing order. Routing order is
+    # authoritative; priority/quota metadata must never reorder an explicitly
+    # configured provider ahead of an earlier provider.
+    return candidates
 
 
 def choose_provider(media_type: str, path: str | Path | None = None) -> dict[str, Any] | None:
