@@ -5,25 +5,20 @@ import os
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 from typing import Any
 
 from .provider_config import require_api_key
 
 
 class PixazoProvider:
-    """Pixazo adapter for configurable image, video, and audio generation.
-
-    Endpoint/model choices are environment-configurable so the core does not
-    depend on a single Pixazo model tier.
-    """
+    """Pixazo adapter with environment-configurable endpoints/models."""
 
     name = "pixazo"
     default_base_url = "https://gateway.pixazo.ai"
     default_endpoints = {
         "image": "/flux/text-to-image",
         "video": "/ltx/text-to-video",
-        "audio": "/tracks/v1/generate",
+        "audio": "/tracks/generate-music",
     }
 
     def __init__(self) -> None:
