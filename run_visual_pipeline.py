@@ -53,6 +53,21 @@ def generation_smoke_test(db: str, document_id: int, scene_id: int) -> dict:
     return payload
 
 
+def planner_smoke_test(db: str, document_id: int, scene_id: int) -> dict:
+    result = subprocess.run([sys.executable, "-m", "core.generation_planner", db, str(document_id), str(scene_id), "--summary"], text=True, encoding="utf-8", errors="replace", capture_output=True)
+    if result.returncode != 0:
+        raise SystemExit(f"FAIL: generation planner failed for scene {scene_id}: {result.stderr.strip()}")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"FAIL: generation planner scene {scene_id} returned invalid JSON: {exc}")
+    if payload.get("plan_status") != "ready":
+        raise SystemExit(f"FAIL: generation planner scene {scene_id} is not ready")
+    if payload.get("unknowns_must_remain_unknown") is not True:
+        raise SystemExit(f"FAIL: generation planner scene {scene_id} does not preserve unknowns")
+    return payload
+
+
 def validate(db: str, document_id: int) -> None:
     with sqlite3.connect(db) as con:
         checks = {}
@@ -96,12 +111,14 @@ def validate(db: str, document_id: int) -> None:
         print(f"scene_{scene_id}: characters={len(state.get('characters', []))}")
         payload = generation_smoke_test(db, document_id, scene_id)
         print(f"generation_{scene_id}: characters={payload['characters']} visual_facts={payload['visual_fact_count']} objects={payload['objects']} events={payload['events']}")
+        plan = planner_smoke_test(db, document_id, scene_id)
+        print(f"planner_{scene_id}: characters={plan['characters']} visual_facts={plan['visual_fact_count']} objects={plan['objects']} events={plan['events']} evidence={plan['evidence_items']}")
 
     print("RESULT: PASS")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run visual, continuity, and generation-context regression checks")
+    parser = argparse.ArgumentParser(description="Run visual, continuity, and generation-planning regression checks")
     parser.add_argument("database")
     parser.add_argument("document_id", type=int)
     args = parser.parse_args()
