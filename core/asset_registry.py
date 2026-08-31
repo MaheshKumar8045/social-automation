@@ -32,14 +32,17 @@ def _now() -> str:
 
 
 def register_asset(database_path: str | Path, job_id: int, asset_type: str, provider_asset_id: str | None = None, asset_uri: str | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    if asset_type not in {"image", "video"}:
-        raise ValueError("asset_type must be image or video")
+    if asset_type not in {"image", "video", "audio"}:
+        raise ValueError("asset_type must be image, video, or audio")
     with sqlite3.connect(database_path) as con:
         con.executescript(SCHEMA)
         con.row_factory = sqlite3.Row
         job = con.execute("SELECT id,document_id,scene_id,provider FROM generation_jobs WHERE id=?", (job_id,)).fetchone()
         if job is None:
             raise ValueError(f"generation job {job_id} not found")
+        existing = con.execute("SELECT id FROM generation_assets WHERE generation_job_id=?", (job_id,)).fetchone()
+        if existing is not None:
+            return {"asset_id": existing[0], "generation_job_id": job[0], "document_id": job[1], "scene_id": job[2], "asset_type": asset_type, "provider": job[3], "validation_status": con.execute("SELECT validation_status FROM generation_assets WHERE id=?", (existing[0],)).fetchone()[0]}
         now = _now()
         cur = con.execute("""INSERT INTO generation_assets(generation_job_id,document_id,scene_id,asset_type,provider,provider_asset_id,asset_uri,metadata_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)""", (job[0], job[1], job[2], asset_type, job[3], provider_asset_id, asset_uri, json.dumps(metadata or {}, ensure_ascii=False), now, now))
         con.commit()
@@ -66,7 +69,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Register and validate generated assets")
     parser.add_argument("database")
     parser.add_argument("job_id", type=int)
-    parser.add_argument("--type", choices=("image", "video"), required=True)
+    parser.add_argument("--type", choices=("image", "video", "audio"), required=True)
     parser.add_argument("--provider-asset-id")
     parser.add_argument("--asset-uri")
     args = parser.parse_args()
