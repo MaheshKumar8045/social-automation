@@ -10,12 +10,31 @@
         "remaining": null,
         "reset_at": null
       }
+    },
+    "pixazo": {
+      "enabled": true,
+      "media_types": ["image", "video", "audio"],
+      "priority": 10,
+      "billing": "free",
+      "credential_env": "PIXAZO_API_KEY",
+      "base_url": "https://gateway.pixazo.ai",
+      "models": {
+        "image": "flux",
+        "video": "ltx",
+        "audio": "tracks"
+      },
+      "quota": {
+        "mode": "provider_dashboard",
+        "remaining": null,
+        "reset_at": null,
+        "fair_use_requests_per_minute": 60
+      }
     }
   },
   "routing": {
-    "image": ["mock"],
-    "video": ["mock"],
-    "audio": ["mock"]
+    "image": ["pixazo", "mock"],
+    "video": ["pixazo", "mock"],
+    "audio": ["pixazo", "mock"]
   },
   "policy": {
     "prefer_free": true,
