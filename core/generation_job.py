@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .generation_planner import build_generation_plan
+from .provider_adapter import get_provider
 
 
 class GenerationProvider(Protocol):
@@ -56,12 +57,12 @@ def _now() -> str:
 def create_generation_job(database_path: str | Path, document_id: int, scene_id: int, job_type: str = "image", provider: str = "mock") -> dict[str, Any]:
     if job_type not in {"image", "video"}:
         raise ValueError("job_type must be image or video")
+    if not provider or provider.strip() != provider:
+        raise ValueError("provider must be a non-empty name without surrounding whitespace")
     plan = build_generation_plan(database_path, document_id, scene_id)
     if plan.get("plan_status") != "ready":
         raise ValueError(f"generation plan unavailable for scene {scene_id}")
     prompt_key = "image_prompt" if job_type == "image" else "video_prompt"
-    # The planner is provider-neutral; prompt construction is intentionally
-    # deferred to the existing prompt-builder contract when present.
     request = {
         "document_id": document_id,
         "scene_id": scene_id,
@@ -82,22 +83,25 @@ def create_generation_job(database_path: str | Path, document_id: int, scene_id:
 
 
 def run_generation_job(database_path: str | Path, job_id: int, provider: GenerationProvider | None = None) -> dict[str, Any]:
-    provider = provider or MockProvider()
     with sqlite3.connect(database_path) as con:
         con.row_factory = sqlite3.Row
         row = con.execute("SELECT * FROM generation_jobs WHERE id=?", (job_id,)).fetchone()
         if row is None:
             raise ValueError(f"generation job {job_id} not found")
         request = json.loads(row["request_json"])
+        configured_provider = row["provider"]
+        selected_provider = provider or get_provider(configured_provider)
+        if selected_provider.name != configured_provider:
+            raise ValueError(f"provider mismatch: job requests '{configured_provider}', adapter is '{selected_provider.name}'")
         con.execute("UPDATE generation_jobs SET status='running', attempts=attempts+1, updated_at=? WHERE id=?", (_now(), job_id))
         con.commit()
     try:
-        response = provider.submit(request)
+        response = selected_provider.submit(request)
         status = response.get("status", "submitted")
         with sqlite3.connect(database_path) as con:
             con.execute("UPDATE generation_jobs SET status=?,response_json=?,provider_job_id=?,asset_uri=?,error=NULL,updated_at=? WHERE id=?", (status, json.dumps(response, ensure_ascii=False), response.get("provider_job_id"), response.get("asset_uri"), _now(), job_id))
             con.commit()
-        return {"job_id": job_id, "status": status, "provider": provider.name, "provider_job_id": response.get("provider_job_id"), "asset_uri": response.get("asset_uri")}
+        return {"job_id": job_id, "status": status, "provider": selected_provider.name, "provider_job_id": response.get("provider_job_id"), "asset_uri": response.get("asset_uri")}
     except Exception as exc:
         with sqlite3.connect(database_path) as con:
             con.execute("UPDATE generation_jobs SET status='failed',error=?,updated_at=? WHERE id=?", (str(exc), _now(), job_id))
