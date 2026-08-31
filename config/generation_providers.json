@@ -12,6 +12,23 @@
         "reset_at": null
       }
     },
+    "pollinations": {
+      "enabled": true,
+      "media_types": ["image"],
+      "priority": 5,
+      "billing": "quota",
+      "requires_api_key": true,
+      "credential_env": "POLLINATIONS_API_KEY",
+      "base_url": "https://gen.pollinations.ai",
+      "models": {
+        "image": "flux"
+      },
+      "quota": {
+        "mode": "provider_dashboard",
+        "remaining": null,
+        "reset_at": null
+      }
+    },
     "pixazo": {
       "enabled": true,
       "media_types": ["image", "video", "audio"],
@@ -34,7 +51,7 @@
     }
   },
   "routing": {
-    "image": ["pixazo", "mock"],
+    "image": ["pollinations", "pixazo", "mock"],
     "video": ["pixazo", "mock"],
     "audio": ["pixazo", "mock"]
   },
