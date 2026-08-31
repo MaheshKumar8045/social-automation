@@ -3,12 +3,24 @@
     "mock": {
       "enabled": true,
       "media_types": ["image", "video", "audio"],
-      "priority": 999
+      "priority": 999,
+      "billing": "free",
+      "quota": {
+        "mode": "unlimited_local",
+        "remaining": null,
+        "reset_at": null
+      }
     }
   },
   "routing": {
     "image": ["mock"],
     "video": ["mock"],
     "audio": ["mock"]
+  },
+  "policy": {
+    "prefer_free": true,
+    "prefer_expiring_quota": true,
+    "allow_paid_fallback": true,
+    "max_cost_per_job": null
   }
 }
