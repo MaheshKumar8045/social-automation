@@ -38,12 +38,7 @@ class MockProvider:
 
 
 class ConfiguredProvider:
-    """Explicit placeholder for a future real provider adapter.
-
-    It intentionally refuses execution until a concrete adapter is installed;
-    this prevents accidentally treating an API configuration as a working
-    provider.
-    """
+    """Explicit placeholder for an unsupported provider."""
 
     def __init__(self, config: ProviderConfig):
         self.config = config
@@ -59,4 +54,7 @@ class ConfiguredProvider:
 def get_provider(name: str) -> GenerationProvider:
     if name == "mock":
         return MockProvider()
+    if name == "openai":
+        from .openai_image_provider import OpenAIImageProvider
+        return OpenAIImageProvider()
     return ConfiguredProvider(get_provider_config(name))
