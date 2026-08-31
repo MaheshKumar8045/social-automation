@@ -30,13 +30,23 @@ def _has_credentials(item: dict[str, Any]) -> bool:
     return bool(os.getenv(env_name))
 
 
+def _paid_enabled(item: dict[str, Any], policy: dict[str, Any]) -> bool:
+    if item.get("billing") not in {"paid", "payg"}:
+        return True
+    if not policy.get("require_explicit_paid_enablement", True):
+        return True
+    name = str(item.get("name", ""))
+    env = item.get("paid_enablement_env") or ("ENABLE_PAID_PROVIDER_" + "".join(c if c.isalnum() else "_" for c in name.upper()))
+    return os.getenv(env, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def rank_providers(media_type: str, path: str | Path | None = None) -> list[dict[str, Any]]:
     catalog = load_catalog(path)
     policy = catalog.get("policy", {})
-    candidates = [p for p in enabled_providers(media_type, path) if _has_credentials(p)]
+    candidates = [p for p in enabled_providers(media_type, path) if _has_credentials(p) and _paid_enabled(p, policy)]
     max_cost = policy.get("max_cost_per_job")
     if max_cost is not None:
-        candidates = [p for p in candidates if p.get("estimated_cost_per_job", 0) <= max_cost]
+        candidates = [p for p in candidates if float(p.get("estimated_cost_per_job", 0) or 0) <= float(max_cost)]
 
     def key(p: dict[str, Any]) -> tuple[Any, ...]:
         quota = p.get("quota", {})
