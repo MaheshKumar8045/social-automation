@@ -21,10 +21,12 @@ def _reset_seconds(item: dict[str, Any]) -> float:
 
 
 def _has_credentials(item: dict[str, Any]) -> bool:
-    if not item.get("requires_api_key", False):
+    if not item.get("requires_api_key", True) and not item.get("credential_env"):
         return True
-    name = str(item.get("name", ""))
-    env_name = item.get("api_key_env") or ("".join("_" if not c.isalnum() else c.upper() for c in name) + "_API_KEY")
+    env_name = item.get("credential_env") or item.get("api_key_env")
+    if not env_name:
+        name = str(item.get("name", ""))
+        env_name = "".join("_" if not c.isalnum() else c.upper() for c in name) + "_API_KEY"
     return bool(os.getenv(env_name))
 
 
