@@ -23,8 +23,13 @@ class MockProvider:
         return {"provider": self.name, "provider_job_id": provider_job_id, "status": "completed", "asset_uri": None}
 
 
+BUILTIN_ADAPTERS = {
+    "pixazo": "core.pixazo_provider:PixazoProvider",
+}
+
+
 class ConfiguredProvider:
-    """Load any concrete adapter using GENERATION_PROVIDER_<NAME>_ADAPTER=module:ClassName."""
+    """Load a concrete adapter; environment config can override built-in adapters."""
     def __init__(self, config: ProviderConfig):
         self.config = config
         self.name = config.name
@@ -33,7 +38,7 @@ class ConfiguredProvider:
     @staticmethod
     def _load_adapter(name: str) -> GenerationProvider:
         prefix = name.upper().replace("-", "_")
-        spec = os.getenv(f"GENERATION_PROVIDER_{prefix}_ADAPTER")
+        spec = os.getenv(f"GENERATION_PROVIDER_{prefix}_ADAPTER") or BUILTIN_ADAPTERS.get(name)
         if not spec or ":" not in spec:
             raise NotImplementedError(
                 f"No concrete adapter registered for provider '{name}'. "
