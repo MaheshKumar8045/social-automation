@@ -30,7 +30,7 @@ def enqueue_scenes(database_path: str | Path, document_id: int, job_type: str, s
     base = _now()
     result = []
     for index, row in enumerate(scenes):
-        scheduled = (base + timedelta(minutes=index * interval_minutes)).isoformat()
+        scheduled = (base + timedelta(minutes=index * max(0, interval_minutes))).isoformat()
         result.append(enqueue(database_path, document_id, row["scene_id"], job_type, scheduled))
     return result
 
@@ -40,8 +40,11 @@ def run_due_batch(database_path: str | Path, limit: int = 10) -> list[dict[str, 
     now = _now().isoformat()
     with sqlite3.connect(database_path) as con:
         con.row_factory = sqlite3.Row
-        rows = con.execute("SELECT id FROM generation_queue WHERE status='queued' AND scheduled_at<=? ORDER BY scheduled_at,id LIMIT ?", (now, limit)).fetchall()
-    return [run_queue_item(database_path, row["id"]) for row in rows]
+        rows = con.execute("SELECT id FROM generation_queue WHERE status='queued' AND scheduled_at<=? ORDER BY scheduled_at,id LIMIT ?", (now, max(1, limit))).fetchall()
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        results.append(run_queue_item(database_path, row["id"]))
+    return results
 
 
 def main() -> None:
@@ -53,10 +56,11 @@ def main() -> None:
     r.add_argument("database"); r.add_argument("--limit", type=int, default=10)
     args = parser.parse_args()
     if args.command == "enqueue-scenes":
-        rows = enqueue_scenes(args.database, args.document_id, args.type, args.start_scene, args.end_scene, max(0, args.interval_minutes))
+        rows = enqueue_scenes(args.database, args.document_id, args.type, args.start_scene, args.end_scene, args.interval_minutes)
         print(json.dumps({"queued": len(rows), "items": rows}, indent=2))
     else:
-        print(json.dumps({"processed": len(run_due_batch(args.database, args.limit)), "items": run_due_batch(args.database, args.limit)}, indent=2))
+        rows = run_due_batch(args.database, args.limit)
+        print(json.dumps({"processed": len(rows), "items": rows}, indent=2))
 
 
 if __name__ == "__main__":
