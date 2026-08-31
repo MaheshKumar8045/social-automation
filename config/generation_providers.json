@@ -5,6 +5,7 @@
       "media_types": ["image", "video", "audio"],
       "priority": 999,
       "billing": "free",
+      "requires_api_key": false,
       "quota": {
         "mode": "unlimited_local",
         "remaining": null,
@@ -16,6 +17,7 @@
       "media_types": ["image", "video", "audio"],
       "priority": 10,
       "billing": "free",
+      "requires_api_key": true,
       "credential_env": "PIXAZO_API_KEY",
       "base_url": "https://gateway.pixazo.ai",
       "models": {
