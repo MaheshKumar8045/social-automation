@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,10 +20,18 @@ def _reset_seconds(item: dict[str, Any]) -> float:
         return float("inf")
 
 
+def _has_credentials(item: dict[str, Any]) -> bool:
+    if not item.get("requires_api_key", False):
+        return True
+    name = str(item.get("name", ""))
+    env_name = item.get("api_key_env") or ("".join("_" if not c.isalnum() else c.upper() for c in name) + "_API_KEY")
+    return bool(os.getenv(env_name))
+
+
 def rank_providers(media_type: str, path: str | Path | None = None) -> list[dict[str, Any]]:
     catalog = load_catalog(path)
     policy = catalog.get("policy", {})
-    candidates = enabled_providers(media_type, path)
+    candidates = [p for p in enabled_providers(media_type, path) if _has_credentials(p)]
     max_cost = policy.get("max_cost_per_job")
     if max_cost is not None:
         candidates = [p for p in candidates if p.get("estimated_cost_per_job", 0) <= max_cost]
