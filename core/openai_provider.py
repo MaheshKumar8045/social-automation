@@ -18,6 +18,15 @@ class OpenAIImageResult:
     provider_job_id: str | None = None
     raw: Any = None
 
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "provider": "openai",
+            "provider_job_id": self.provider_job_id,
+            "status": "completed",
+            "asset_uri": self.asset_uri,
+            "raw": self.raw,
+        }
+
 
 class OpenAIProvider:
     """OpenAI image-generation adapter used by the generation job runner."""
@@ -31,8 +40,8 @@ class OpenAIProvider:
         self.base_url = (base_url or config.base_url or self.default_base_url).rstrip("/")
         self.model = model or config.model or "gpt-image-1"
 
-    def submit(self, request: dict[str, Any]) -> OpenAIImageResult:
-        """Generate an image and persist the returned base64 image locally."""
+    def submit(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Generate an image and persist the returned base64 image."""
         prompt = request.get("prompt") or request.get("text")
         if not prompt:
             raise ValueError("OpenAI image generation requires a non-empty prompt")
@@ -83,8 +92,8 @@ class OpenAIProvider:
             asset_uri=str(output_path),
             provider_job_id=data.get("id"),
             raw=data,
-        )
+        ).as_dict()
 
     def status(self, provider_job_id: str) -> dict[str, Any]:
         """Image generations are synchronous through this adapter."""
-        return {"provider_job_id": provider_job_id, "status": "completed"}
+        return {"provider": self.name, "provider_job_id": provider_job_id, "status": "completed"}
