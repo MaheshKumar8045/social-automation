@@ -4,6 +4,12 @@ import re
 from typing import Any
 
 
+_VISUAL_HINTS = re.compile(
+    r"\b(lay|stood|sat|walked|ran|watched|looked|rested|stood|river|lake|sea|mountain|hill|forest|tree|willow|rock|waterfall|mist|cloud|sky|shore|bank|valley|plain|desert|road|house|camp|boat|horse|fire|clothing|wearing|carrying|holding|face|hair|beard)\b",
+    re.IGNORECASE,
+)
+
+
 def _clean(value: Any, limit: int = 220) -> str:
     text = " ".join(str(value or "").split())
     return text[:limit]
@@ -28,14 +34,13 @@ def _is_metadata(text: str) -> bool:
 
 
 def _source_visual_sentences(scene_text: str, max_sentences: int = 3) -> list[str]:
-    """Select meaningful prose from the scene while dropping document metadata."""
+    """Prefer source sentences that describe visible scene content."""
+    candidates = [s for s in _sentences(scene_text) if not _is_metadata(s) and len(s.split()) > 3]
+    visual = [s for s in candidates if _VISUAL_HINTS.search(s)]
     selected: list[str] = []
-    for sentence in _sentences(scene_text):
-        if _is_metadata(sentence):
-            continue
-        if len(sentence.split()) <= 3:
-            continue
-        selected.append(sentence)
+    for sentence in visual + candidates:
+        if sentence not in selected:
+            selected.append(sentence)
         if len(selected) >= max_sentences:
             break
     return selected
@@ -50,16 +55,13 @@ def _value(fact: dict[str, Any]) -> str:
 
 
 def build_visual_scene_spec(plan: dict[str, Any]) -> dict[str, Any]:
-    """Build a deterministic visual scene specification from source evidence.
-
-    Missing visual information stays unknown instead of being invented.
-    """
+    """Build a conservative visual scene specification from source evidence."""
     scene = plan.get("scene") or {}
     scene_text = scene.get("text") or ""
     source_sentences = _source_visual_sentences(scene_text)
+    source_text_lower = str(scene_text).lower()
 
     characters: list[dict[str, Any]] = []
-    source_text_lower = str(scene_text).lower()
     for character in (plan.get("characters") or [])[:4]:
         name = _clean(character.get("canonical_name"), 60)
         if not name or name.lower() not in source_text_lower:
@@ -86,10 +88,9 @@ def _trim_words(text: str, max_words: int) -> str:
 
 
 def build_image_prompt(plan: dict[str, Any], max_chars: int = 420) -> str:
-    """Compile a short image prompt from source-grounded visual evidence."""
+    """Compile a compact image prompt from source-grounded visual evidence."""
     spec = build_visual_scene_spec(plan)
     parts: list[str] = []
-
     parts.extend(spec["source_visual_text"])
 
     for character in spec["characters"]:
@@ -101,8 +102,5 @@ def build_image_prompt(plan: dict[str, Any], max_chars: int = 420) -> str:
         parts.append("Objects: " + ", ".join(spec["objects"][:3]))
 
     parts.append("cinematic historical realism, natural composition")
-    prompt = ". ".join(parts)
-
-    # SD 1.5 uses a legacy 77-token CLIP encoder. Keep this conservative.
-    prompt = _trim_words(prompt, 55)
+    prompt = _trim_words(". ".join(parts), 55)
     return prompt[:max_chars].rstrip(" ,.;:")
