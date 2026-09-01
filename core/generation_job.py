@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from .generation_planner import build_generation_plan
 from .provider_adapter import get_provider
 from .provider_scheduler import choose_provider
+from .social_export import export_image
 
 
 class GenerationProvider(Protocol):
@@ -80,7 +81,12 @@ def create_generation_job(database_path: str | Path, document_id: int, scene_id:
     return {"job_id": row[0], "document_id": document_id, "scene_id": scene_id, "job_type": job_type, "provider": selected_name, "status": row[1], "attempts": row[2], "created_at": row[3], "updated_at": row[4]}
 
 
-def run_generation_job(database_path: str | Path, job_id: int, provider: GenerationProvider | None = None) -> dict[str, Any]:
+def run_generation_job(
+    database_path: str | Path,
+    job_id: int,
+    provider: GenerationProvider | None = None,
+    export_profile: str | None = None,
+) -> dict[str, Any]:
     with sqlite3.connect(database_path) as con:
         con.row_factory = sqlite3.Row
         row = con.execute("SELECT * FROM generation_jobs WHERE id=?", (job_id,)).fetchone()
@@ -95,11 +101,27 @@ def run_generation_job(database_path: str | Path, job_id: int, provider: Generat
         con.commit()
     try:
         response = selected_provider.submit(request)
+
+        if export_profile is not None:
+            if request.get("job_type") != "image":
+                raise ValueError("social export is only supported for image generation jobs")
+            asset_uri = response.get("asset_uri")
+            if not asset_uri:
+                raise ValueError("social export requires a generated image asset")
+            exported_uri = export_image(asset_uri, export_profile)
+            response["social_export"] = {
+                "profile": export_profile,
+                "asset_uri": exported_uri,
+            }
+
         status = response.get("status", "submitted")
         with sqlite3.connect(database_path) as con:
             con.execute("UPDATE generation_jobs SET status=?,response_json=?,provider_job_id=?,asset_uri=?,error=NULL,updated_at=? WHERE id=?", (status, json.dumps(response, ensure_ascii=False), response.get("provider_job_id"), response.get("asset_uri"), _now(), job_id))
             con.commit()
-        return {"job_id": job_id, "status": status, "provider": selected_provider.name, "provider_job_id": response.get("provider_job_id"), "asset_uri": response.get("asset_uri")}
+        result = {"job_id": job_id, "status": status, "provider": selected_provider.name, "provider_job_id": response.get("provider_job_id"), "asset_uri": response.get("asset_uri")}
+        if response.get("social_export"):
+            result["social_export"] = response["social_export"]
+        return result
     except Exception as exc:
         with sqlite3.connect(database_path) as con:
             con.execute("UPDATE generation_jobs SET status='failed',error=?,updated_at=? WHERE id=?", (str(exc), _now(), job_id))
@@ -115,10 +137,11 @@ def main() -> None:
     parser.add_argument("--type", choices=("image", "video", "audio"), default="image")
     parser.add_argument("--provider", default=None)
     parser.add_argument("--run", action="store_true")
+    parser.add_argument("--export-profile", choices=("instagram_feed", "instagram_reels"), default=None)
     args = parser.parse_args()
     job = create_generation_job(args.database, args.document_id, args.scene_id, args.type, args.provider)
     if args.run:
-        print(json.dumps(run_generation_job(args.database, job["job_id"]), indent=2))
+        print(json.dumps(run_generation_job(args.database, job["job_id"], export_profile=args.export_profile), indent=2))
     else:
         print(json.dumps(job, indent=2))
 
