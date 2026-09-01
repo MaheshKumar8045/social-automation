@@ -11,4 +11,6 @@ data/*.pdf
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+data/generated/
+data/exports/
 
