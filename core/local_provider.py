@@ -19,6 +19,12 @@ class LocalProvider:
     default_width = 512
     default_height = 640
 
+    default_negative_prompt = (
+        "illustration, painting, watercolor, drawing, sketch, engraving, "
+        "cartoon, anime, comic, poster, low detail, distorted anatomy, "
+        "extra limbs, duplicate people, deformed hands, text, watermark"
+    )
+
     def __init__(self, model_id: str | None = None):
         if not torch.cuda.is_available():
             raise RuntimeError("Local image generation requires a CUDA-capable GPU")
@@ -45,6 +51,7 @@ class LocalProvider:
 
     def submit(self, job: dict[str, Any]) -> dict[str, Any]:
         prompt = self._prompt_from_plan(job)
+        negative_prompt = str(job.get("negative_prompt") or self.default_negative_prompt)
 
         output_dir = Path(job.get("output_dir") or "data/generated")
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -61,6 +68,7 @@ class LocalProvider:
 
         result = self.pipe(
             prompt,
+            negative_prompt=negative_prompt,
             height=height,
             width=width,
             num_inference_steps=int(job.get("num_inference_steps", 20)),
