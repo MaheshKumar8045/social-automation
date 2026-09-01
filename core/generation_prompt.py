@@ -10,6 +10,13 @@ _METADATA = re.compile(
 )
 
 
+_REALISM_SUFFIX = (
+    "photorealistic live-action cinematic still, realistic human proportions, "
+    "natural skin texture, physically accurate lighting, detailed environment, "
+    "historical realism, natural composition"
+)
+
+
 def _clean(value: Any, limit: int = 300) -> str:
     return " ".join(str(value or "").split())[:limit]
 
@@ -22,11 +29,6 @@ def _sentences(text: str) -> list[str]:
 def _source_text(plan: dict[str, Any]) -> str:
     scene = plan.get("scene") or {}
     return _clean(scene.get("text"), 10000)
-
-
-def _find(pattern: str, text: str) -> str:
-    match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-    return match.group(0).strip() if match else ""
 
 
 def build_visual_scene_spec(plan: dict[str, Any]) -> dict[str, Any]:
@@ -48,8 +50,7 @@ def build_visual_scene_spec(plan: dict[str, Any]) -> dict[str, Any]:
         setting.append("1854")
 
     characters: list[str] = []
-    two_men = re.search(r"\btwo men\b", source, re.IGNORECASE)
-    if two_men:
+    if re.search(r"\btwo men\b", source, re.IGNORECASE):
         characters.append("two men")
 
     actions: list[str] = []
@@ -62,14 +63,13 @@ def build_visual_scene_spec(plan: dict[str, Any]) -> dict[str, Any]:
 
     environment: list[str] = []
     environment_patterns = [
-        (r"weeping willow", "weeping willow"),
         (r"rocky|rocks|rock", "rocky landscape"),
         (r"mountain|mountains", "mountains"),
-        (r"forest|forests|wood", "vegetation"),
-        (r"vegetation", "dense vegetation"),
+        (r"forest|forests|wood|vegetation", "dense vegetation"),
         (r"waterfall", "waterfall"),
         (r"mist", "mist"),
         (r"river", "river landscape"),
+        (r"weeping willow", "weeping willow"),
     ]
     for pattern, label in environment_patterns:
         if re.search(pattern, source, re.IGNORECASE) and label not in environment:
@@ -97,7 +97,7 @@ def _trim(text: str, max_words: int = 55, max_chars: int = 420) -> str:
 
 
 def build_image_prompt(plan: dict[str, Any], max_chars: int = 420) -> str:
-    """Compile a compact image prompt from the visual scene specification."""
+    """Compile a compact, source-grounded prompt optimized for realistic scenes."""
     spec = build_visual_scene_spec(plan)
     parts: list[str] = []
 
@@ -112,5 +112,5 @@ def build_image_prompt(plan: dict[str, Any], max_chars: int = 420) -> str:
     if spec["objects"]:
         parts.append("visible objects: " + ", ".join(spec["objects"][:3]))
 
-    parts.append("cinematic historical realism, natural composition")
+    parts.append(_REALISM_SUFFIX)
     return _trim(". ".join(parts), 55, max_chars)
