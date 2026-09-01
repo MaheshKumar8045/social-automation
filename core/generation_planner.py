@@ -1,40 +1,33 @@
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 from typing import Any
 
 from .generation_context import get_generation_context
+from .generation_prompt import build_image_prompt
 
 
 class GenerationPlanner:
-    """Convert generation context into a deterministic generation plan.
-
-    This layer never invents missing visual information. It separates source
-    evidence from derived instructions so downstream prompt/model adapters can
-    remain provider-agnostic.
-    """
+    """Convert generation context into a deterministic generation plan."""
 
     def __init__(self, database_path: str | Path):
         self.database_path = Path(database_path)
 
     @staticmethod
     def _prompt_bundle(scene: dict[str, Any], characters: list[dict[str, Any]], objects: list[dict[str, Any]], events: list[dict[str, Any]], constraints: list[str]) -> dict[str, str]:
-        scene_text = json.dumps(scene, ensure_ascii=False, sort_keys=True)
-        character_text = json.dumps(characters, ensure_ascii=False, sort_keys=True)
-        object_text = json.dumps(objects, ensure_ascii=False, sort_keys=True)
-        event_text = json.dumps(events, ensure_ascii=False, sort_keys=True)
-        constraint_text = "; ".join(constraints)
-        grounded = (
-            "Create media strictly from the supplied source-grounded scene data. "
-            "Do not invent unspecified identity, appearance, clothing, environment, action, camera, dialogue, music, or sound details. "
-            f"Scene={scene_text}. Characters={character_text}. Objects={object_text}. Events={event_text}. Constraints={constraint_text}."
-        )
+        structured = {
+            "scene": scene,
+            "characters": characters,
+            "objects": objects,
+            "events": events,
+            "constraints": constraints,
+        }
+        grounded = "Create media strictly from source-grounded scene data. Do not invent unspecified facts. " + json.dumps(structured, ensure_ascii=False, sort_keys=True)
         return {
-            "image_prompt": grounded + " Produce a coherent still image for the scene.",
-            "video_prompt": grounded + " Produce a coherent short video while preserving the supplied continuity and scene state.",
-            "audio_prompt": grounded + " Produce only source-compatible audio/sound design; do not invent spoken words or musical facts not present in the source.",
+            "image_prompt": build_image_prompt({"scene": scene, "characters": characters, "objects": objects, "events": events, "visual_constraints": constraints}),
+            "video_prompt": grounded + " Produce a coherent short video while preserving supplied continuity and scene state.",
+            "audio_prompt": grounded + " Produce only source-compatible audio or sound design.",
         }
 
     def build(self, document_id: int, scene_id: int) -> dict[str, Any]:
@@ -75,7 +68,7 @@ class GenerationPlanner:
         return {
             "document_id": document_id,
             "scene_id": scene_id,
-            "plan_version": 2,
+            "plan_version": 3,
             "plan_status": "ready",
             "source_grounded": True,
             "unknowns_must_remain_unknown": True,
@@ -136,6 +129,8 @@ def build_generation_plan(database_path: str | Path, document_id: int, scene_id:
 
 
 def main() -> None:
+    import argparse
+
     parser = argparse.ArgumentParser(description="Build deterministic generation plan for one scene")
     parser.add_argument("database")
     parser.add_argument("document_id", type=int)
