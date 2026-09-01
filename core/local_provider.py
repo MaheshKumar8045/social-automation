@@ -9,7 +9,7 @@ from diffusers import StableDiffusionPipeline
 
 
 class LocalProvider:
-    """Local Stable Diffusion image provider for generation jobs."""
+    """Local Stable Diffusion image provider for the project's generation jobs."""
 
     name = "local"
     model_id = "runwayml/stable-diffusion-v1-5"
@@ -21,38 +21,34 @@ class LocalProvider:
         self.model_id = model_id or self.model_id
         self.pipe = StableDiffusionPipeline.from_pretrained(
             self.model_id,
-            dtype=torch.float16,
-            safety_checker=None,
+            torch_dtype=torch.float16,
         )
         self.pipe.enable_attention_slicing()
         self.pipe.enable_model_cpu_offload()
 
     @staticmethod
-    def _prompt_from_job(job: dict[str, Any]) -> str | None:
+    def _prompt_from_plan(job: dict[str, Any]) -> str:
         plan = job.get("plan") or {}
-        prompt = job.get("prompt")
-        if prompt:
-            return str(prompt)
-
-        prompt_key = job.get("prompt_key")
-        if prompt_key and plan.get(prompt_key):
-            return str(plan[prompt_key])
-
-        prompts = plan.get("prompts") or {}
-        if prompt_key and prompts.get(prompt_key):
-            return str(prompts[prompt_key])
-
-        return str(plan["image_prompt"]) if plan.get("image_prompt") else None
+        prompt_key = job.get("prompt_key") or "image_prompt"
+        prompt = plan.get(prompt_key)
+        if not prompt:
+            prompt = job.get("prompt")
+        if not prompt:
+            raise ValueError("Local image generation requires a generation-plan image prompt")
+        return str(prompt)
 
     def submit(self, job: dict[str, Any]) -> dict[str, Any]:
-        prompt = self._prompt_from_job(job)
-        if not prompt:
-            raise ValueError("Local image generation requires a generation-plan prompt")
+        prompt = self._prompt_from_plan(job)
 
         output_dir = Path(job.get("output_dir") or "data/generated")
         output_dir.mkdir(parents=True, exist_ok=True)
         filename = job.get("output_filename") or f"local-{uuid.uuid4().hex}.png"
         output_path = output_dir / filename
+
+        generator = None
+        seed = job.get("seed")
+        if seed is not None:
+            generator = torch.Generator(device="cpu").manual_seed(int(seed))
 
         result = self.pipe(
             prompt,
@@ -60,14 +56,32 @@ class LocalProvider:
             width=int(job.get("width", 512)),
             num_inference_steps=int(job.get("num_inference_steps", 20)),
             guidance_scale=float(job.get("guidance_scale", 7.0)),
+            generator=generator,
         )
-        result.images[0].save(output_path)
+        image = result.images[0]
+
+        # Refuse to publish clearly invalid output such as an all-black/all-zero frame.
+        extrema = image.convert("L").getextrema()
+        if extrema[0] == 0 and extrema[1] == 0:
+            raise RuntimeError("Local image generation produced a fully black image")
+        if extrema[0] == 255 and extrema[1] == 255:
+            raise RuntimeError("Local image generation produced a fully white image")
+
+        image.save(output_path)
 
         return {
             "provider": self.name,
             "provider_job_id": f"local-{uuid.uuid4().hex}",
             "status": "completed",
             "asset_uri": str(output_path),
+            "generation": {
+                "model": self.model_id,
+                "width": int(job.get("width", 512)),
+                "height": int(job.get("height", 512)),
+                "steps": int(job.get("num_inference_steps", 20)),
+                "guidance_scale": float(job.get("guidance_scale", 7.0)),
+                "seed": seed,
+            },
         }
 
     def status(self, provider_job_id: str) -> dict[str, Any]:
