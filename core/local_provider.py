@@ -14,6 +14,11 @@ class LocalProvider:
     name = "local"
     model_id = "runwayml/stable-diffusion-v1-5"
 
+    # Instagram-friendly portrait composition. The final delivery layer can
+    # upscale this 4:5 master to 1080x1350 without changing the composition.
+    default_width = 512
+    default_height = 640
+
     def __init__(self, model_id: str | None = None):
         if not torch.cuda.is_available():
             raise RuntimeError("Local image generation requires a CUDA-capable GPU")
@@ -21,7 +26,7 @@ class LocalProvider:
         self.model_id = model_id or self.model_id
         self.pipe = StableDiffusionPipeline.from_pretrained(
             self.model_id,
-            torch_dtype=torch.float16,
+            torch_dtype=torch.float32,
             safety_checker=None,
         )
         self.pipe.enable_attention_slicing()
@@ -46,6 +51,9 @@ class LocalProvider:
         filename = job.get("output_filename") or f"local-{uuid.uuid4().hex}.png"
         output_path = output_dir / filename
 
+        width = int(job.get("width", self.default_width))
+        height = int(job.get("height", self.default_height))
+
         generator = None
         seed = job.get("seed")
         if seed is not None:
@@ -53,8 +61,8 @@ class LocalProvider:
 
         result = self.pipe(
             prompt,
-            height=int(job.get("height", 512)),
-            width=int(job.get("width", 512)),
+            height=height,
+            width=width,
             num_inference_steps=int(job.get("num_inference_steps", 20)),
             guidance_scale=float(job.get("guidance_scale", 7.0)),
             generator=generator,
@@ -77,8 +85,9 @@ class LocalProvider:
             "asset_uri": str(output_path),
             "generation": {
                 "model": self.model_id,
-                "width": int(job.get("width", 512)),
-                "height": int(job.get("height", 512)),
+                "width": width,
+                "height": height,
+                "aspect_ratio": f"{width}:{height}",
                 "steps": int(job.get("num_inference_steps", 20)),
                 "guidance_scale": float(job.get("guidance_scale", 7.0)),
                 "seed": seed,
