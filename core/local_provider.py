@@ -22,6 +22,7 @@ class LocalProvider:
         self.pipe = StableDiffusionPipeline.from_pretrained(
             self.model_id,
             torch_dtype=torch.float16,
+            safety_checker=None,
         )
         self.pipe.enable_attention_slicing()
         self.pipe.enable_model_cpu_offload()
