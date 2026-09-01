@@ -1,0 +1,18 @@
+{
+  "instagram_feed": {
+    "width": 1080,
+    "height": 1350,
+    "aspect_ratio": "4:5",
+    "format": "JPEG",
+    "quality": 95,
+    "mode": "resize"
+  },
+  "instagram_reels": {
+    "width": 1080,
+    "height": 1920,
+    "aspect_ratio": "9:16",
+    "format": "JPEG",
+    "quality": 95,
+    "mode": "center_crop"
+  }
+}
