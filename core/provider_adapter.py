@@ -27,6 +27,7 @@ BUILTIN_ADAPTERS = {
     "pixazo": "core.pixazo_provider:PixazoProvider",
     "pollinations": "core.pollinations_provider:PollinationsProvider",
     "openai": "core.openai_provider:OpenAIProvider",
+    "local": "core.local_provider:LocalProvider",
 }
 
 
