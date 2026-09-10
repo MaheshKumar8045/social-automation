@@ -109,19 +109,11 @@ class DoclingStructureScanner:
         for page_number in range(1, total_pages + 1):
             fragments = page_fragments[page_number]
             text = "\n".join(page_text[page_number]).strip()
-            docling_candidates = self._deduplicate_candidates(page_heading_candidates[page_number])
-
-            # A single Docling section_header is stronger structural evidence
-            # than generic layout candidates generated from the same page.
-            # Without this precedence rule, a legitimate chapter opener can
-            # be misclassified as CONTENTS simply because the generic detector
-            # independently recognizes the same numbered text or nearby prose.
-            if len(docling_candidates) == 1:
-                candidates = docling_candidates
-            else:
-                candidates = self.heading_detector.find_candidates(page_number, fragments) if fragments else []
-                candidates.extend(docling_candidates)
-                candidates = self._deduplicate_candidates(candidates)
+            candidates = self._select_candidates(
+                page_number,
+                fragments,
+                page_heading_candidates[page_number],
+            )
 
             if candidates:
                 structure = self.page_classifier.classify(page_number, candidates)
@@ -186,6 +178,28 @@ class DoclingStructureScanner:
             pages=pages,
             document_type="pdf_docling",
         )
+
+    def _select_candidates(
+        self,
+        page_number: int,
+        fragments: list[TextFragment],
+        docling_candidates: list[LayoutHeadingCandidate],
+    ) -> list[LayoutHeadingCandidate]:
+        """Combine structural candidates without demoting a single Docling heading.
+
+        Docling's explicit ``section_header`` label is stronger evidence than a
+        generic layout detector's interpretation of the same page. A lone,
+        numbered Docling heading therefore gets an isolated classification pass.
+        Multiple Docling headings remain subject to the normal contents-page
+        logic, preserving protection against TOC/index false positives.
+        """
+        docling_candidates = self._deduplicate_candidates(docling_candidates)
+        if len(docling_candidates) == 1:
+            return docling_candidates
+
+        candidates = self.heading_detector.find_candidates(page_number, fragments) if fragments else []
+        candidates.extend(docling_candidates)
+        return self._deduplicate_candidates(candidates)
 
     @classmethod
     def _docling_heading_candidate(
