@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from core.docling_structure_scanner import DoclingStructureScanner
 from core.layout_section_validator import ValidatedSection
 from core.structure_scanner import StructureScanner
+from core.text_fragment import TextFragment
 
 
 def test_structure_scanner_defaults_to_docling(monkeypatch):
@@ -22,9 +23,7 @@ def test_docling_page_count_from_page_map():
 
 
 def test_docling_page_count_from_provenance_fallback():
-    item = SimpleNamespace(
-        prov=[SimpleNamespace(page_no=7)],
-    )
+    item = SimpleNamespace(prov=[SimpleNamespace(page_no=7)])
     document = SimpleNamespace(
         pages=None,
         iterate_items=lambda: iter([(item, 0)]),
@@ -32,8 +31,18 @@ def test_docling_page_count_from_provenance_fallback():
     assert DoclingStructureScanner._page_count(document) == 7
 
 
+def test_docling_section_header_accepts_roman_numbering():
+    candidate = DoclingStructureScanner._docling_heading_candidate(
+        11,
+        TextFragment("I. The end", x=72, y=100, height=24),
+    )
+    assert candidate is not None
+    assert candidate.text == "I The end"
+    assert candidate.fragments[0].text == "I"
+    assert candidate.fragments[1].text == "The end"
+
+
 def test_docling_scanner_rejects_numeric_metadata_title():
-    # Back-cover material such as `2250 $12` must not become a chapter.
     section = ValidatedSection(
         section_number="2250",
         title="$12",
