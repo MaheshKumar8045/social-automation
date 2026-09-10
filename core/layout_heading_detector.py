@@ -32,6 +32,7 @@ class LayoutHeadingDetector:
 
     ROMAN_RE = re.compile(r"^[IVXLCDM]+[.,:;]?$", re.IGNORECASE)
     NUMBER_RE = re.compile(r"^\d+[.,:;]?$")
+    RUNNING_HEADER_MARKERS = {"ravana"}
 
     def find_candidates(self, page_number: int, fragments: list[TextFragment]) -> list[LayoutHeadingCandidate]:
         if not fragments:
@@ -47,7 +48,7 @@ class LayoutHeadingDetector:
                     candidates.append(candidate)
 
         for index, fragment in enumerate(fragments):
-            if not self._looks_like_number(fragment.text):
+            if not self._is_arabic_number(fragment.text):
                 continue
             candidate = self._build_numbered_candidate(page_number, fragments, index, body_size)
             if candidate is not None:
@@ -85,21 +86,16 @@ class LayoutHeadingDetector:
 
     def _build_numbered_candidate(self, page_number, fragments, number_index, body_size):
         number = fragments[number_index]
-        is_arabic = self._is_arabic_number(number.text)
-
-        # A lone Roman numeral is common inside prose (especially "I").
-        # Do not promote it unless the page/layout gives strong heading evidence.
-        if not is_arabic and not self._roman_has_heading_evidence(fragments, number_index, body_size):
-            return None
-
         block = [number]
-        score = 4.0
+        score = 5.0
         reasons = ["heading-number"]
 
         if self._is_larger_than_body(number, body_size):
             score += 2.0
             reasons.append("larger-than-body")
 
+        # First try the actual visual layout. This is the highest-confidence
+        # path when coordinates are available from PDF/OCR fragments.
         title_fragments = self._same_row_title_fragments(fragments, number_index, body_size)
         if title_fragments:
             title_fragments = self._trim_numbered_title(title_fragments)
@@ -107,7 +103,8 @@ class LayoutHeadingDetector:
                 block.extend(title_fragments)
                 score += 3.0
                 reasons.append("same-row-title")
-        else:
+
+        if len(block) == 1:
             next_row = self._find_next_visual_row(fragments, number_index, body_size)
             if next_row is not None:
                 title = []
@@ -116,7 +113,7 @@ class LayoutHeadingDetector:
                     fragment = fragments[index]
                     if fragment.y is None or abs(fragment.y - next_row) > self._row_tolerance(body_size):
                         continue
-                    if self._looks_like_number(fragment.text) or self._is_structural_keyword(fragment.text):
+                    if self._is_arabic_number(fragment.text) or self._is_structural_keyword(fragment.text):
                         continue
                     if self._looks_like_page_marker(fragment.text):
                         continue
@@ -130,9 +127,10 @@ class LayoutHeadingDetector:
                     score += 3.0
                     reasons.append("next-row-title")
 
-        # PDF text extraction can preserve the chapter number and title on the
-        # same logical line even when no useful coordinates survive.
-        if len(block) == 1 and is_arabic:
+        # PDF text-layer extraction often has no coordinates. In that case
+        # reconstruct a short heading from the fragments immediately following
+        # the Arabic number, stopping before a running header or obvious prose.
+        if len(block) == 1:
             inline = self._inline_numbered_title(fragments, number_index)
             if inline:
                 block.extend(inline)
@@ -140,16 +138,10 @@ class LayoutHeadingDetector:
                 reasons.append("inline-title")
 
         block = self._unique_fragments(block)
-        title_present = any(
-            f is not number
-            and not self._looks_like_number(f.text)
-            and not self._is_structural_keyword(f.text)
-            for f in block
-        )
-        if not title_present:
+        title_fragments = [f for f in block if f is not number]
+        if not title_fragments:
             return None
 
-        title_fragments = [f for f in block if f is not number]
         if self._title_looks_like_prose(title_fragments):
             return None
 
@@ -160,16 +152,22 @@ class LayoutHeadingDetector:
 
     def _inline_numbered_title(self, fragments, number_index):
         result = []
-        for fragment in fragments[number_index + 1:number_index + 8]:
+        word_count = 0
+        for fragment in fragments[number_index + 1:number_index + 12]:
             text = fragment.text.strip()
             if not text:
                 continue
-            if self._looks_like_number(text) or self._is_structural_keyword(text):
+            if self._is_arabic_number(text) or self._is_structural_keyword(text):
                 break
-            if self._looks_like_page_marker(text):
+            if self._looks_like_page_marker(text) or text.lower().strip(".,:;") in self.RUNNING_HEADER_MARKERS:
+                break
+            # The title should be short. A sentence-ending fragment is treated
+            # as prose rather than a heading title.
+            if re.search(r"[.!?]$", text):
                 break
             result.append(fragment)
-            if len(" ".join(f.text for f in result).split()) >= 6:
+            word_count += len(text.split())
+            if word_count >= 6:
                 break
         return self._trim_numbered_title(result)
 
@@ -180,21 +178,26 @@ class LayoutHeadingDetector:
             text = fragment.text.strip()
             if not text:
                 continue
+            cleaned = text.strip(".,:;")
+            if not cleaned:
+                continue
             if self._looks_like_page_marker(text):
+                break
+            if cleaned.lower() in self.RUNNING_HEADER_MARKERS:
+                break
+            if re.search(r"[.!?]$", text):
                 break
             words.extend(text.split())
             result.append(fragment)
             if len(words) >= 6:
                 break
-        if not words:
-            return []
         return result
 
     @staticmethod
     def _title_looks_like_prose(fragments):
         text = " ".join(f.text.strip() for f in fragments if f.text.strip())
         words = text.split()
-        if len(words) > 10:
+        if not words or len(words) > 10:
             return True
         if re.search(r"[.!?]$", text):
             return True
@@ -203,50 +206,12 @@ class LayoutHeadingDetector:
     @classmethod
     def _normalize_heading_text(cls, text):
         text = re.sub(r"\s+", " ", text).strip()
-        # Common OCR/PDF split in chapter headings: "T HE" -> "THE".
         text = re.sub(r"\bT\s+HE\b", "THE", text, flags=re.IGNORECASE)
         return text
 
     @classmethod
     def _is_arabic_number(cls, text):
         return bool(cls.NUMBER_RE.fullmatch(text.strip()))
-
-    def _roman_has_heading_evidence(self, fragments, number_index, body_size):
-        number = fragments[number_index]
-        if number.text.strip().rstrip(".,:;").upper() == "I":
-            # "I" is overwhelmingly likely to be a pronoun in body text.
-            return self._is_larger_than_body(number, body_size) and self._has_short_adjacent_title(fragments, number_index, body_size)
-        return self._is_larger_than_body(number, body_size) and self._has_short_adjacent_title(fragments, number_index, body_size)
-
-    def _has_short_adjacent_title(self, fragments, number_index, body_size):
-        same = self._same_row_title_fragments(fragments, number_index, body_size)
-        if same and not self._title_looks_like_prose(self._trim_numbered_title(same)):
-            return True
-        next_row = self._find_next_visual_row(fragments, number_index, body_size)
-        return next_row is not None
-
-    def _same_row_title_fragments(self, fragments, number_index, body_size):
-        number = fragments[number_index]
-        if number.y is None:
-            return []
-        tolerance = self._row_tolerance(body_size)
-        result = []
-        for index, fragment in enumerate(fragments):
-            if index == number_index or fragment.y is None:
-                continue
-            if abs(fragment.y - number.y) > tolerance:
-                continue
-            if fragment.x is not None and number.x is not None and fragment.x <= number.x:
-                continue
-            if self._looks_like_number(fragment.text) or self._is_structural_keyword(fragment.text):
-                continue
-            if self._looks_like_page_marker(fragment.text):
-                continue
-            if self._is_distant_column(number, fragment, self._estimate_page_width(fragments)):
-                continue
-            result.append(fragment)
-        result.sort(key=lambda f: f.x if f.x is not None else 0.0)
-        return result
 
     def _find_nearby_number(self, fragments, keyword_index, body_size):
         keyword = fragments[keyword_index]
@@ -277,6 +242,29 @@ class LayoutHeadingDetector:
             title_fragments.append(fragment)
         title_fragments.sort(key=lambda f: f.x if f.x is not None else 0.0)
         return title_fragments
+
+    def _same_row_title_fragments(self, fragments, number_index, body_size):
+        number = fragments[number_index]
+        if number.y is None:
+            return []
+        tolerance = self._row_tolerance(body_size)
+        result = []
+        for index, fragment in enumerate(fragments):
+            if index == number_index or fragment.y is None:
+                continue
+            if abs(fragment.y - number.y) > tolerance:
+                continue
+            if fragment.x is not None and number.x is not None and fragment.x <= number.x:
+                continue
+            if self._looks_like_number(fragment.text) or self._is_structural_keyword(fragment.text):
+                continue
+            if self._looks_like_page_marker(fragment.text):
+                continue
+            if self._is_distant_column(number, fragment, self._estimate_page_width(fragments)):
+                continue
+            result.append(fragment)
+        result.sort(key=lambda f: f.x if f.x is not None else 0.0)
+        return result
 
     def _find_next_visual_row(self, fragments, anchor_index, body_size):
         anchor = fragments[anchor_index]
