@@ -6,19 +6,19 @@ def _valid_plan():
         "plan_status": "ready",
         "source_grounded": True,
         "unknowns_must_remain_unknown": True,
-        "image_prompt": "Source-grounded image of Lord Shiva in the established scene, preserving only supplied visual facts and continuity.",
+        "image_prompt": "Source-grounded cinematic image of Lord Shiva in the established scene, preserving only supplied visual facts and continuity, with realistic composition, physically plausible lighting, clear subject separation, and no invented appearance or story details.",
         "characters": [{"canonical_name": "Lord Shiva"}],
         "short_video_prompt_package": {
             "clip_count": 1,
             "clips": [{
                 "clip_number": 1,
-                "prompt": "Source-grounded short-video clip showing the supplied action with restrained camera movement and no invented story events.",
+                "prompt": "Source-grounded short-video clip showing the supplied action with restrained camera movement and no invented story events, while preserving character identity, environment, continuity, and unknown visual attributes.",
             }],
         },
         "long_video_prompt_package": {
             "shots": [{
                 "shot_number": 1,
-                "prompt": "Source-grounded long-video shot preserving the established subject, setting, action, continuity, and unknown appearance details.",
+                "prompt": "Source-grounded long-video shot preserving the established subject, setting, action, continuity, and unknown appearance details, with coherent spatial progression and no unsupported narrative additions.",
             }],
         },
         "audio_prompt": {
