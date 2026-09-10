@@ -3,17 +3,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
-_METADATA = re.compile(
-    r"(?:meridiana;|the adventures of three englishmen and three russians|chapter\s+[ivxlcdm]+|scene\s+\d+)",
-    re.IGNORECASE,
-)
+from .media_prompt_compiler import compile_media_prompts
 
 
 _REALISM_SUFFIX = (
     "photorealistic live-action cinematic still, realistic human proportions, "
-    "natural skin texture, physically accurate lighting, detailed environment, "
-    "historical realism, natural composition"
+    "natural materials and lighting, grounded environmental detail, natural composition"
 )
 
 
@@ -26,67 +21,52 @@ def _sentences(text: str) -> list[str]:
     return [s.strip(" -—") for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
 
 
-def _source_text(plan: dict[str, Any]) -> str:
-    scene = plan.get("scene") or {}
-    return _clean(scene.get("text"), 10000)
-
-
 def build_visual_scene_spec(plan: dict[str, Any]) -> dict[str, Any]:
-    """Extract a structured, source-grounded visual representation.
+    """Return a generic source-grounded visual representation.
 
-    The extractor is intentionally conservative. It prefers explicit source
-    wording and records unknowns rather than inventing appearance or setting.
+    This compatibility helper intentionally contains no book-specific names or
+    locations. The canonical media-generation compiler is
+    ``core.media_prompt_compiler``; this function exposes a small structured
+    representation for older callers without creating a second source of truth.
     """
-    text = _source_text(plan)
-    sentences = [s for s in _sentences(text) if not _METADATA.search(s)]
-    source = " ".join(sentences)
+    scene = plan.get("scene") or {}
+    characters = plan.get("characters") or []
+    objects = plan.get("objects") or []
+    events = plan.get("events") or []
+    continuity = plan.get("continuity") or {}
 
-    setting: list[str] = []
-    if re.search(r"Orange River", source, re.IGNORECASE):
-        setting.append("Orange River")
-    if re.search(r"South Africa|Cape|Transvaal|Hottentot", source, re.IGNORECASE):
-        setting.append("South Africa")
-    if re.search(r"1854", source):
-        setting.append("1854")
-
-    characters: list[str] = []
-    if re.search(r"\btwo men\b", source, re.IGNORECASE):
-        characters.append("two men")
-
-    actions: list[str] = []
-    if re.search(r"lay stretched|resting|sat", source, re.IGNORECASE) and re.search(r"willow", source, re.IGNORECASE):
-        actions.append("resting beneath an immense weeping willow")
-    if re.search(r"chatting", source, re.IGNORECASE):
-        actions.append("chatting")
-    if re.search(r"watching.*Orange River|watching.*waters", source, re.IGNORECASE):
-        actions.append("watching the river")
+    character_names = [
+        _clean(character.get("canonical_name"), 100)
+        for character in characters
+        if character.get("canonical_name")
+    ]
+    object_names = [
+        _clean(obj.get("canonical_name"), 80)
+        for obj in objects
+        if obj.get("canonical_name")
+    ]
+    actions = [
+        _clean(event.get("text"), 220)
+        for event in events
+        if event.get("text")
+    ]
+    actions = [value for value in actions if value][:5]
 
     environment: list[str] = []
-    environment_patterns = [
-        (r"rocky|rocks|rock", "rocky landscape"),
-        (r"mountain|mountains", "mountains"),
-        (r"forest|forests|wood|vegetation", "dense vegetation"),
-        (r"waterfall", "waterfall"),
-        (r"mist", "mist"),
-        (r"river", "river landscape"),
-        (r"weeping willow", "weeping willow"),
-    ]
-    for pattern, label in environment_patterns:
-        if re.search(pattern, source, re.IGNORECASE) and label not in environment:
-            environment.append(label)
+    state = continuity.get("environment_state") if continuity.get("available") else {}
+    if isinstance(state, dict):
+        for key, value in state.items():
+            if isinstance(value, str) and value.strip():
+                environment.append(f"{key}: {_clean(value, 120)}")
 
-    objects: list[str] = []
-    for obj in (plan.get("objects") or [])[:8]:
-        name = _clean(obj.get("canonical_name"), 60)
-        if name and re.search(rf"\b{re.escape(name)}\b", source, re.IGNORECASE):
-            objects.append(name)
-
+    source_sentences = _sentences(scene.get("text") or "")
     return {
-        "setting": setting,
-        "characters": characters,
+        "setting": environment,
+        "characters": character_names,
         "actions": actions,
         "environment": environment,
-        "objects": objects,
+        "objects": object_names[:8],
+        "source_excerpt": source_sentences[:3],
         "unknowns": list(plan.get("unknowns") or []),
     }
 
@@ -97,20 +77,14 @@ def _trim(text: str, max_words: int = 55, max_chars: int = 420) -> str:
 
 
 def build_image_prompt(plan: dict[str, Any], max_chars: int = 420) -> str:
-    """Compile a compact, source-grounded prompt optimized for realistic scenes."""
-    spec = build_visual_scene_spec(plan)
-    parts: list[str] = []
-
-    if spec["setting"]:
-        parts.append(" ".join(spec["setting"]))
-    if spec["characters"]:
-        parts.append(" and ".join(spec["characters"]))
-    if spec["actions"]:
-        parts.append(", ".join(spec["actions"]))
-    if spec["environment"]:
-        parts.append(", ".join(spec["environment"]))
-    if spec["objects"]:
-        parts.append("visible objects: " + ", ".join(spec["objects"][:3]))
-
-    parts.append(_REALISM_SUFFIX)
-    return _trim(". ".join(parts), 55, max_chars)
+    """Compatibility wrapper around the canonical media prompt compiler."""
+    media = compile_media_prompts({
+        "scene": plan.get("scene") or {},
+        "characters": plan.get("characters") or [],
+        "objects": plan.get("objects") or [],
+        "events": plan.get("events") or [],
+        "continuity": plan.get("continuity") or {},
+        "generation_constraints": plan.get("generation_constraints") or [],
+    })
+    prompt = str(media["image"]["prompt"])
+    return _trim(prompt, 90, max_chars) if max_chars else prompt
