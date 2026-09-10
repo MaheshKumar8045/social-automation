@@ -83,7 +83,7 @@ class DoclingStructureScanner:
             r = self._number(getattr(bbox, "r", None))
             b = self._number(getattr(bbox, "b", None))
             width = (r - l) if l is not None and r is not None else None
-            height = (b - t) if t is not None and b is not None else None
+            height = (b - t) if b is not None and t is not None else None
 
             fragment = TextFragment(
                 text=text,
@@ -109,9 +109,19 @@ class DoclingStructureScanner:
         for page_number in range(1, total_pages + 1):
             fragments = page_fragments[page_number]
             text = "\n".join(page_text[page_number]).strip()
-            candidates = self.heading_detector.find_candidates(page_number, fragments) if fragments else []
-            candidates.extend(page_heading_candidates[page_number])
-            candidates = self._deduplicate_candidates(candidates)
+            docling_candidates = self._deduplicate_candidates(page_heading_candidates[page_number])
+
+            # A single Docling section_header is stronger structural evidence
+            # than generic layout candidates generated from the same page.
+            # Without this precedence rule, a legitimate chapter opener can
+            # be misclassified as CONTENTS simply because the generic detector
+            # independently recognizes the same numbered text or nearby prose.
+            if len(docling_candidates) == 1:
+                candidates = docling_candidates
+            else:
+                candidates = self.heading_detector.find_candidates(page_number, fragments) if fragments else []
+                candidates.extend(docling_candidates)
+                candidates = self._deduplicate_candidates(candidates)
 
             if candidates:
                 structure = self.page_classifier.classify(page_number, candidates)
