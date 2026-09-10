@@ -36,13 +36,34 @@ def build(db: str|Path, doc:int)->dict[str,int]:
       WHERE g.document_id=? ORDER BY g.id''',(doc,)).fetchall()
   counts={'confirmed':0,'likely':0,'singleton':0,'excluded':0}
   for g in groups:
-   members=con.execute('SELECT entity_id,variant_name,confidence FROM character_identity_members WHERE document_id=? AND group_id=?',(doc,g['id'])).fetchall()
-   if g['relationship']=='confirmed_alias': status='confirmed'; counts['confirmed']+=1
-   elif g['relationship']=='likely_alias': status='likely'; counts['likely']+=1
-   elif len(members)==1: status='singleton'; counts['singleton']+=1
-   else: counts['excluded']+=1; continue
+   members=con.execute('''SELECT m.entity_id,m.variant_name,m.confidence,
+       COALESCE(cg.decision,'unknown') decision, COALESCE(cg.score,0) gate_score
+       FROM character_identity_members m
+       LEFT JOIN character_candidate_gate cg
+         ON cg.document_id=m.document_id AND cg.entity_id=m.entity_id
+       WHERE m.document_id=? AND m.group_id=?
+       ORDER BY m.id''',(doc,g['id'])).fetchall()
+   validated_members=[m for m in members if m['decision']=='validated']
+   if g['relationship']=='confirmed_alias':
+    status='confirmed'; counts['confirmed']+=1
+    canonical_name=g['canonical_name']
+   elif g['relationship']=='likely_alias':
+    status='likely'; counts['likely']+=1
+    canonical_name=g['canonical_name']
+   elif validated_members:
+    # A validated member is strong enough to anchor an otherwise unresolved
+    # OCR-variant group. Use its exact name rather than an OCR-corrupted root.
+    status='confirmed'; counts['confirmed']+=1
+    canonical_name=validated_members[0]['variant_name']
+   elif len(members)==1:
+    status='singleton'; counts['singleton']+=1
+    canonical_name=g['canonical_name']
+   else:
+    counts['excluded']+=1; continue
    conf=min(float(g['confidence']), max(float(g['rconf']),0.5) if g['relationship']!='unresolved' else float(g['confidence']))
-   cur=con.execute('INSERT INTO canonical_characters(document_id,identity_group_id,canonical_name,confidence,status) VALUES(?,?,?,?,?)',(doc,g['id'],g['canonical_name'],conf,status))
+   if validated_members:
+    conf=max(conf, float(validated_members[0]['gate_score']))
+   cur=con.execute('INSERT INTO canonical_characters(document_id,identity_group_id,canonical_name,confidence,status) VALUES(?,?,?,?,?)',(doc,g['id'],canonical_name,conf,status))
    cid=cur.lastrowid
    for m in members:
     rel='canonical' if m['entity_id']==g['canonical_entity_id'] else ('alias' if status in {'confirmed','likely'} else 'variant')
