@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from core.layout_heading_detector import LayoutHeadingDetector
+from core.layout_heading_detector import LayoutHeadingCandidate, LayoutHeadingDetector
 from core.layout_section_validator import LayoutSectionValidator, ValidatedSection
 from core.models import DocumentStructure, PageRecord
 from core.section_reconciler import SectionReconciler
@@ -15,6 +15,11 @@ from core.text_fragment import TextFragment
 
 class DoclingStructureScanner:
     """Build the project's structural input from Docling's document model."""
+
+    NUMBERED_HEADING_RE = re.compile(
+        r"^\s*(?P<number>[IVXLCDM]+|\d{1,4})[.)\-:]?\s+(?P<title>.+?)\s*$",
+        re.IGNORECASE,
+    )
 
     def __init__(self):
         self.heading_detector = LayoutHeadingDetector()
@@ -52,6 +57,9 @@ class DoclingStructureScanner:
 
         page_fragments: dict[int, list[TextFragment]] = {page: [] for page in range(1, total_pages + 1)}
         page_text: dict[int, list[str]] = {page: [] for page in range(1, total_pages + 1)}
+        page_heading_candidates: dict[int, list[LayoutHeadingCandidate]] = {
+            page: [] for page in range(1, total_pages + 1)
+        }
 
         for item, _level in document.iterate_items():
             text = str(getattr(item, "text", "") or "").strip()
@@ -89,6 +97,11 @@ class DoclingStructureScanner:
             page_fragments[page_number].append(fragment)
             page_text[page_number].append(text)
 
+            if label == "section_header":
+                candidate = self._docling_heading_candidate(page_number, fragment)
+                if candidate is not None:
+                    page_heading_candidates[page_number].append(candidate)
+
         pages: list[PageRecord] = []
         raw_sections: list[ValidatedSection] = []
         recovery_candidates: list[RecoveryCandidate] = []
@@ -97,6 +110,8 @@ class DoclingStructureScanner:
             fragments = page_fragments[page_number]
             text = "\n".join(page_text[page_number]).strip()
             candidates = self.heading_detector.find_candidates(page_number, fragments) if fragments else []
+            candidates.extend(page_heading_candidates[page_number])
+            candidates = self._deduplicate_candidates(candidates)
 
             if candidates:
                 structure = self.page_classifier.classify(page_number, candidates)
@@ -162,15 +177,75 @@ class DoclingStructureScanner:
             document_type="pdf_docling",
         )
 
+    @classmethod
+    def _docling_heading_candidate(
+        cls,
+        page_number: int,
+        fragment: TextFragment,
+    ) -> LayoutHeadingCandidate | None:
+        match = cls.NUMBERED_HEADING_RE.match(fragment.text)
+        if not match:
+            return None
+
+        number = match.group("number").upper()
+        title = match.group("title").strip()
+        if not cls._is_plausible_heading_title(title):
+            return None
+
+        number_fragment = TextFragment(
+            text=number,
+            x=fragment.x,
+            y=fragment.y,
+            font_size=fragment.font_size,
+            confidence=fragment.confidence,
+            width=fragment.width,
+            height=fragment.height,
+        )
+        title_fragment = TextFragment(
+            text=title,
+            x=fragment.x,
+            y=fragment.y,
+            font_size=fragment.font_size,
+            confidence=fragment.confidence,
+            width=fragment.width,
+            height=fragment.height,
+        )
+        return LayoutHeadingCandidate(
+            page_number=page_number,
+            text=f"{number} {title}",
+            fragments=[number_fragment, title_fragment],
+            score=10.0,
+            reason="docling-section-header",
+        )
+
     @staticmethod
-    def _is_plausible_section(section: ValidatedSection) -> bool:
-        title = re.sub(r"\s+", " ", section.title.strip())
-        if not title or not re.search(r"[A-Za-z]", title):
+    def _deduplicate_candidates(candidates: list[LayoutHeadingCandidate]) -> list[LayoutHeadingCandidate]:
+        result: list[LayoutHeadingCandidate] = []
+        seen: set[tuple[int, str]] = set()
+        for candidate in sorted(candidates, key=lambda item: (-item.score, item.page_number, item.text)):
+            key = (candidate.page_number, candidate.text.strip().lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(candidate)
+        return result
+
+    @staticmethod
+    def _is_plausible_heading_title(title: str) -> bool:
+        normalized = re.sub(r"\s+", " ", title.strip())
+        if not normalized or not re.search(r"[A-Za-z]", normalized):
             return False
-        if len(title) > 140:
+        if len(normalized) > 140:
             return False
-        upper = title.upper()
+        upper = normalized.upper()
         if any(token in upper for token in {"ISBN", "WWW.", "HTTP://", "HTTPS://"}):
+            return False
+        return True
+
+    @classmethod
+    def _is_plausible_section(cls, section: ValidatedSection) -> bool:
+        title = re.sub(r"\s+", " ", section.title.strip())
+        if not cls._is_plausible_heading_title(title):
             return False
         if re.fullmatch(r"[\$€£₹]?\s*\d+(?:[.,]\d+)?", title):
             return False
