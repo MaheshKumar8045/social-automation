@@ -21,16 +21,16 @@ _ACTION_RE = re.compile(
     r'saw|see(?:s|ing)?|sit(?:s|ting)?|stand(?:s|ing)?|start(?:ed|s|ing)?|'
     r'stop(?:ped|s|ping)?|take|took|tell(?:s|ing)?|turn(?:ed|s|ing)?|'
     r'walk(?:ed|s|ing)?|watch(?:ed|es|ing)?|whisper(?:ed|s|ing)?|'
-    r'shake|shook|hold|held|carry|carried|fight|fought|strike|struck)\b',
+    r'shake|shook|hold|held|carry|carried|fight|fought|strike|struck|save(?:d|s|ing)?)\b',
     re.I,
 )
 _METADATA_PREFIX_RE = re.compile(r'^(?:[A-Z][A-Z0-9\s,:;!?\'’\-]{7,})\.\s+')
 
 _EMOTION_PATTERNS = {
-    "urgency": re.compile(r'\b(hurry|quick|quickly|urgent|rush|hast|danger|dangerous|escape|flee|alarm|warn|warning)\b', re.I),
-    "fear": re.compile(r'\b(afraid|fear|fright|terrified|terror|dread|trembl|horror|panic)\b', re.I),
-    "grief": re.compile(r'\b(grief|griev|sorrow|sad|sadness|mourn|tears|wept|crying|lament)\b', re.I),
-    "anger": re.compile(r'\b(angry|anger|rage|furious|fury|rage|threat|threaten)\b', re.I),
+    "urgency": re.compile(r'\b(hurry|quick|quickly|urgent|rush|hast|danger|dangerous|escape|flee|alarm|warn|warning|go)\b', re.I),
+    "fear": re.compile(r'\b(afraid|fear|fright|terrified|terror|dread|trembl|horror|panic|death)\b', re.I),
+    "grief": re.compile(r'\b(grief|griev|sorrow|sad|sadness|mourn|tears|wept|crying|lament|poor)\b', re.I),
+    "anger": re.compile(r'\b(angry|anger|rage|furious|fury|threat|threaten|excited)\b', re.I),
     "joy": re.compile(r'\b(joy|glad|happy|laugh|smile|delight|cheer|pleased)\b', re.I),
     "calm": re.compile(r'\b(calm|quiet|peace|peaceful|rest|resting|still|serene|gentle)\b', re.I),
     "awe": re.compile(r'\b(awe|wonder|wondrous|magnificent|immense|astonish|marvel|spectacular)\b', re.I),
@@ -49,6 +49,11 @@ def _strip_metadata_prefix(text: str) -> str:
         previous = value
         value = _METADATA_PREFIX_RE.sub('', value).strip()
     return value
+
+
+def _strip_dialogue(text: str) -> str:
+    """Remove clearly quoted dialogue before selecting visual/action prose."""
+    return re.sub(r'["“].*?["”]', ' ', text, flags=re.S)
 
 
 def _unique(values: list[str], limit: int = 8) -> list[str]:
@@ -91,39 +96,49 @@ def _dialogue(scene: dict[str, Any]) -> list[str]:
     text = str(scene.get("text") or "")
     candidates: list[tuple[int, str]] = []
     for match in _QUOTE_RE.finditer(text):
-        value = _clean(match.group(1), 180)
+        value = _clean(match.group(1), 180).strip("'’“” ")
         if not value:
             continue
+        words = value.split()
         score = min(len(value), 120)
         before = text[max(0, match.start() - 100):match.start()]
         after = text[match.end():match.end() + 100]
         if _SPEECH_CUE_RE.search(before) or _SPEECH_CUE_RE.search(after):
             score += 60
-        if len(value) < 18:
-            score -= 30
-        if len(value.split()) < 3:
-            score -= 20
+        if len(value) < 24:
+            score -= 45
+        if len(words) < 4:
+            score -= 25
+        if value.lower().rstrip(" ,.!?") in {"thanks", "well", "yes", "no", "thanks from my heart"}:
+            score -= 60
         candidates.append((score, value))
     candidates.sort(key=lambda item: (-item[0], item[1].lower()))
-    return _unique([value for _, value in candidates], 3)
+    return _unique([value for _, value in candidates if len(value.split()) >= 4], 3)
 
 
 def _action_candidates(scene: dict[str, Any], events: list[dict[str, Any]]) -> list[str]:
     candidates: list[tuple[int, str]] = []
+
     for event in events:
         value = _strip_metadata_prefix(_clean(event.get("text"), 220))
         if value:
-            score = 45 + (20 if _ACTION_RE.search(value) else 0)
+            score = 45 + (25 if _ACTION_RE.search(value) else 0)
             candidates.append((score, value))
 
-    for sentence in _source_sentences(scene):
-        if len(sentence) < 25 or sentence.startswith(('"', '“')):
+    # Select narrative prose, not dialogue. This prevents quoted speech from becoming
+    # the image's "action" while retaining visible narrator-described actions/reactions.
+    narrative = _strip_dialogue(str(scene.get("text") or ""))
+    for raw in _SENTENCE_RE.split(re.sub(r'\s+', ' ', narrative).strip()):
+        sentence = _strip_metadata_prefix(raw)
+        if len(sentence) < 25:
+            continue
+        if sentence.startswith(('"', '“', "'") ):
             continue
         if _SPEECH_CUE_RE.search(sentence) and not _ACTION_RE.search(sentence):
             continue
         score = 20
         if _ACTION_RE.search(sentence):
-            score += 40
+            score += 50
         if 6 <= len(sentence.split()) <= 35:
             score += 10
         if sentence.endswith(':'):
@@ -165,7 +180,6 @@ def _emotion_cues(dialogue: list[str], actions: list[str]) -> list[str]:
 
 
 def _base_visual_prompt(
-    scene: dict[str, Any],
     characters: list[dict[str, Any]],
     objects: list[dict[str, Any]],
     actions: list[str],
@@ -177,7 +191,7 @@ def _base_visual_prompt(
     if character_lines:
         parts.append("Subjects: " + ", ".join(character_lines) + ".")
     if actions:
-        parts.append("Source-grounded moment: " + "; ".join(actions[:3]) + ".")
+        parts.append("Source-grounded visual moments: " + "; ".join(actions[:3]) + ".")
     if environment:
         parts.append("Source-supported setting/objects: " + ", ".join(environment) + ".")
     parts.append(
@@ -210,7 +224,16 @@ def _clip_prompt(index: int, total: int, base: str, action: str, dialogue: str |
 
 
 def _shot_roles(count: int) -> list[str]:
-    roles = ["establish the source setting", "show the principal subject", "focus on the source action", "capture dialogue or reaction", "show a relevant visual detail", "close on the established moment", "hold continuity", "final reaction/detail"]
+    roles = [
+        "establish the source setting",
+        "show the principal subject",
+        "focus on the source action",
+        "capture dialogue or reaction",
+        "show a relevant visual detail",
+        "close on the established moment",
+        "hold continuity",
+        "final reaction/detail",
+    ]
     return [roles[i % len(roles)] for i in range(count)]
 
 
@@ -225,7 +248,7 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
     dialogue = _dialogue(scene)
     actions = _action_candidates(scene, events)
     emotion_cues = _emotion_cues(dialogue, actions)
-    base = _base_visual_prompt(scene, characters, objects, actions, continuity)
+    base = _base_visual_prompt(characters, objects, actions, continuity)
 
     count = max(1, min(int(clip_count), 8))
     if not actions:
@@ -273,7 +296,7 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
     ]
 
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "source_grounded": True,
         "unknowns_must_remain_unknown": True,
         "image": {
