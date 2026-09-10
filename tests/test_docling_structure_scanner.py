@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from core.docling_structure_scanner import DoclingStructureScanner
+from core.layout_heading_detector import LayoutHeadingCandidate
 from core.layout_section_validator import ValidatedSection
 from core.structure_scanner import StructureScanner
 from core.text_fragment import TextFragment
@@ -40,6 +41,26 @@ def test_docling_section_header_accepts_roman_numbering():
     assert candidate.text == "I The end"
     assert candidate.fragments[0].text == "I"
     assert candidate.fragments[1].text == "The end"
+
+
+def test_single_docling_heading_is_not_demoted_by_generic_candidates():
+    scanner = DoclingStructureScanner()
+    docling = DoclingStructureScanner._docling_heading_candidate(
+        11,
+        TextFragment("1 The end", x=72, y=100, height=24),
+    )
+    generic = LayoutHeadingCandidate(
+        page_number=11,
+        text="1 The end (generic)",
+        fragments=[TextFragment("1"), TextFragment("The end")],
+        score=9.0,
+        reason="generic-layout",
+    )
+    assert docling is not None
+    selected = scanner._select_candidates(11, [TextFragment("1 The end")], [docling])
+    assert selected == [docling]
+    assert scanner.page_classifier.classify(11, selected).page_type == scanner.page_classifier.SECTION_START
+    assert generic.text != selected[0].text
 
 
 def test_docling_scanner_rejects_numeric_metadata_title():
