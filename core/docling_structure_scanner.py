@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -13,14 +14,7 @@ from core.text_fragment import TextFragment
 
 
 class DoclingStructureScanner:
-    """Build the project's structural input from Docling's document model.
-
-    Docling owns PDF parsing, reading order, OCR/layout understanding, and
-    page-level provenance. The project's existing semantic section detector,
-    validator, reconciler, and recovery layers remain downstream so the
-    change improves document ingestion without throwing away the book/story
-    semantics already built by the project.
-    """
+    """Build the project's structural input from Docling's document model."""
 
     def __init__(self):
         self.heading_detector = LayoutHeadingDetector()
@@ -32,11 +26,7 @@ class DoclingStructureScanner:
             classifier=self.page_classifier,
         )
 
-    def scan(
-        self,
-        pdf_path: str | Path,
-        max_pages: int | None = None,
-    ) -> DocumentStructure:
+    def scan(self, pdf_path: str | Path, max_pages: int | None = None) -> DocumentStructure:
         pdf_path = Path(pdf_path)
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF not found: {pdf_path}")
@@ -57,22 +47,16 @@ class DoclingStructureScanner:
 
         result = DocumentConverter().convert(pdf_path)
         document = result.document
-        total_pages = self._page_count(document)
-        if max_pages is not None:
-            total_pages = min(total_pages, max_pages)
+        available_pages = self._page_count(document)
+        total_pages = min(available_pages, max_pages) if max_pages is not None else available_pages
 
-        page_fragments: dict[int, list[TextFragment]] = {
-            page: [] for page in range(1, total_pages + 1)
-        }
-        page_text: dict[int, list[str]] = {
-            page: [] for page in range(1, total_pages + 1)
-        }
+        page_fragments: dict[int, list[TextFragment]] = {page: [] for page in range(1, total_pages + 1)}
+        page_text: dict[int, list[str]] = {page: [] for page in range(1, total_pages + 1)}
 
         for item, _level in document.iterate_items():
             text = str(getattr(item, "text", "") or "").strip()
             if not text:
                 continue
-
             label = str(getattr(item, "label", "") or "").lower()
             if label in {"page_header", "page_footer"}:
                 continue
@@ -80,7 +64,6 @@ class DoclingStructureScanner:
             prov = getattr(item, "prov", None) or []
             if not prov:
                 continue
-
             provenance = prov[0]
             page_number = int(getattr(provenance, "page_no", 0) or 0)
             if page_number < 1 or page_number > total_pages:
@@ -91,7 +74,6 @@ class DoclingStructureScanner:
             t = self._number(getattr(bbox, "t", None))
             r = self._number(getattr(bbox, "r", None))
             b = self._number(getattr(bbox, "b", None))
-
             width = (r - l) if l is not None and r is not None else None
             height = (b - t) if t is not None and b is not None else None
 
@@ -114,82 +96,85 @@ class DoclingStructureScanner:
         for page_number in range(1, total_pages + 1):
             fragments = page_fragments[page_number]
             text = "\n".join(page_text[page_number]).strip()
-
-            candidates = self.heading_detector.find_candidates(
-                page_number,
-                fragments,
-            ) if fragments else []
+            candidates = self.heading_detector.find_candidates(page_number, fragments) if fragments else []
 
             if candidates:
                 structure = self.page_classifier.classify(page_number, candidates)
-                validated = self.validator.validate(structure.candidates)
+                validated = [
+                    section
+                    for section in self.validator.validate(structure.candidates)
+                    if self._is_plausible_section(section)
+                ]
                 page_type = structure.page_type
             else:
                 structure = None
                 validated = []
                 page_type = PageStructureClassifier.NORMAL
 
-            pages.append(
-                PageRecord(
-                    page_number=page_number,
-                    page_type=page_type,
-                    source="docling",
-                    text=text,
-                    ocr_used=False,
-                    raw_text=text,
-                    quality_score=1.0 if text else 0.0,
-                    normalization_method="docling_layout",
-                )
-            )
+            pages.append(PageRecord(
+                page_number=page_number,
+                page_type=page_type,
+                source="docling",
+                text=text,
+                ocr_used=False,
+                raw_text=text,
+                quality_score=1.0 if text else 0.0,
+                normalization_method="docling_layout",
+            ))
 
-            if (
-                structure is not None
-                and structure.page_type == PageStructureClassifier.SECTION_START
-                and validated
-            ):
+            if structure is not None and structure.page_type == PageStructureClassifier.SECTION_START and validated:
                 raw_sections.extend(validated)
                 continue
 
             if candidates:
-                recovery_candidate = self.recovery.collect_candidate(
-                    page_number,
-                    candidates,
-                    page_type,
-                )
+                recovery_candidate = self.recovery.collect_candidate(page_number, candidates, page_type)
                 if recovery_candidate is not None:
                     recovery_candidates.append(recovery_candidate)
 
-        print(f"Docling pages available: {self._page_count(document)}")
+        print(f"Docling pages available: {available_pages}")
         print(f"Pages represented in project structure: {total_pages}")
         print(f"Raw validated candidates: {len(raw_sections)}")
 
         primary_sections = self.reconciler.reconcile(raw_sections).sections
-        recovered = self.recovery.recover(
-            recovery_candidates,
-            primary_sections,
-        )
+        recovered = [
+            section for section in self.recovery.recover(recovery_candidates, primary_sections)
+            if self._is_plausible_section(section)
+        ]
         for section in recovered:
             section.detection_method = "recovery"
 
         final_sections = (
             self.reconciler.reconcile(primary_sections + recovered).sections
-            if recovered
-            else primary_sections
+            if recovered else primary_sections
         )
+        final_sections = [section for section in final_sections if self._is_plausible_section(section)]
 
         print(f"Primary reconciled sections: {len(primary_sections)}")
         print(f"Recovered sections: {len(recovered)}")
         print(f"Final reconciled sections: {len(final_sections)}")
-
         self._print_diagnostics(final_sections, recovered)
 
         return DocumentStructure(
             pdf_path=pdf_path,
-            total_pages=self._page_count(document),
+            total_pages=available_pages,
             sections=final_sections,
             pages=pages,
             document_type="pdf_docling",
         )
+
+    @staticmethod
+    def _is_plausible_section(section: ValidatedSection) -> bool:
+        title = re.sub(r"\s+", " ", section.title.strip())
+        if not title or not re.search(r"[A-Za-z]", title):
+            return False
+        if len(title) > 140:
+            return False
+        upper = title.upper()
+        if any(token in upper for token in {"ISBN", "WWW.", "HTTP://", "HTTPS://"}):
+            return False
+        if re.fullmatch(r"[\$€£₹]?\s*\d+(?:[.,]\d+)?", title):
+            return False
+        return True
 
     @staticmethod
     def _number(value: Any) -> float | None:
@@ -208,7 +193,6 @@ class DoclingStructureScanner:
                 return len(pages)
             except TypeError:
                 pass
-
         max_page = 0
         for item, _level in document.iterate_items():
             for prov in getattr(item, "prov", None) or []:
@@ -216,10 +200,7 @@ class DoclingStructureScanner:
         return max_page
 
     @staticmethod
-    def _print_diagnostics(
-        sections: list[ValidatedSection],
-        recovered: list[ValidatedSection],
-    ) -> None:
+    def _print_diagnostics(sections: list[ValidatedSection], recovered: list[ValidatedSection]) -> None:
         print()
         print("=" * 60)
         print("DOCLING DIAGNOSTICS")
@@ -227,19 +208,10 @@ class DoclingStructureScanner:
         print()
         print(f"{'PAGE':>6}  {'NUMBER':<10}  {'CONF':>6}  METHOD       TITLE")
         print("-" * 100)
-
-        recovered_ids = {
-            (s.page_number, s.section_number, s.title)
-            for s in recovered
-        }
+        recovered_ids = {(s.page_number, s.section_number, s.title) for s in recovered}
         for section in sections:
             key = (section.page_number, section.section_number, section.title)
             method = "recovery" if key in recovered_ids else section.detection_method
-            print(
-                f"{section.page_number:>6}  "
-                f"{(section.section_number or '?'):<10}  "
-                f"{section.confidence:>6.1f}  "
-                f"{method:<11} {section.title}"
-            )
+            print(f"{section.page_number:>6}  {(section.section_number or '?'):<10}  {section.confidence:>6.1f}  {method:<11} {section.title}")
         print()
         print("=" * 60)
