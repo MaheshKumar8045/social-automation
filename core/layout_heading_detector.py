@@ -31,7 +31,8 @@ class LayoutHeadingDetector:
     }
 
     ROMAN_RE = re.compile(r"^[IVXLCDM]+[.,:;]?$", re.IGNORECASE)
-    NUMBER_RE = re.compile(r"^\d+[.,:;]?$")
+    NUMBER_RE = re.compile(r"^\d+[.,:;]?$" )
+    INLINE_NUMBER_RE = re.compile(r"^(\d{1,4})[.)\-:]?\s+(.{2,100})$")
     RUNNING_HEADER_MARKERS = {"ravana"}
 
     def find_candidates(self, page_number: int, fragments: list[TextFragment]) -> list[LayoutHeadingCandidate]:
@@ -48,11 +49,24 @@ class LayoutHeadingDetector:
                     candidates.append(candidate)
 
         for index, fragment in enumerate(fragments):
-            if not self._is_arabic_number(fragment.text):
+            if self._is_arabic_number(fragment.text):
+                candidate = self._build_numbered_candidate(page_number, fragments, index, body_size)
+                if candidate is not None:
+                    candidates.append(candidate)
                 continue
-            candidate = self._build_numbered_candidate(page_number, fragments, index, body_size)
-            if candidate is not None:
-                candidates.append(candidate)
+
+            inline = self._parse_inline_numbered_fragment(fragment)
+            if inline is not None:
+                number_text, title_text = inline
+                candidate = self._build_inline_numbered_candidate(
+                    page_number,
+                    fragment,
+                    number_text,
+                    title_text,
+                    body_size,
+                )
+                if candidate is not None:
+                    candidates.append(candidate)
 
         return self._deduplicate_candidates(candidates)
 
@@ -94,8 +108,6 @@ class LayoutHeadingDetector:
             score += 2.0
             reasons.append("larger-than-body")
 
-        # First try the actual visual layout. This is the highest-confidence
-        # path when coordinates are available from PDF/OCR fragments.
         title_fragments = self._same_row_title_fragments(fragments, number_index, body_size)
         if title_fragments:
             title_fragments = self._trim_numbered_title(title_fragments)
@@ -127,9 +139,6 @@ class LayoutHeadingDetector:
                     score += 3.0
                     reasons.append("next-row-title")
 
-        # PDF text-layer extraction often has no coordinates. In that case
-        # reconstruct a short heading from the fragments immediately following
-        # the Arabic number, stopping before a running header or obvious prose.
         if len(block) == 1:
             inline = self._inline_numbered_title(fragments, number_index)
             if inline:
@@ -150,6 +159,83 @@ class LayoutHeadingDetector:
             return None
         return LayoutHeadingCandidate(page_number, text, block, score, ",".join(reasons))
 
+    def _build_inline_numbered_candidate(
+        self,
+        page_number,
+        fragment,
+        number_text,
+        title_text,
+        body_size,
+    ):
+        """Build a candidate when PDF/OCR returns `N Title` as one fragment."""
+        title_text = self._normalize_heading_text(title_text.strip())
+        if not title_text or self._title_looks_like_prose_text(title_text):
+            return None
+
+        # Inline numbered headings are only accepted when the title has
+        # heading-like typography or shape. This prevents ordinary prose such
+        # as `12 I walked home...` from becoming a chapter.
+        title_words = title_text.split()
+        size = fragment.font_size or fragment.height
+        heading_typography = size is not None and size >= body_size * 1.15
+        heading_shape = (
+            len(title_words) <= 8
+            and (
+                title_text.isupper()
+                or title_text.istitle()
+                or title_text[:1].isupper()
+            )
+        )
+        if not (heading_typography or heading_shape):
+            return None
+
+        number_fragment = TextFragment(
+            text=number_text,
+            x=fragment.x,
+            y=fragment.y,
+            font_size=fragment.font_size,
+            confidence=fragment.confidence,
+            width=fragment.width,
+            height=fragment.height,
+        )
+        title_fragment = TextFragment(
+            text=title_text,
+            x=fragment.x,
+            y=fragment.y,
+            font_size=fragment.font_size,
+            confidence=fragment.confidence,
+            width=fragment.width,
+            height=fragment.height,
+        )
+
+        score = 5.0
+        reasons = ["heading-number", "inline-number-prefix"]
+        if heading_typography:
+            score += 2.0
+            reasons.append("larger-than-body")
+        if heading_shape:
+            score += 1.0
+            reasons.append("heading-like-title")
+
+        return LayoutHeadingCandidate(
+            page_number,
+            f"{number_text} {title_text}",
+            [number_fragment, title_fragment],
+            score,
+            ",".join(reasons),
+        )
+
+    @classmethod
+    def _parse_inline_numbered_fragment(cls, fragment):
+        text = re.sub(r"\s+", " ", fragment.text.strip())
+        match = cls.INLINE_NUMBER_RE.fullmatch(text)
+        if not match:
+            return None
+        number, title = match.groups()
+        if not title.strip():
+            return None
+        return number, title.strip()
+
     def _inline_numbered_title(self, fragments, number_index):
         result = []
         word_count = 0
@@ -161,8 +247,6 @@ class LayoutHeadingDetector:
                 break
             if self._looks_like_page_marker(text) or text.lower().strip(".,:;") in self.RUNNING_HEADER_MARKERS:
                 break
-            # The title should be short. A sentence-ending fragment is treated
-            # as prose rather than a heading title.
             if re.search(r"[.!?]$", text):
                 break
             result.append(fragment)
@@ -196,6 +280,10 @@ class LayoutHeadingDetector:
     @staticmethod
     def _title_looks_like_prose(fragments):
         text = " ".join(f.text.strip() for f in fragments if f.text.strip())
+        return LayoutHeadingDetector._title_looks_like_prose_text(text)
+
+    @staticmethod
+    def _title_looks_like_prose_text(text):
         words = text.split()
         if not words or len(words) > 10:
             return True
