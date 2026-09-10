@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .generation_context import get_generation_context
-from .generation_prompt import build_image_prompt
+from .media_prompt_compiler import compile_media_prompts
 
 
 class GenerationPlanner:
@@ -15,19 +15,26 @@ class GenerationPlanner:
         self.database_path = Path(database_path)
 
     @staticmethod
-    def _prompt_bundle(scene: dict[str, Any], characters: list[dict[str, Any]], objects: list[dict[str, Any]], events: list[dict[str, Any]], constraints: list[str]) -> dict[str, str]:
-        structured = {
-            "scene": scene,
-            "characters": characters,
-            "objects": objects,
-            "events": events,
-            "constraints": constraints,
-        }
-        grounded = "Create media strictly from source-grounded scene data. Do not invent unspecified facts. " + json.dumps(structured, ensure_ascii=False, sort_keys=True)
+    def _prompt_bundle(
+        context: dict[str, Any],
+        characters: list[dict[str, Any]],
+        objects: list[dict[str, Any]],
+        events: list[dict[str, Any]],
+        constraints: list[str],
+    ) -> dict[str, Any]:
+        media_context = dict(context)
+        media_context["characters"] = characters
+        media_context["objects"] = objects
+        media_context["events"] = events
+        media_context["generation_constraints"] = constraints
+        media = compile_media_prompts(media_context)
         return {
-            "image_prompt": build_image_prompt({"scene": scene, "characters": characters, "objects": objects, "events": events, "visual_constraints": constraints}),
-            "video_prompt": grounded + " Produce a coherent short video while preserving supplied continuity and scene state.",
-            "audio_prompt": grounded + " Produce only source-compatible audio or sound design.",
+            "image_prompt": media["image"]["prompt"],
+            "image_dialogue_overlays": media["image"]["dialogue_overlays"],
+            "short_video_prompt_package": media["short_video"],
+            "long_video_prompt_package": media["long_video"],
+            "audio_prompt": media["short_video"]["audio"],
+            "media_prompt_package": media,
         }
 
     def build(self, document_id: int, scene_id: int) -> dict[str, Any]:
@@ -64,11 +71,11 @@ class GenerationPlanner:
         if not characters:
             visual_constraints.append("No canonical character is source-confirmed as present in this scene.")
 
-        prompts = self._prompt_bundle(context["scene"], characters, context["objects"], context["events"], visual_constraints)
+        prompts = self._prompt_bundle(context, characters, context["objects"], context["events"], visual_constraints)
         return {
             "document_id": document_id,
             "scene_id": scene_id,
-            "plan_version": 3,
+            "plan_version": 4,
             "plan_status": "ready",
             "source_grounded": True,
             "unknowns_must_remain_unknown": True,
