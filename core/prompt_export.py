@@ -28,7 +28,17 @@ def _scene_rows(database: str | Path, document_id: int) -> list[dict[str, Any]]:
         ).fetchall()]
 
 
+def _nonempty_text(value: Any, *, minimum: int = 1) -> bool:
+    return isinstance(value, str) and len(value.strip()) >= minimum
+
+
 def validate_plan(plan: dict[str, Any]) -> list[str]:
+    """Validate both plan structure and minimum production quality.
+
+    This is intentionally deterministic. It does not claim that a prompt is
+    artistically perfect; it catches the structural failures that previously
+    allowed a nominally passing DOD package to contain unusable media fields.
+    """
     errors: list[str] = []
     if plan.get("plan_status") != "ready":
         errors.append("plan_status is not ready")
@@ -36,16 +46,93 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
         errors.append("source_grounded must be true")
     if plan.get("unknowns_must_remain_unknown") is not True:
         errors.append("unknowns_must_remain_unknown must be true")
-    if not isinstance(plan.get("image_prompt"), str) or len(plan["image_prompt"].strip()) < 40:
-        errors.append("image prompt is missing or too short")
-    if not isinstance(plan.get("short_video_prompt_package"), dict) or not plan["short_video_prompt_package"].get("clips"):
-        errors.append("short-video clips are missing")
-    if not isinstance(plan.get("long_video_prompt_package"), dict) or not plan["long_video_prompt_package"].get("shots"):
-        errors.append("long-video shots are missing")
-    if not isinstance(plan.get("audio_prompt"), dict) or not plan["audio_prompt"].get("music_direction"):
-        errors.append("audio/music direction is missing")
-    if not isinstance(plan.get("source_evidence"), list):
+
+    image_prompt = plan.get("image_prompt")
+    if not _nonempty_text(image_prompt, minimum=120):
+        errors.append("image prompt is missing or too short for production use")
+    elif "source-grounded" not in image_prompt.lower():
+        errors.append("image prompt is missing an explicit source-grounding constraint")
+
+    characters = plan.get("characters") or []
+    if not isinstance(characters, list):
+        errors.append("characters must be a list")
+        characters = []
+
+    if isinstance(plan.get("short_video_prompt_package"), dict):
+        short_video = plan["short_video_prompt_package"]
+        clips = short_video.get("clips")
+        if not isinstance(clips, list) or not clips:
+            errors.append("short-video clips are missing")
+        else:
+            declared_count = short_video.get("clip_count")
+            if declared_count != len(clips):
+                errors.append("short-video clip_count does not match clips")
+            for index, clip in enumerate(clips, start=1):
+                if not isinstance(clip, dict) or not _nonempty_text(clip.get("prompt"), minimum=100):
+                    errors.append(f"short-video clip {index} prompt is missing or too short")
+                    continue
+                if clip.get("clip_number") != index:
+                    errors.append(f"short-video clip {index} has an invalid clip_number")
+    else:
+        errors.append("short-video prompt package is missing")
+
+    if isinstance(plan.get("long_video_prompt_package"), dict):
+        long_video = plan["long_video_prompt_package"]
+        shots = long_video.get("shots")
+        if not isinstance(shots, list) or not shots:
+            errors.append("long-video shots are missing")
+        else:
+            for index, shot in enumerate(shots, start=1):
+                if not isinstance(shot, dict) or not _nonempty_text(shot.get("prompt"), minimum=100):
+                    errors.append(f"long-video shot {index} prompt is missing or too short")
+                    continue
+                if shot.get("shot_number") != index:
+                    errors.append(f"long-video shot {index} has an invalid shot_number")
+    else:
+        errors.append("long-video prompt package is missing")
+
+    audio = plan.get("audio_prompt")
+    if not isinstance(audio, dict):
+        errors.append("audio prompt package is missing")
+    else:
+        music = audio.get("music_direction")
+        if not isinstance(music, list) or not any(_nonempty_text(item, minimum=20) for item in music):
+            errors.append("audio/music direction is missing or too short")
+        if not _nonempty_text(audio.get("sound_design"), minimum=20):
+            errors.append("audio sound-design direction is missing or too short")
+
+    media = plan.get("media_prompt_package")
+    if not isinstance(media, dict):
+        errors.append("unified media_prompt_package is missing")
+    else:
+        if media.get("source_grounded") is not True:
+            errors.append("unified media package is not source-grounded")
+        if media.get("unknowns_must_remain_unknown") is not True:
+            errors.append("unified media package does not preserve unknowns")
+        if not isinstance(media.get("image"), dict):
+            errors.append("unified media image package is missing")
+        if not isinstance(media.get("short_video"), dict):
+            errors.append("unified media short-video package is missing")
+        if not isinstance(media.get("long_video"), dict):
+            errors.append("unified media long-video package is missing")
+
+    evidence = plan.get("source_evidence")
+    if not isinstance(evidence, list):
         errors.append("source_evidence is missing")
+
+    # If canonical characters are present, the image prompt should acknowledge
+    # at least one of them. This catches accidental loss of the character layer
+    # between generation context, planner, and prompt compiler.
+    if characters and _nonempty_text(image_prompt):
+        lowered_prompt = image_prompt.lower()
+        named_characters = [
+            str(character.get("canonical_name") or "").strip().lower()
+            for character in characters
+            if character.get("canonical_name")
+        ]
+        if named_characters and not any(name in lowered_prompt for name in named_characters):
+            errors.append("image prompt does not contain any canonical character from the generation plan")
+
     return errors
 
 
@@ -61,8 +148,6 @@ def build_all_prompts(database: str | Path, document_id: int, output_dir: str | 
     stages["identity_evidence"] = build_identity_evidence(database, document_id)
     stages["mention_identity_resolution"] = build_mention_identity_resolution(database, document_id)
     stages["canonical_characters"] = build_canonical_characters(database, document_id)
-    # visual_knowledge_bible creates the source visual_profiles/visual_facts layer
-    # consumed by the canonical visual bible. Keep it before canonical_visual_bible.
     stages["visual_knowledge_bible"] = VisualKnowledgeBible(database).build(document_id)
     stages["canonical_visual_bible"] = build_visual_bible(database, document_id)
     stages["continuity"] = build_continuity_state(database, document_id)
