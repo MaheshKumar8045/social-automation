@@ -19,7 +19,7 @@ class EntityExtractor:
 
     _TITLE_RE = re.compile(
         r"\b(?:Mr|Mrs|Miss|Ms|Dr|Sir|Captain|Professor|Lord|Lady|King|Queen|Prince|Princess)"
-        r"\.?\s+[A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){0,2}"
+        r"\s+[A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){0,2}"
     )
     _SAID_RE = re.compile(
         r"\b([A-Z][A-Za-z'-]{2,}(?:\s+[A-Z][A-Za-z'-]+){0,2})"
