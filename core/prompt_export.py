@@ -15,6 +15,7 @@ from .character_identity_normalizer import build as build_identity_normalizer
 from .continuity_state import build_continuity_state
 from .generation_planner import build_generation_plan
 from .mention_identity_resolution import build as build_mention_identity_resolution
+from .visual_knowledge_bible import VisualKnowledgeBible
 
 
 def _scene_rows(database: str | Path, document_id: int) -> list[dict[str, Any]]:
@@ -60,6 +61,9 @@ def build_all_prompts(database: str | Path, document_id: int, output_dir: str | 
     stages["identity_evidence"] = build_identity_evidence(database, document_id)
     stages["mention_identity_resolution"] = build_mention_identity_resolution(database, document_id)
     stages["canonical_characters"] = build_canonical_characters(database, document_id)
+    # visual_knowledge_bible creates the source visual_profiles/visual_facts layer
+    # consumed by the canonical visual bible. Keep it before canonical_visual_bible.
+    stages["visual_knowledge_bible"] = VisualKnowledgeBible(database).build(document_id)
     stages["canonical_visual_bible"] = build_visual_bible(database, document_id)
     stages["continuity"] = build_continuity_state(database, document_id)
 
