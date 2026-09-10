@@ -1,3 +1,7 @@
+# Runtime dependency set for the main Windows .venv.
+# Note: aisignal is intentionally NOT listed; aisignal==1.4.0 is not a
+# published installable package/version and must not be added to this file.
+
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.3
 aistudio_sdk==0.3.9
@@ -107,8 +111,8 @@ sentencepiece==0.2.0
 setuptools==84.0.0
 shapely==2.1.2
 six==1.17.0
-sniffio==1.3.1
-soupsieve==2.9.2
+sniffio==1.3.0
+soupsieve==2.9.0
 SQLAlchemy==2.0.51
 tenacity==9.1.4
 tiktoken==0.13.0
@@ -121,7 +125,7 @@ tzdata==2026.3
 ujson==5.13.0
 urllib3==2.7.0
 uuid_utils==0.17.0
-wcwidth==0.8.2
+wcwidth==0.8.0
 websockets==17.0.1
 xlsxwriter==3.2.9
 xxhash==3.11.9
