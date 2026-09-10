@@ -169,13 +169,19 @@ class GenerationContext:
 
     @staticmethod
     def _neighbor(con: sqlite3.Connection, document_id: int, scene_id: int, direction: int) -> dict[str, Any] | None:
-        scene = con.execute("SELECT scene_order FROM scenes WHERE document_id=? AND id=?", (document_id, scene_id)).fetchone()
+        scene = con.execute(
+            "SELECT story_id, scene_order FROM scenes WHERE document_id=? AND id=?",
+            (document_id, scene_id),
+        ).fetchone()
         if scene is None:
             return None
         target = int(scene["scene_order"]) + direction
         row = con.execute(
-            "SELECT id, scene_order, title, page_start, page_end FROM scenes WHERE document_id=? AND scene_order=? LIMIT 1",
-            (document_id, target),
+            """SELECT id, scene_order, title, page_start, page_end
+               FROM scenes
+               WHERE document_id=? AND story_id=? AND scene_order=?
+               LIMIT 1""",
+            (document_id, int(scene["story_id"]), target),
         ).fetchone()
         return dict(row) if row else None
 
