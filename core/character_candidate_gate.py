@@ -3,7 +3,7 @@ import argparse,json,re,sqlite3
 from pathlib import Path
 SCHEMA='''CREATE TABLE IF NOT EXISTS character_candidate_gate (id INTEGER PRIMARY KEY,document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,decision TEXT NOT NULL,normalized_name TEXT NOT NULL,score REAL NOT NULL,reasons_json TEXT NOT NULL DEFAULT '[]',UNIQUE(document_id,entity_id)); CREATE INDEX IF NOT EXISTS idx_character_candidate_gate_doc_decision ON character_candidate_gate(document_id,decision);'''
 STOPWORDS=set('a an and are as at be been before but by can could did do does for from had has have he her here him his how i if in is it its just like many more most my never no not now of on one or only or perhaps quite rather said see she so some such than that the their them then there these they this those through to too two under up us very was we were what when where which while why will with without would you your after above about again almost already also always another any anyone anything around because behind below between both during each either enough every everywhere except few first following further get got great half however indeed instead itself last less little long maybe most much neither next none nothing often once other otherwise over same several since someone something soon still though three together toward towards until upon well whatever whenever whether while within yet having ice all besides certainly come doubtless hence'.split())
-NON_PERSON=set('african english englishman european french icelandic icelanders russians danish makololos makololo bochjesmen queen earth orange reykjawik sneffels'.split())
+NON_PERSON=set('african english englishman european french icelandic icelanders russians danish makololos makololo bochjesmen queen earth orange reykjawik sneffels mother earth'.split())
 TITLE_ONLY=re.compile(r'^(?:mr|mrs|ms|miss|dr|prof|professor|capt|captain|sir|lady|lord|rev|reverend|colonel|major|lieutenant|herr|monsieur|madame)\.?$',re.I)
 PERSON_TITLE=re.compile(r'^(?:mr|mrs|ms|miss|dr|prof|professor|capt|captain|sir|lady|lord|rev|reverend|colonel|major|lieutenant|herr|monsieur|madame)\.?\s+',re.I)
 NAME_WORD=re.compile(r"^[A-Z][A-Za-z'’-]+$")
@@ -26,6 +26,8 @@ def gate(name:str,entity_type:str,mentions:list[sqlite3.Row])->tuple[str,float,l
  roles={w.lower().rstrip('.') for w in bare}
  if not title and roles & ROLE_TOKENS:return 'non_character',0.95,['generic_non_person_name_pattern']
  contexts=[str(m['context'] or '') for m in mentions]; exact=sum(1 for x in contexts if n.lower() in x.lower()); scenes=len({m['scene_id'] for m in mentions if m['scene_id'] is not None}); speech=sum(1 for x in contexts if SPEECH_CUE.search(x)); action=sum(1 for x in contexts if ACTION_CUE.search(x)); direct=sum(1 for x in contexts if re.search(DIRECT_PERSON_CUE.pattern.format(name=re.escape(n)),x,re.I))
+ if title and len(bare)==1 and bare[0].lower() in STOPWORDS and direct==0:
+  return 'review',0.35,['title_with_stopword_name_without_direct_person_reference']
  score=.25
  if title:score+=.25;reasons.append('personal_title')
  if len(bare)>=2:score+=.15;reasons.append('multiword_person_name')
