@@ -39,10 +39,13 @@ class SceneMilestoneTests(unittest.TestCase):
             doc_id = store.save_structure(structure, chunk_size=1000, chunk_overlap=100)
             self.assertEqual(2, len(store.get_stories(doc_id)))
             self.assertGreaterEqual(len(store.get_scenes(doc_id)), 2)
-            with sqlite3.connect(db) as conn:
+            conn = sqlite3.connect(db)
+            try:
                 tables = {r[0] for r in conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 )}
+            finally:
+                conn.close()
             self.assertIn("stories", tables)
             self.assertIn("scenes", tables)
 
