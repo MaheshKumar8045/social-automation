@@ -16,6 +16,24 @@ layer.
 - JSON export includes scenes.
 - `core.pipeline` writes `<name>_scenes.csv` and reports the scene count.
 
+## Regression / verification status
+
+The scene milestone is verified against the current repository baseline.
+
+- Windows / Python 3.13 environment verified.
+- Full automated regression suite: **25 passed, 0 failed**.
+- SQLite connection lifecycle is now explicitly closed after use, including the
+  scene milestone inspection path, preventing Windows temporary-directory file
+  locking during test cleanup.
+- The `DocumentStore` transaction/connection fix preserves the existing public
+  APIs and keeps RAG/export behavior passing.
+
+Verified repository commit:
+
+```text
+3a16978806937499ae0409067b15a36e08b50b4d
+```
+
 ## Deliberate limitation
 
 The current scene strategy is structural, not semantic. It does not claim that
@@ -25,5 +43,6 @@ provenance contract.
 
 ## Next
 
-Use semantic analysis to refine story/scene boundaries and extract reusable
-Character, Environment, Location, Event, and Relationship entities.
+Proceed to the existing one-command PDF -> all-prompts DOD pipeline using a real
+or benchmark PDF. Do not rebuild the scene/story persistence layer unless a new
+regression is demonstrated.
