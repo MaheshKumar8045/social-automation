@@ -65,8 +65,12 @@ def build(db: str|Path, doc:int)->dict[str,int]:
     conf=max(conf, float(validated_members[0]['gate_score']))
    cur=con.execute('INSERT INTO canonical_characters(document_id,identity_group_id,canonical_name,confidence,status) VALUES(?,?,?,?,?)',(doc,g['id'],canonical_name,conf,status))
    cid=cur.lastrowid
+   # When a validated member anchors an unresolved OCR-variant group, that
+   # validated entity is the canonical identity for alias relationships.
+   # Do not leave the group's old OCR root marked as canonical.
+   canonical_entity_id=(validated_members[0]['entity_id'] if validated_members else g['canonical_entity_id'])
    for m in members:
-    rel='canonical' if m['entity_id']==g['canonical_entity_id'] else ('alias' if status in {'confirmed','likely'} else 'variant')
+    rel='canonical' if m['entity_id']==canonical_entity_id else ('alias' if status in {'confirmed','likely'} else 'variant')
     con.execute('INSERT INTO canonical_character_aliases(canonical_character_id,entity_id,alias,relationship,confidence) VALUES(?,?,?,?,?)',(cid,m['entity_id'],m['variant_name'],rel,m['confidence']))
   con.commit(); return counts
 
