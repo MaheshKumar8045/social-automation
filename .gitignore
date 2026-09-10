@@ -13,4 +13,5 @@ data/*.sqlite
 data/*.sqlite3
 data/generated/
 data/exports/
+data/*_prompts/
 
