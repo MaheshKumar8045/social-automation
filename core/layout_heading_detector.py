@@ -40,16 +40,12 @@ class LayoutHeadingDetector:
         body_size = self._estimate_body_size(fragments)
         candidates = []
 
-        # Traditional explicit headings: CHAPTER / PART / SECTION + number + title.
         for index, fragment in enumerate(fragments):
             if self._is_structural_keyword(fragment.text):
                 candidate = self._build_candidate(page_number, fragments, index, body_size)
                 if candidate is not None:
                     candidates.append(candidate)
 
-        # Many real books use a numbered heading without the word CHAPTER,
-        # e.g. "1 The end". Detect that layout without assuming a particular
-        # book, while leaving multi-entry contents pages to the classifier.
         for index, fragment in enumerate(fragments):
             if not self._looks_like_number(fragment.text):
                 continue
@@ -89,6 +85,13 @@ class LayoutHeadingDetector:
 
     def _build_numbered_candidate(self, page_number, fragments, number_index, body_size):
         number = fragments[number_index]
+        is_arabic = self._is_arabic_number(number.text)
+
+        # A lone Roman numeral is common inside prose (especially "I").
+        # Do not promote it unless the page/layout gives strong heading evidence.
+        if not is_arabic and not self._roman_has_heading_evidence(fragments, number_index, body_size):
+            return None
+
         block = [number]
         score = 4.0
         reasons = ["heading-number"]
@@ -97,14 +100,14 @@ class LayoutHeadingDetector:
             score += 2.0
             reasons.append("larger-than-body")
 
-        # First prefer title text on the same visual row as the number.
-        same_row = self._same_row_title_fragments(fragments, number_index, body_size)
-        if same_row:
-            block.extend(same_row)
-            score += 3.0
-            reasons.append("same-row-title")
+        title_fragments = self._same_row_title_fragments(fragments, number_index, body_size)
+        if title_fragments:
+            title_fragments = self._trim_numbered_title(title_fragments)
+            if title_fragments:
+                block.extend(title_fragments)
+                score += 3.0
+                reasons.append("same-row-title")
         else:
-            # Some books put the title immediately below the chapter number.
             next_row = self._find_next_visual_row(fragments, number_index, body_size)
             if next_row is not None:
                 title = []
@@ -121,18 +124,106 @@ class LayoutHeadingDetector:
                         continue
                     title.append(fragment)
                 title.sort(key=lambda f: f.x if f.x is not None else 0.0)
+                title = self._trim_numbered_title(title)
                 if title:
                     block.extend(title)
                     score += 3.0
                     reasons.append("next-row-title")
 
+        # PDF text extraction can preserve the chapter number and title on the
+        # same logical line even when no useful coordinates survive.
+        if len(block) == 1 and is_arabic:
+            inline = self._inline_numbered_title(fragments, number_index)
+            if inline:
+                block.extend(inline)
+                score += 3.0
+                reasons.append("inline-title")
+
         block = self._unique_fragments(block)
-        title_present = any(f is not number and not self._looks_like_number(f.text) for f in block)
+        title_present = any(
+            f is not number
+            and not self._looks_like_number(f.text)
+            and not self._is_structural_keyword(f.text)
+            for f in block
+        )
         if not title_present:
             return None
 
-        text = " ".join(f.text.strip() for f in block if f.text.strip())
+        title_fragments = [f for f in block if f is not number]
+        if self._title_looks_like_prose(title_fragments):
+            return None
+
+        text = self._normalize_heading_text(" ".join(f.text.strip() for f in block if f.text.strip()))
+        if not text:
+            return None
         return LayoutHeadingCandidate(page_number, text, block, score, ",".join(reasons))
+
+    def _inline_numbered_title(self, fragments, number_index):
+        result = []
+        for fragment in fragments[number_index + 1:number_index + 8]:
+            text = fragment.text.strip()
+            if not text:
+                continue
+            if self._looks_like_number(text) or self._is_structural_keyword(text):
+                break
+            if self._looks_like_page_marker(text):
+                break
+            result.append(fragment)
+            if len(" ".join(f.text for f in result).split()) >= 6:
+                break
+        return self._trim_numbered_title(result)
+
+    def _trim_numbered_title(self, fragments):
+        result = []
+        words = []
+        for fragment in fragments:
+            text = fragment.text.strip()
+            if not text:
+                continue
+            if self._looks_like_page_marker(text):
+                break
+            words.extend(text.split())
+            result.append(fragment)
+            if len(words) >= 6:
+                break
+        if not words:
+            return []
+        return result
+
+    @staticmethod
+    def _title_looks_like_prose(fragments):
+        text = " ".join(f.text.strip() for f in fragments if f.text.strip())
+        words = text.split()
+        if len(words) > 10:
+            return True
+        if re.search(r"[.!?]$", text):
+            return True
+        return False
+
+    @classmethod
+    def _normalize_heading_text(cls, text):
+        text = re.sub(r"\s+", " ", text).strip()
+        # Common OCR/PDF split in chapter headings: "T HE" -> "THE".
+        text = re.sub(r"\bT\s+HE\b", "THE", text, flags=re.IGNORECASE)
+        return text
+
+    @classmethod
+    def _is_arabic_number(cls, text):
+        return bool(cls.NUMBER_RE.fullmatch(text.strip()))
+
+    def _roman_has_heading_evidence(self, fragments, number_index, body_size):
+        number = fragments[number_index]
+        if number.text.strip().rstrip(".,:;").upper() == "I":
+            # "I" is overwhelmingly likely to be a pronoun in body text.
+            return self._is_larger_than_body(number, body_size) and self._has_short_adjacent_title(fragments, number_index, body_size)
+        return self._is_larger_than_body(number, body_size) and self._has_short_adjacent_title(fragments, number_index, body_size)
+
+    def _has_short_adjacent_title(self, fragments, number_index, body_size):
+        same = self._same_row_title_fragments(fragments, number_index, body_size)
+        if same and not self._title_looks_like_prose(self._trim_numbered_title(same)):
+            return True
+        next_row = self._find_next_visual_row(fragments, number_index, body_size)
+        return next_row is not None
 
     def _same_row_title_fragments(self, fragments, number_index, body_size):
         number = fragments[number_index]
@@ -244,12 +335,6 @@ class LayoutHeadingDetector:
         if anchor.x is None or fragment.x is None:
             return False
         return abs(fragment.x - anchor.x) > page_width * 0.55
-
-    @staticmethod
-    def _is_near(first, second, body_size):
-        if first.x is None or second.x is None or first.y is None or second.y is None:
-            return True
-        return abs(second.x - first.x) <= max(body_size * 12, 100.0) and abs(second.y - first.y) <= max(body_size * 3, 40.0)
 
     @classmethod
     def _looks_like_number(cls, text):
