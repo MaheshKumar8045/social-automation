@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .cinematic_generation import enhance_generation_package
 from .generation_context import get_generation_context
 from .media_prompt_compiler import compile_media_prompts
 from .visual_generation_policy import enrich_character
@@ -25,6 +26,16 @@ class GenerationPlanner:
             "generation_constraints": constraints,
         })
         media = compile_media_prompts(media_context)
+        media = enhance_generation_package(
+            scene=context.get("scene") or {},
+            characters=characters,
+            objects=objects,
+            events=events,
+            continuity=context.get("continuity") or {},
+            world_profile=context.get("world_profile") or {},
+            genre=context.get("visual_genre") or "general_narrative",
+            media=media,
+        )
         return {
             "image_prompt": media["image"]["prompt"],
             "image_dialogue_overlays": media["image"]["dialogue_overlays"],
@@ -83,7 +94,7 @@ class GenerationPlanner:
         return {
             "document_id": document_id,
             "scene_id": scene_id,
-            "plan_version": 6,
+            "plan_version": 7,
             "plan_status": "ready",
             "source_grounded": True,
             "unknowns_must_remain_unknown": True,
