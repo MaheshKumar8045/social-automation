@@ -1,142 +1,131 @@
 ## Social Automation Project Checkpoint — 2026-09-11
 
-### Current milestone: Cinematic Generation Intelligence QA
+### Current milestone: Local LLM Successor Branch
 
-### Completed
-- Added `core/cinematic_generation.py` as the dedicated scene-level cinematic composition layer between generation context/media compilation and final generation-plan output.
-- Integrated it into `core/generation_planner.py`; image, short-video, and long-video generation plans receive the cinematic enhancement.
-- Scene interpretation separates source-anchored visual moments from controlled production inference.
-- Added source-text dialogue extraction with quote-first behavior and conservative first-person/speech-cue fallback.
-- Hardened dialogue extraction against OCR contamination, including chapter/section prefixes and likely speaker-name prefixes.
-- Character presence is split into `visible` versus `referenced`.
-- A name-only character reference is never automatically rendered as a visible character.
-- Visible character blocking requires physical/presence evidence tied to the character, from a matching scene event or scene mention.
-- Matching scene-event text is preferred over abbreviated mention snippets for blocking, preserving canonical source wording.
-- Added deterministic cinematic direction: framing, lens/perspective, camera height, lighting, and movement style selected from source signals.
-- Added scene-specific visual hierarchy and environment-first guidance.
-- Added cinematic direction to short-video clips and long-video shots while preserving source events, identity anchors, continuity, and unknown attributes.
-- Image overlays prefer supportable source dialogue; when unavailable, they use a source visual moment rather than blindly using the scene title.
-- Strengthened prompt-export QA to require scene interpretation and cinematic direction.
-- Added regression coverage for OCR contamination, first-person dialogue, name-only references, physical presence, and event-vs-mention blocking.
+The original `main` branch remains unchanged by this LLM milestone. All new LLM work is isolated on branch `llm-local-qwen` so it can later be pushed into a separately named successor repository.
 
-### Latest QA result
-Local full test suite is now GREEN:
+### Baseline status before LLM work
+- Original repository: `MaheshKumar8045/social-automation`
+- Original branch: `main`
+- Full local pytest baseline after cinematic fixes: **63 passed**
+- Focused cinematic-generation suite: **8 passed**
+- Real Asura DOD was being run locally for Scene 2 review.
+
+### LLM direction agreed
+Use a local LLM for semantic interpretation while retaining deterministic extraction, source-evidence validation, identity/continuity controls, and deterministic prompt QA.
+
+Target architecture:
 ```text
-63 passed
+PDF / Book
+  -> Docling
+  -> SQLite canonical source
+  -> sections / stories / scenes / entities / continuity
+  -> local Qwen scene semantic analysis
+  -> exact source-evidence validation
+  -> deterministic visual policy + continuity
+  -> cinematic/media prompt composition
+  -> deterministic prompt QA
+  -> image / short video / long video prompts
 ```
-The focused cinematic-generation suite is also GREEN:
-```text
-8 passed in 0.09s
-```
-The final remaining cinematic regression was caused by `_HEADING_PREFIX_RE` interpreting the first-person pronoun `I` as a Roman-numeral section heading. The regex was corrected in commit `db68b47dc161a8bd2763d7a14fce56c6388f2bbe`.
 
-### Git commits for this milestone
-- `da70d87877462046e92b9030e15b780b5e4f1c33` — semantic cinematic generation changes
-- `f2c4772e04713481e9e7d1750df6cf71126e6e6e` — initial semantic regression tests
-- `28212b49064f60e4003fc78d6964ccc1f10f615f` — fixes event-vs-mention blocking and dialogue cleanup regressions
-- `961061cbde5ca0c8ffc877c7c41c34183b679dae` — follow-up cleanup regression attempt
-- `db68b47dc161a8bd2763d7a14fce56c6388f2bbe` — final Roman-numeral heading regex fix; verified by the 8-test cinematic suite and then the full 63-test suite
+The LLM is never treated as the source of truth. Evidence must come from the extracted book/source. LLM interpretation is rejected when source evidence cannot be verified.
 
-### Current validation stage
-The user is currently running the real Asura DOD locally after the 63/63 pytest pass.
-Command:
+### Local LLM implementation completed on `llm-local-qwen`
+Added:
+- `core/llm_schemas.py`
+  - Pydantic schemas for scene semantics, character visibility, dialogue, visual moments, source facts, and controlled inferences.
+- `core/ollama_client.py`
+  - local Ollama client wrapper
+  - configurable host/model/timeout
+  - model availability checks
+  - structured JSON-schema output
+  - temperature 0
+- `core/scene_semantic_llm.py`
+  - strict source-grounded scene semantic interpreter
+  - visible vs referenced vs unknown character classification contract
+  - dialogue contamination safeguards
+  - exact source-substring evidence validation
+  - rejects hallucinated source moments/facts/dialogue
+- `tools/check_ollama.py`
+  - local Ollama connectivity/model smoke test
+- `LOCAL_LLM_SETUP.md`
+  - Windows install/setup instructions
+  - Ollama service/model checks
+  - off/shadow/enhance modes
+  - architecture and evidence rules
+- `tests/test_scene_semantic_llm.py`
+  - validates accepted source evidence
+  - rejects hallucinated primary visual moments
+  - rejects hallucinated dialogue
+  - verifies exact-evidence prompt contract
+
+### Generation pipeline integration
+`core/generation_planner.py` now supports:
+- `SOCIAL_AUTOMATION_LLM_MODE=off|shadow|enhance`
+- `SOCIAL_AUTOMATION_LLM_MODEL` (default `qwen3:30b`)
+- shadow mode: run local Qwen semantic analysis and expose validated results without changing prompts
+- enhance mode: allow only source-validated LLM semantics to improve dialogue, visible-character decisions, and scene/media prompt context
+- enhance mode fails closed when the LLM is unavailable or its source-evidence validation rejects the scene
+- plan version advanced to 8 when LLM-aware planner code is active
+
+`core/dod.py` now supports:
 ```powershell
-python -m core.dod "data\Asura\Asura - Tale Of The Vanquished.pdf"
+python -m core.dod "data\Asura\Asura - Tale Of The Vanquished.pdf" --llm-mode enhance --llm-model qwen3:30b
 ```
 
-After DOD completes, the next immediate review is **Scene 2 output quality**. Compare the generated Scene 2 against the earlier Scene 1 problems, especially:
-- OCR heading/speaker text contaminating dialogue overlays
-- referenced characters incorrectly rendered as visible characters
-- visible character blocking tied to the wrong mention snippet
-- noisy scene title presentation
-- whether source-anchored visual moments remain faithful
-- whether cinematic inference is clearly separated from source truth
-- whether environment-led composition is preserved when the environment is the actual source moment
-- whether identity anchors/continuity remain intact
+### Dependency
+`requirements.txt` adds:
+```text
+ollama==0.6.2
+```
+The existing dependency list is retained.
 
-The user will provide Scene 2 output for direct quality review after DOD.
+### Model choice
+Default local model is `qwen3:30b`.
+Current Ollama catalog lists Qwen3 variants including 8B, 14B, 30B, 32B and 235B. The Qwen3 30B Ollama build is listed as a 30.5B Q4_K_M model with an approximately 19 GB download. Smaller variants remain available for lower-memory hardware.
 
-### Expected Asura pipeline counts
-The real Asura DOD historically produces:
-- 442 pages
-- 63 reconciled sections
-- 63 stories
-- 191 scenes
-- 2078 entities
-- 6463 mentions
-- 2109 aliases
-- 191 events
-- 5140 continuity entity states
-- 18 confirmed canonical characters + 7 singleton characters before identity-tightening work
-- 25 visual knowledge-bible profiles
-- 3 visual knowledge-bible facts
-- 17 objects
-- 192 object mentions
-- 191 scene contexts
-- 25 canonical visual-bible profiles
-- 0 contradictions
-- 191 image prompt files
-- 191 short-video prompt files
-- 191 long-video prompt files
+### Local validation performed by this session
+A standalone reconstruction of the new semantic modules and their unit tests was executed locally in the development environment:
+```text
+3 passed in 0.13s
+```
+This validates the Python/Pydantic semantic contract but does **not** validate actual Ollama inference because no local Ollama service/model exists in this execution environment.
 
-These are expected/reference counts, not a claim about the current DOD run until its output is supplied.
+### Important repository limitation
+The connected GitHub capability can create/update branches, files, commits and pull requests, but it does not expose a GitHub "create repository" operation. Therefore the successor is currently prepared on the isolated branch `llm-local-qwen` of the original repository. The original `main` is left unchanged.
 
-### World & Knowledge Intelligence v1
-- `core/world_context.py` provides a dependency-free deterministic world classifier.
-- Weighted signals cover narrative type, religious context, culture, region, and period.
-- Candidate labels/confidence/evidence are retained.
-- Unknown dimensions remain unknown.
-- `llm_used=False`.
-- Results are cached per database/document.
-- Specific mythology markers are weighted above generic historical terms.
-- Evidence precedence is defined as: book explicit → book-derived → verified external (future) → controlled inference.
-- External knowledge providers are not yet integrated.
+After the user creates the new repository, recommended name:
+```text
+social-automation-local-llm
+```
+The branch can then be pushed as the new repository's `main`.
 
-### Visual generation policy
-- `core/visual_generation_policy.py`
-- `config/visual_generation_policy.json`
-- `core/generation_context.py`
-- `core/generation_planner.py`
-- `core/media_prompt_compiler.py`
-- `core/prompt_builder.py`
-- `core/prompt_export.py`
-
-Policy essentials:
-- fallback genre `general_narrative`
-- genre priors include mythology, historical, biography, patriotic, fantasy, crime_thriller, science_fiction
-- never infer exact eye color, hair color, height, exact age, or facial measurements
-- inferred attributes are locked for continuity
-- primary image is mobile-first 9:16
-- safe outer margin 7%
-- critical safe area 86%
-- background visible 35–55%
-- main subject 45–65%
-- secondary subject 25–50%
-- group subject 30–55%
-- dialogue max width 68%, max height 15%
-- dialogue occupies protected negative space and avoids faces, hands, important objects, and primary action
-- source dialogue is exact when supportable
-- no source dialogue → narrative box from a source visual moment / scene context
-- text is treated as a deterministic overlay concept
-- same visual policy feeds image, short video, and long video
-
-### Character identity / candidate gate QA
-Known prior issues:
-- split identity variants such as `Lord Shiva`, `Lord Shiva Pasupathi`, and `Lord Shiva Pasupathi Literally`
-- false-positive `Mithila` character in a location collision
-- candidate-gate cross-type collision logic previously allowed unrelated speech/action context to validate a colliding location name
-
-Current gate rule:
-- character/location or character/environment collision is rejected when the candidate name itself has no direct person evidence
-- direct person evidence still allows a legitimate character to survive a collision
-- tests cover direct evidence surviving a collision, location-only rejection, and unrelated speech/action not validating the colliding name
-
-### Known separate quality item
-Docling still reports noisy OCR/recovered headings and 63 final sections despite numbered headings reaching 65. Section reconciliation remains a separate quality item and should not be treated as final ground truth yet.
+### Windows prerequisites for the user
+Install Ollama from the official installer script:
+```powershell
+irm https://ollama.com/install.ps1 | iex
+```
+Then restart PowerShell and verify:
+```powershell
+ollama --version
+nvidia-smi
+ollama pull qwen3:30b
+ollama list
+Invoke-RestMethod http://localhost:11434/api/tags | ConvertTo-Json -Depth 5
+```
+Inside the project virtual environment:
+```powershell
+python -m pip install -U ollama==0.6.2
+python -c "import ollama; print('ollama-python import: OK')"
+```
+Project-specific smoke test after pulling the branch:
+```powershell
+python tools\check_ollama.py --model qwen3:30b
+```
 
 ### Current resume point
-1. Wait for the user's local Asura DOD output.
-2. Review Scene 2 prompt package against the Scene 1 baseline.
-3. Decide whether semantic/cinematic output is materially better before making another code change.
-4. Do not refactor or expand scope based only on assumptions; use the generated Scene 2 evidence.
-5. After Scene 2 review, record the next quality milestone and continue incrementally.
+1. User is finishing the current deterministic Asura DOD and will provide **Scene 2** output for semantic/cinematic quality review.
+2. Do not change the LLM architecture based only on assumptions until Scene 2 quality is reviewed.
+3. The next technical step after Scene 2 review is to create the successor repository from `llm-local-qwen` and run the local Ollama smoke test.
+4. Then run LLM `shadow` mode on a small Scene 2/representative sample before enabling `enhance` for the full 191-scene DOD.
+5. Only after shadow results are acceptable should full `enhance` mode become the primary LLM generation path.
