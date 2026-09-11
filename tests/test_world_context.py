@@ -13,6 +13,14 @@ def test_mythology_classification_is_source_driven():
     assert result["dimensions"]["culture"]["top"]["label"] == "indic"
 
 
+def test_specific_mythology_markers_outweigh_generic_historical_terms():
+    result = analyze_text(
+        "The king led the war from his kingdom, while Rama invoked Shiva before battle."
+    )
+    assert result["dimensions"]["narrative_type"]["top"]["label"] == "mythology"
+    assert result["dimensions"]["narrative_type"]["top"]["score"] > result["dimensions"]["narrative_type"]["candidates"][1]["score"]
+
+
 def test_historical_patriotic_classification_can_differ_from_mythology():
     result = analyze_text(
         "The freedom fighter addressed the nation during the independence movement. "
@@ -46,6 +54,6 @@ def test_document_profile_reads_structured_source_data(tmp_path):
 
     profile = build_world_profile(db, 1)
     assert profile["source"]["evidence_scope"] == "document-wide"
-    assert profile["method"] == "deterministic_source_signal_analysis"
+    assert profile["method"] == "weighted_deterministic_source_signal_analysis"
     assert profile["llm_used"] is False
     assert profile["dimensions"]["religious_context"]["top"]["label"] == "hindu"
