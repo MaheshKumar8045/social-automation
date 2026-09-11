@@ -22,7 +22,7 @@ def test_candidate_gate_rejects_name_also_classified_as_location():
     )
     assert decision == "non_character"
     assert score == 1.0
-    assert "same_name_classified_as_location_or_environment" in reasons
+    assert reasons == ["ambiguous_name_without_person_evidence"]
 
 
 def test_canonicalizer_does_not_promote_non_character_singleton(tmp_path):
