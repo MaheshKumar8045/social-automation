@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import argparse
@@ -135,6 +134,22 @@ def _character_lines(characters: list[dict[str, Any]]) -> list[str]:
     return _unique(result, 8)
 
 
+def _world_lines(world_profile: dict[str, Any]) -> list[str]:
+    if not isinstance(world_profile, dict):
+        return []
+    dimensions = world_profile.get("dimensions") or {}
+    lines: list[str] = []
+    for key in ("narrative_type", "culture", "religious_context", "region", "period"):
+        block = dimensions.get(key) or {}
+        top = block.get("top") or {}
+        label = _clean(top.get("label"), 80)
+        if label:
+            confidence = top.get("confidence")
+            suffix = f" ({float(confidence):.2f})" if isinstance(confidence, (int, float)) else ""
+            lines.append(f"{key.replace('_', ' ')}: {label}{suffix}")
+    return lines
+
+
 def _overlay(dialogue: list[str], scene: dict[str, Any], layout: dict[str, Any]) -> list[dict[str, Any]]:
     if dialogue:
         boxes = [
@@ -192,6 +207,7 @@ def _base_prompt(
     continuity: dict[str, Any],
     layout: dict[str, Any],
     inference_genre: str,
+    world_profile: dict[str, Any],
 ) -> str:
     parts = [
         f"Source-grounded {inference_genre} media depiction.",
@@ -201,13 +217,17 @@ def _base_prompt(
         "Source-supported visual facts have priority; controlled visual inference is allowed only "
         "for missing production details and must never contradict source evidence.",
     ]
+    world_lines = _world_lines(world_profile)
+    if world_lines:
+        parts.append(
+            "DETECTED STORY WORLD (contextual only; source facts override it): "
+            + "; ".join(world_lines) + "."
+        )
     lines = _character_lines(characters)
     if lines:
         parts.append("CHARACTER VISUAL PROFILES: " + " || ".join(lines) + ".")
     if moments:
-        parts.append(
-            "PRIMARY SOURCE VISUAL MOMENT: " + moments[0] + "."
-        )
+        parts.append("PRIMARY SOURCE VISUAL MOMENT: " + moments[0] + ".")
         if len(moments) > 1:
             parts.append("SECONDARY SOURCE CONTEXT: " + moments[1] + ".")
     env = _objects(objects, continuity)
@@ -225,9 +245,10 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
     scene = context.get("scene") or {}
     raw_characters = context.get("characters") or []
     policy = context.get("visual_generation_policy") or load_visual_policy()
-    genre = context.get("visual_genre") or policy.get("default_genre", "mythological_epic")
+    world_profile = context.get("world_profile") or {}
+    genre = context.get("visual_genre") or policy.get("default_genre", "general_narrative")
     characters = [
-        enrich_character(c, genre=genre, policy=policy)
+        enrich_character(c, genre=genre, policy=policy, world_context=world_profile)
         for c in raw_characters
         if c.get("canonical_name")
     ]
@@ -240,7 +261,7 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
     moments = _visual_moments(scene, events, characters)
     if not moments:
         moments = ["Hold the established source scene state without adding a new event."]
-    base = _base_prompt(scene, characters, objects, moments, continuity, layout, genre)
+    base = _base_prompt(scene, characters, objects, moments, continuity, layout, genre, world_profile)
     overlays = _overlay(dialogue, scene, layout)
 
     count = max(1, min(int(clip_count), 8))
@@ -307,6 +328,11 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
     inference_summary = {
         "enabled": True,
         "genre": genre,
+        "world_context": {
+            "method": world_profile.get("method"),
+            "llm_used": world_profile.get("llm_used", False),
+            "dimensions": world_profile.get("dimensions", {}),
+        },
         "rule": "Source facts override inference; inferred values fill missing production details only.",
         "characters": [
             {
@@ -323,7 +349,7 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
     }
 
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "source_grounded": True,
         "unknowns_must_remain_unknown": True,
         "visual_inference": inference_summary,
