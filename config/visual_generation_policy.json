@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "default_genre": "mythological_epic",
+  "schema_version": 2,
+  "default_genre": "general_narrative",
   "allow_controlled_inference": true,
   "inference_rules": {
     "only_fill_missing_attributes": true,
@@ -21,71 +21,13 @@
       "mobile_first": true,
       "safe_margin_percent": 7,
       "critical_subject_safe_area_percent": 86,
-      "background_visible_percent": [
-        35,
-        55
-      ],
-      "main_subject_height_percent": [
-        45,
-        65
-      ],
-      "secondary_subject_height_percent": [
-        25,
-        50
-      ],
-      "group_subject_height_percent": [
-        30,
-        55
-      ],
+      "background_visible_percent": [35, 55],
+      "main_subject_height_percent": [45, 65],
+      "secondary_subject_height_percent": [25, 50],
+      "group_subject_height_percent": [30, 55],
       "dialogue_box_max_width_percent": 68,
       "dialogue_box_max_height_percent": 15,
       "dialogue_box_min_count": 1
-    }
-  },
-  "genre_priors": {
-    "mythological_epic": {
-      "baseline": [
-        "cinematic historical-mythological setting appropriate to the source world",
-        "period-appropriate materials and garments",
-        "physically credible anatomy and natural human proportions",
-        "dignified, cinematic presentation",
-        "no modern objects, architecture, typography, or technology unless source-supported"
-      ],
-      "roles": {
-        "deity": [
-          "powerful healthy athletic physique",
-          "commanding and composed visual presence",
-          "refined traditional mythological styling",
-          "period-appropriate draped garments and restrained ornamentation"
-        ],
-        "warrior": [
-          "athletic combat-ready physique",
-          "strong grounded stance and purposeful posture",
-          "period-appropriate warrior clothing and equipment only when context supports it"
-        ],
-        "ruler": [
-          "healthy capable physique",
-          "regal, composed presence",
-          "period-appropriate formal garments with restrained status cues"
-        ],
-        "ascetic": [
-          "lean or austere physique appropriate to a disciplined life",
-          "calm, contemplative presence",
-          "simple period-appropriate ascetic garments"
-        ],
-        "elder": [
-          "mature, dignified presence",
-          "natural age-appropriate body language without inventing exact age"
-        ],
-        "person": [
-          "healthy natural physique appropriate to the narrative role",
-          "period-appropriate presentation"
-        ],
-        "group": [
-          "coherent group styling appropriate to the source society and period",
-          "individual identity preserved for named canonical characters"
-        ]
-      }
     }
   }
 }
