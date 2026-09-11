@@ -30,20 +30,26 @@ CREATE TABLE IF NOT EXISTS character_identity_members (
 );
 """
 
-TITLE_RE = re.compile(r'^(mr|mrs|ms|miss|dr|prof|professor|capt|captain|sir|lady|lord|rev|reverend|colonel|major|lieutenant|herr|monsieur|madame)\.?\s+', re.I)
+TITLE_RE = re.compile(
+    r'^(mr|mrs|ms|miss|dr|prof|professor|capt|captain|sir|lady|lord|rev|reverend|colonel|major|lieutenant|herr|monsieur|madame)\.?\s+',
+    re.I,
+)
 FRAGMENT_RE = re.compile(r'(?:[-‐‑‒–—])$')
 SEMANTIC_NON_PERSON = {
-    'africa','central africa','south africa','atlantic ocean','ocean','cape','cape colony',
-    'cape portland','cape saknussemm','central sea','sea','commission','russian commission',
-    'greenwich','greenwich observatory','gretchen','port gretchen','falls','victoria falls',
-    'lake ngami','mount scorzef','mount sneffels','mount volquiria','orange river',
-    'new york','upper zambesi','zambesi','good hope','english government','boston post','evening post',
-    'russians','english','englishman','european','french','danish','icelandic','icelanders',
+    'africa', 'central africa', 'south africa', 'atlantic ocean', 'ocean', 'cape', 'cape colony',
+    'cape portland', 'cape saknussemm', 'central sea', 'sea', 'commission', 'russian commission',
+    'greenwich', 'greenwich observatory', 'gretchen', 'port gretchen', 'falls', 'victoria falls',
+    'lake ngami', 'mount scorzef', 'mount sneffels', 'mount volquiria', 'orange river',
+    'new york', 'upper zambesi', 'zambesi', 'good hope', 'english government', 'boston post', 'evening post',
+    'russians', 'english', 'englishman', 'european', 'french', 'danish', 'icelandic', 'icelanders',
 }
 SEMANTIC_TERMS = {
-    'river','ocean','sea','lake','mount','mountain','cape','island','africa','colony','government',
-    'commission','observatory','institution','post','advertiser','journal','gazette','railway',
-    'university','company','country','province','city','village','station','port',
+    'river', 'ocean', 'sea', 'lake', 'mount', 'mountain', 'cape', 'island', 'africa', 'colony', 'government',
+    'commission', 'observatory', 'institution', 'post', 'advertiser', 'journal', 'gazette', 'railway',
+    'university', 'company', 'country', 'province', 'city', 'village', 'station', 'port',
+}
+QUALIFIER_WORDS = {
+    'literally', 'the', 'great', 'greatest', 'holy', 'divine', 'sacred', 'lord', 'lady',
 }
 
 def norm(name: str) -> str:
@@ -58,7 +64,8 @@ def base(name: str) -> str:
 
 def semantic_block(name: str) -> bool:
     b = base(name)
-    if not b or b in SEMANTIC_NON_PERSON: return True
+    if not b or b in SEMANTIC_NON_PERSON:
+        return True
     return bool(set(b.split()) & SEMANTIC_TERMS)
 
 def compatible(a: str, b: str) -> tuple[bool,float,str,str]:
@@ -68,21 +75,43 @@ def compatible(a: str, b: str) -> tuple[bool,float,str,str]:
     aa, bb = base(na), base(nb)
     if not aa or not bb or semantic_block(na) or semantic_block(nb):
         return False, 0.0, 'semantic_non_person_block', 'UNRESOLVED'
-    if aa == bb: return True, 0.98, 'normalized_exact', 'IDENTITY_ALIAS'
+    if aa == bb:
+        return True, 0.98, 'normalized_exact', 'IDENTITY_ALIAS'
+
     ta, tb = aa.split(), bb.split()
     if len(ta) >= 2 and len(tb) >= 2 and ta[-1] == tb[-1]:
-        if ta[:-1] == tb[:-1]: return True, 0.90, 'same_full_name_variant', 'IDENTITY_ALIAS'
+        if ta[:-1] == tb[:-1]:
+            return True, 0.90, 'same_full_name_variant', 'IDENTITY_ALIAS'
         if len(ta) == 2 and len(tb) == 2 and ta[0][0] == tb[0][0]:
             return True, 0.86, 'same_surname_initial_variant', 'IDENTITY_ALIAS'
         return False, 0.0, 'same_surname_but_different_given_name', 'UNRESOLVED'
-    if len(ta) == 1 and len(tb) >= 2 and ta[0] == tb[-1]: return True, 0.82, 'surname_variant', 'IDENTITY_ALIAS'
-    if len(tb) == 1 and len(ta) >= 2 and tb[0] == ta[-1]: return True, 0.82, 'surname_variant', 'IDENTITY_ALIAS'
+
+    if len(ta) == 1 and len(tb) >= 2 and ta[0] == tb[-1]:
+        return True, 0.82, 'surname_variant', 'IDENTITY_ALIAS'
+    if len(tb) == 1 and len(ta) >= 2 and tb[0] == ta[-1]:
+        return True, 0.82, 'surname_variant', 'IDENTITY_ALIAS'
+
+    # Treat a longer form as an epithet/qualification only when it preserves
+    # the full shorter identity and the additional words are descriptive.
+    # This safely merges forms such as "Lord Shiva" and
+    # "Lord Shiva Pasupathi Literally" without globally collapsing unrelated names.
+    for short, long, short_tokens, long_tokens in (
+        (aa, bb, ta, tb),
+        (bb, aa, tb, ta),
+    ):
+        if len(short_tokens) < 2 or len(long_tokens) <= len(short_tokens):
+            continue
+        if long_tokens[:len(short_tokens)] != short_tokens:
+            continue
+        extras = set(long_tokens[len(short_tokens):])
+        if len(extras) <= 2 and extras and extras.issubset(QUALIFIER_WORDS):
+            return True, 0.88, 'qualified_identity_variant', 'IDENTITY_ALIAS'
+
     return False, 0.0, 'no_safe_identity_match', 'UNRESOLVED'
 
 def build(db: str|Path, document_id:int)->dict[str,int]:
     with sqlite3.connect(db) as con:
         con.row_factory=sqlite3.Row; con.execute('PRAGMA foreign_keys=ON'); con.executescript(SCHEMA)
-        # Backward-compatible migration for databases created by the prior version.
         cols={r['name'] for r in con.execute('PRAGMA table_info(character_identity_groups)')}
         if 'relationship_type' not in cols:
             con.execute("ALTER TABLE character_identity_groups ADD COLUMN relationship_type TEXT NOT NULL DEFAULT 'IDENTITY_ALIAS'")
