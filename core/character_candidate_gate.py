@@ -175,10 +175,10 @@ def build(db: str | Path, document_id: int) -> dict[str, int]:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Conservative character candidate gate")
-    p.add_argument("database", type=str)
+    p.add_argument("db", type=str)
     p.add_argument("document_id", type=int)
     a = p.parse_args()
-    r = build(a.database, a.document_id)
+    r = build(a.db, a.document_id)
     print("=== CHARACTER CANDIDATE GATE ===")
     for k in ("validated", "probable", "review", "non_character"):
         print(f"{k}: {r.get(k, 0)}")
