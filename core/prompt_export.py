@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sqlite3
 from collections import Counter
 from pathlib import Path
@@ -45,17 +46,13 @@ def _positive_int(value: Any) -> int:
 
 
 def _write_scene_media_files(output_dir: Path, record: dict[str, Any]) -> None:
-    """Write copy-friendly per-scene files for each primary media type.
-
-    Filenames use the globally unique scene_id rather than scene_order because
-    scene_order restarts within each story and would otherwise overwrite files.
-    """
+    """Write copy-friendly per-scene files for each primary media type."""
     plan = record["plan"]
     scene_id = int(record["scene_id"])
     scene_order = int(record["scene_order"])
     scene_stem = f"scene_{scene_id:03d}"
     header = (
-        f"SOURCE: {Path(plan.get('source_database') or record.get('source_database') or '').name}\n"
+        f"SOURCE: {record.get('source_database') or ''}\n"
         f"SCENE ID: {scene_id}\n"
         f"SCENE ORDER: {scene_order}\n"
         f"TITLE: {record.get('title') or ''}\n"
@@ -130,6 +127,10 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
         errors.append("image prompt is missing the primary 9:16 mobile layout")
     if image_prompt and not any(token in image_prompt.lower() for token in ("dialogue", "narrative box", "dialogue-or-narrative")):
         errors.append("image prompt is missing the required dialogue-or-narrative box instruction")
+    if image_prompt and "source-anchored scene interpretation" not in image_prompt.lower():
+        errors.append("image prompt is missing cinematic source interpretation")
+    if image_prompt and "cinematic direction" not in image_prompt.lower():
+        errors.append("image prompt is missing cinematic camera/lighting direction")
 
     characters = plan.get("characters")
     if not isinstance(characters, list):
@@ -190,6 +191,8 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
                     errors.append(f"short-video clip {index} prompt is missing or too short")
                 elif clip.get("clip_number") != index:
                     errors.append(f"short-video clip {index} has an invalid clip_number")
+                elif "source-anchored scene interpretation" not in clip.get("prompt", "").lower():
+                    errors.append(f"short-video clip {index} is missing scene interpretation")
 
     long_video = _mapping(plan.get("long_video_prompt_package"))
     if not long_video:
@@ -204,6 +207,8 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
                     errors.append(f"long-video shot {index} prompt is missing or too short")
                 elif shot.get("shot_number") != index:
                     errors.append(f"long-video shot {index} has an invalid shot_number")
+                elif "source-anchored scene interpretation" not in shot.get("prompt", "").lower():
+                    errors.append(f"long-video shot {index} is missing scene interpretation")
 
     audio = _mapping(plan.get("audio_prompt"))
     if not audio:
@@ -242,6 +247,10 @@ def build_all_prompts(database: str | Path, document_id: int, output_dir: str | 
     output_dir = Path(output_dir) if output_dir is not None else database.parent / f"{database.stem}_prompts"
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    for media_dir in (output_dir / "image", output_dir / "short_video", output_dir / "long_video"):
+        if media_dir.exists():
+            shutil.rmtree(media_dir)
+
     stages: dict[str, Any] = {}
     stages["candidate_gate"] = build_candidate_gate(database, document_id)
     stages["character_evidence"] = CharacterEvidenceClassifier(database).build(document_id)
@@ -268,6 +277,7 @@ def build_all_prompts(database: str | Path, document_id: int, output_dir: str | 
                 "title": scene["title"],
                 "page_start": int(scene["page_start"]),
                 "page_end": int(scene["page_end"]),
+                "source_database": str(database),
                 "qa_status": "pass" if not errors else "fail",
                 "qa_errors": errors,
                 "plan": plan,
