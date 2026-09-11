@@ -34,3 +34,15 @@ def test_location_collision_without_person_evidence_is_rejected():
     assert decision == "non_character"
     assert score == 1.0
     assert reasons == ["ambiguous_name_without_person_evidence"]
+
+
+def test_location_collision_ignores_unrelated_speech_or_action():
+    decision, score, reasons = gate(
+        "Mithila",
+        "character",
+        _mentions("Lord Shiva said, 'We must travel to Mithila.'"),
+        conflicting_entity_types={"location"},
+    )
+    assert decision == "non_character"
+    assert score == 1.0
+    assert reasons == ["ambiguous_name_without_person_evidence"]
