@@ -7,9 +7,35 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_POLICY_PATH = Path(__file__).resolve().parents[1] / "config" / "visual_generation_policy.json"
+
+_GENERIC_ROLES = {
+    "person": [
+        "natural human proportions",
+        "credible posture and body language for the narrative role",
+    ],
+    "warrior": [
+        "physically capable posture appropriate to the narrative role",
+        "practical period-appropriate equipment only when source context supports it",
+    ],
+    "ruler": [
+        "composed, authoritative presence appropriate to the story world",
+        "status-aware clothing only when supported by the source context",
+    ],
+    "deity": [
+        "commanding presence appropriate to the established belief or mythic context",
+        "ceremonial or symbolic styling only where source context supports it",
+    ],
+    "ascetic": [
+        "disciplined, restrained presentation appropriate to the narrative role",
+    ],
+    "elder": [
+        "mature, dignified presence without inventing an exact age",
+    ],
+}
+
 _FALLBACK_POLICY = {
-    "schema_version": 1,
-    "default_genre": "mythological_epic",
+    "schema_version": 2,
+    "default_genre": "general_narrative",
     "allow_controlled_inference": True,
     "inference_rules": {
         "only_fill_missing_attributes": True,
@@ -30,71 +56,74 @@ _FALLBACK_POLICY = {
             "mobile_first": True,
             "safe_margin_percent": 7,
             "critical_subject_safe_area_percent": 86,
-            "background_visible_percent": [
-                35,
-                55
-            ],
-            "main_subject_height_percent": [
-                45,
-                65
-            ],
-            "secondary_subject_height_percent": [
-                25,
-                50
-            ],
-            "group_subject_height_percent": [
-                30,
-                55
-            ],
+            "background_visible_percent": [35, 55],
+            "main_subject_height_percent": [45, 65],
+            "secondary_subject_height_percent": [25, 50],
+            "group_subject_height_percent": [30, 55],
             "dialogue_box_max_width_percent": 68,
             "dialogue_box_max_height_percent": 15,
             "dialogue_box_min_count": 1
         }
     },
     "genre_priors": {
-        "mythological_epic": {
+        "general_narrative": {
             "baseline": [
-                "cinematic historical-mythological setting appropriate to the source world",
-                "period-appropriate materials and garments",
-                "physically credible anatomy and natural human proportions",
-                "dignified, cinematic presentation",
+                "cinematic presentation appropriate to the supplied story world",
+                "physically plausible anatomy, materials, lighting, and environment",
+                "do not introduce culture-, religion-, period-, or country-specific details unless source context supports them"
+            ],
+            "roles": _GENERIC_ROLES,
+        },
+        "mythology": {
+            "baseline": [
+                "cinematic mythic presentation appropriate to the source's identified cultural and religious context",
+                "period-appropriate materials and garments only when supported by the world context",
                 "no modern objects, architecture, typography, or technology unless source-supported"
             ],
-            "roles": {
-                "deity": [
-                    "powerful healthy athletic physique",
-                    "commanding and composed visual presence",
-                    "refined traditional mythological styling",
-                    "period-appropriate draped garments and restrained ornamentation"
-                ],
-                "warrior": [
-                    "athletic combat-ready physique",
-                    "strong grounded stance and purposeful posture",
-                    "period-appropriate warrior clothing and equipment only when context supports it"
-                ],
-                "ruler": [
-                    "healthy capable physique",
-                    "regal, composed presence",
-                    "period-appropriate formal garments with restrained status cues"
-                ],
-                "ascetic": [
-                    "lean or austere physique appropriate to a disciplined life",
-                    "calm, contemplative presence",
-                    "simple period-appropriate ascetic garments"
-                ],
-                "elder": [
-                    "mature, dignified presence",
-                    "natural age-appropriate body language without inventing exact age"
-                ],
-                "person": [
-                    "healthy natural physique appropriate to the narrative role",
-                    "period-appropriate presentation"
-                ],
-                "group": [
-                    "coherent group styling appropriate to the source society and period",
-                    "individual identity preserved for named canonical characters"
-                ]
-            }
+            "roles": _GENERIC_ROLES,
+        },
+        "historical": {
+            "baseline": [
+                "historically appropriate visual presentation using the detected region and period",
+                "material culture should follow source-supported historical context",
+                "avoid anachronistic modern objects or styling unless source-supported"
+            ],
+            "roles": _GENERIC_ROLES,
+        },
+        "biography": {
+            "baseline": [
+                "visual presentation appropriate to the source person's documented time, place, and social context",
+                "do not fictionalize unsupported appearance or events"
+            ],
+            "roles": _GENERIC_ROLES,
+        },
+        "patriotic": {
+            "baseline": [
+                "visual presentation appropriate to the detected national, historical, and political context",
+                "use flags, uniforms, insignia, or national symbols only when source-supported or strongly established by the world context"
+            ],
+            "roles": _GENERIC_ROLES,
+        },
+        "fantasy": {
+            "baseline": [
+                "cinematic fantasy presentation while preserving the source's established rules and setting",
+                "fantastical elements must be source-supported rather than freely invented"
+            ],
+            "roles": _GENERIC_ROLES,
+        },
+        "crime_thriller": {
+            "baseline": [
+                "cinematic thriller presentation appropriate to the detected location and period",
+                "realistic contemporary details only when supported by source context"
+            ],
+            "roles": _GENERIC_ROLES,
+        },
+        "science_fiction": {
+            "baseline": [
+                "cinematic science-fiction presentation consistent with the source's technological and temporal rules",
+                "do not invent technology beyond the established story world"
+            ],
+            "roles": _GENERIC_ROLES,
         }
     }
 }
@@ -194,24 +223,34 @@ def classify_visual_role(character: dict[str, Any]) -> str:
 def build_inferred_visual_profile(
     character: dict[str, Any],
     *,
-    genre: str = "mythological_epic",
+    genre: str = "general_narrative",
     policy: dict[str, Any] | None = None,
+    world_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     policy = policy or load_visual_policy()
     name = _clean(character.get("canonical_name"), 120)
     facts = _source_facts(character)
     known = _source_attributes(facts)
     role = classify_visual_role(character)
-    genre_block = (policy.get("genre_priors") or {}).get(genre) or {}
+    genre_block = (policy.get("genre_priors") or {}).get(genre)
+    if not isinstance(genre_block, dict):
+        genre_block = (policy.get("genre_priors") or {}).get(policy.get("default_genre", "general_narrative"), {})
+    if not isinstance(genre_block, dict):
+        genre_block = _FALLBACK_POLICY["genre_priors"]["general_narrative"]
+
     baseline = list(genre_block.get("baseline") or [])
     role_priors = list((genre_block.get("roles") or {}).get(role) or [])
 
-    if not baseline and genre == "mythological_epic":
-        baseline = list(_FALLBACK_POLICY["genre_priors"]["mythological_epic"]["baseline"])
-    if not role_priors and genre == "mythological_epic":
-        role_priors = list(_FALLBACK_POLICY["genre_priors"]["mythological_epic"]["roles"].get(role, []))
+    context_labels: list[str] = []
+    if isinstance(world_context, dict):
+        dimensions = world_context.get("dimensions") or {}
+        for key in ("culture", "religious_context", "region", "period"):
+            top = (dimensions.get(key) or {}).get("top") or {}
+            label = top.get("label")
+            if label:
+                context_labels.append(f"detected {key.replace('_', ' ')}: {label}")
 
-    inferred_values = baseline + role_priors
+    inferred_values = context_labels + baseline + role_priors
     forbidden_phrases = {"eye color", "hair color", "exact age", "exact height", "facial measurements"}
 
     inferred = []
@@ -227,6 +266,7 @@ def build_inferred_visual_profile(
                 or "body language" in lowered or "posture" in lowered
             )
             else "costume_direction" if "garment" in lowered or "clothing" in lowered
+            else "world_context" if lowered.startswith("detected ")
             else "environment_rules" if (
                 "modern" in lowered or "materials" in lowered or "technology" in lowered
             )
@@ -241,16 +281,17 @@ def build_inferred_visual_profile(
         inferred.append({
             "attribute": attribute,
             "value": _clean(value, 180),
-            "basis": "genre_prior",
+            "basis": "world_context" if lowered.startswith("detected ") else "genre_prior",
             "genre": genre,
             "locked_for_continuity": bool(
                 policy.get("inference_rules", {}).get("lock_inferred_profile_for_continuity", True)
             ),
         })
 
-    seed = f"{character.get('canonical_character_id')}|{name}|{genre}".encode("utf-8")
+    world_seed = json.dumps(world_context or {}, ensure_ascii=False, sort_keys=True)
+    seed = f"{character.get('canonical_character_id')}|{name}|{genre}|{world_seed}".encode("utf-8")
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "canonical_character_id": character.get("canonical_character_id"),
         "canonical_name": name,
         "identity_anchor": "vib-" + hashlib.sha256(seed).hexdigest()[:12],
@@ -268,9 +309,14 @@ def build_inferred_visual_profile(
     }
 
 
-def enrich_character(character: dict[str, Any], *, genre: str = "mythological_epic", policy: dict[str, Any] | None = None) -> dict[str, Any]:
+def enrich_character(character: dict[str, Any], *, genre: str = "general_narrative", policy: dict[str, Any] | None = None, world_context: dict[str, Any] | None = None) -> dict[str, Any]:
     enriched = dict(character)
-    enriched["visual_profile"] = build_inferred_visual_profile(character, genre=genre, policy=policy)
+    enriched["visual_profile"] = build_inferred_visual_profile(
+        character,
+        genre=genre,
+        policy=policy,
+        world_context=world_context,
+    )
     enriched["unknown_visual_attributes"] = bool(enriched["visual_profile"]["unknown_source_attributes"])
     return enriched
 
