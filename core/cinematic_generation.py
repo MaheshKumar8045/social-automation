@@ -34,7 +34,7 @@ _DIALOGUE_START_RE = re.compile(
     r"let|perhaps|if|there|here)\b",
     re.I,
 )
-_HEADING_PREFIX_RE = re.compile(r"^\s*(?:[IVXLCDM]+|\d{1,3})[\.)]?\s+", re.I)
+_HEADING_PREFIX_RE = re.compile(r"^\s*(?:[IVXLCDM]+|\d{1,3})[.)]?\s+", re.I)
 _NAME_TOKEN_RE = re.compile(r"^[A-Z][A-Za-z'’-]*$")
 
 
@@ -71,28 +71,30 @@ def _clean_dialogue_candidate(sentence: str, scene: dict[str, Any] | None = None
     if not value:
         return ""
 
-    # Remove an OCR-leaked chapter/section heading before considering dialogue.
     value = _HEADING_PREFIX_RE.sub("", value, count=1)
     title = _clean((scene or {}).get("title"), 160)
     if title:
         title_norm = _normalize_for_match(title)
         value_norm = _normalize_for_match(value)
         if value_norm.startswith(title_norm):
-            # Preserve the original punctuation while removing the normalized heading prefix.
             match = re.match(r"^\s*" + re.escape(title), value, re.I)
             if match:
                 value = value[match.end():].lstrip(" -:;,.\t")
 
-    # Handle OCR such as: "1 The end Ravana Tomorrow is my funeral."
-    # Once a dialogue-leading word is reached, discard preceding name/title tokens.
     words = value.split()
     for index, word in enumerate(words):
         token = re.sub(r"^[^A-Za-z]+|[^A-Za-z]+$", "", word)
-        if index > 0 and _DIALOGUE_START_RE.match(token):
-            prefix = words[:index]
-            if all(_NAME_TOKEN_RE.match(re.sub(r"[^A-Za-z'’-]", "", item)) for item in prefix if item):
-                value = " ".join(words[index:])
-            break
+        if index <= 0 or not _DIALOGUE_START_RE.match(token):
+            continue
+        prefix = words[:index]
+        clean_prefix = [re.sub(r"[^A-Za-z'’-]", "", item) for item in prefix if item]
+        if (
+            clean_prefix
+            and clean_prefix[0].lower() not in {"i", "we", "my", "our", "you", "your"}
+            and all(_NAME_TOKEN_RE.match(item) for item in clean_prefix)
+        ):
+            value = " ".join(words[index:])
+        break
 
     return _clean(value, 220)
 
@@ -111,8 +113,6 @@ def _source_dialogue(scene_text: str, scene: dict[str, Any] | None = None) -> li
         value = _clean_dialogue_candidate(sentence, scene)
         if not value:
             continue
-        # Speech verbs are strong evidence. First-person clauses are only a fallback,
-        # and heading/speaker-label fragments are removed before returning the text.
         if _SPEECH_RE.search(value):
             candidates.append(value)
             continue
@@ -155,27 +155,38 @@ def _visual_moments(scene_text: str, events: list[dict[str, Any]], characters: l
     return list(dict.fromkeys(text for _, text in candidates))[:4]
 
 
-def _character_blocking(scene_text: str, characters: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
+def _character_blocking(scene_text: str, characters: list[dict[str, Any]], events: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
     visible: list[str] = []
     referenced: list[str] = []
+    event_texts = [_clean(event.get("text"), 300) for event in events if _clean(event.get("text"), 300)]
+
     for character in characters:
         name = _clean(character.get("canonical_name"), 100)
         if not name:
             continue
-        local_contexts = []
+        local_contexts: list[str] = []
         for mention in character.get("scene_mentions") or []:
             context = _clean(mention.get("context"), 280)
             if re.search(rf"\b{re.escape(name)}\b", context, re.I):
                 local_contexts.append(context)
         local_contexts = list(dict.fromkeys(local_contexts))
+
+        matching_events = [event_text for event_text in event_texts if re.search(rf"\b{re.escape(name)}\b", event_text, re.I)]
         physical_context = next(
-            (c for c in local_contexts if _ACTION_RE.search(c) or _PRESENCE_RE.search(c)),
+            (event_text for event_text in matching_events if _ACTION_RE.search(event_text) or _PRESENCE_RE.search(event_text)),
             None,
         )
+        if physical_context is None:
+            physical_context = next(
+                (context for context in local_contexts if _ACTION_RE.search(context) or _PRESENCE_RE.search(context)),
+                None,
+            )
+
         if physical_context:
             visible.append(f"{name}: {physical_context}")
         elif local_contexts:
             referenced.append(name)
+
     return visible[:6], referenced[:8]
 
 
@@ -211,23 +222,13 @@ def _camera_direction(scene_text: str, moments: list[str], dialogue: list[str], 
     return {"framing": shot, "lens": lens, "camera_height": camera_height, "lighting": lighting}
 
 
-def enhance_generation_package(
-    *,
-    scene: dict[str, Any],
-    characters: list[dict[str, Any]],
-    objects: list[dict[str, Any]],
-    events: list[dict[str, Any]],
-    continuity: dict[str, Any],
-    world_profile: dict[str, Any],
-    genre: str,
-    media: dict[str, Any],
-) -> dict[str, Any]:
+def enhance_generation_package(*, scene: dict[str, Any], characters: list[dict[str, Any]], objects: list[dict[str, Any]], events: list[dict[str, Any]], continuity: dict[str, Any], world_profile: dict[str, Any], genre: str, media: dict[str, Any]) -> dict[str, Any]:
     text = str(scene.get("text") or "")
     dialogue = _source_dialogue(text, scene)
     moments = _visual_moments(text, events, characters)
     if not moments:
         moments = ["Preserve the established source scene state without adding a new event."]
-    visible_blocking, referenced_characters = _character_blocking(text, characters)
+    visible_blocking, referenced_characters = _character_blocking(text, characters, events)
     camera = _camera_direction(text, moments, dialogue, visible_blocking)
 
     world_lines = []
@@ -245,14 +246,8 @@ def enhance_generation_package(
             continue
         profile = character.get("visual_profile") or {}
         source_facts = profile.get("source_facts") or []
-        fact_text = "; ".join(
-            f"{_clean(f.get('attribute'),60)}: {_clean(f.get('value'),120)}"
-            for f in source_facts[:6]
-        )
-        char_lines.append(
-            f"{name} [identity anchor: {profile.get('identity_anchor','none')}]"
-            + (f"; source visual facts: {fact_text}" if fact_text else "; no explicit source visual facts extracted for this scene")
-        )
+        fact_text = "; ".join(f"{_clean(f.get('attribute'),60)}: {_clean(f.get('value'),120)}" for f in source_facts[:6])
+        char_lines.append(f"{name} [identity anchor: {profile.get('identity_anchor','none')}]" + (f"; source visual facts: {fact_text}" if fact_text else "; no explicit source visual facts extracted for this scene"))
 
     cinematic = (
         "CINEMATIC DIRECTION (controlled production inference): "
@@ -276,8 +271,7 @@ def enhance_generation_package(
         f"{_clean(scene.get('title'), 140)}. {source_block} "
         f"Characters: {' | '.join(char_lines) if char_lines else 'no visible canonical characters are source-confirmed in this scene'}. "
         f"Source-identified objects/environment: {', '.join(_clean(o.get('canonical_name'),80) for o in objects if o.get('canonical_name')) or 'none explicitly identified'}. "
-        f"{cinematic} "
-        "Preserve every canonical identity anchor and continuity state. Unknown source attributes remain unknown. "
+        f"{cinematic} Preserve every canonical identity anchor and continuity state. Unknown source attributes remain unknown. "
         f"Compose for mobile-first {layout.get('aspect_ratio','9:16')} with a clear foreground/midground/background hierarchy, "
         "one dominant visual moment, readable subject separation, and negative space reserved for the deterministic text overlay. "
         "Do not flatten the scene into a character portrait when the environment is materially part of the source moment."
@@ -286,38 +280,16 @@ def enhance_generation_package(
     overlays = []
     if dialogue:
         for i, line in enumerate(dialogue[:2], 1):
-            overlays.append({
-                "box_number": i,
-                "box_type": "dialogue_box",
-                "text": line,
-                "text_source": "source_dialogue_or_first_person_source_sentence",
-                "required": True,
-                "placement": "largest protected negative-space region opposite the primary subject/action",
-                "avoid": ["faces", "hands", "important objects", "primary action"],
-            })
+            overlays.append({"box_number": i, "box_type": "dialogue_box", "text": line, "text_source": "source_dialogue_or_first_person_source_sentence", "required": True, "placement": "largest protected negative-space region opposite the primary subject/action", "avoid": ["faces", "hands", "important objects", "primary action"]})
     else:
-        narrative_text = _clean(moments[0], 150)
-        overlays.append({
-            "box_number": 1,
-            "box_type": "narrative_box",
-            "text": narrative_text,
-            "text_source": "source_visual_moment",
-            "required": True,
-            "placement": "largest protected negative-space region opposite the primary subject/action",
-            "avoid": ["faces", "hands", "important objects", "primary action"],
-        })
+        overlays.append({"box_number": 1, "box_type": "narrative_box", "text": _clean(moments[0], 150), "text_source": "source_visual_moment", "required": True, "placement": "largest protected negative-space region opposite the primary subject/action", "avoid": ["faces", "hands", "important objects", "primary action"]})
 
     short = dict(media.get("short_video") or {})
     old_clips = short.get("clips") or []
     clips = []
     for index, clip in enumerate(old_clips[:8], 1):
         focus = moments[(index - 1) % len(moments)]
-        prompt = (
-            f"Scene {scene.get('scene_order')}, clip {index}. {source_block} {cinematic} "
-            f"Primary visual focus: {focus}. Use the clip purpose '{clip.get('role','scene progression')}' only as production structure, "
-            "not as permission to invent an event. Preserve identity, geography, object state, and source dialogue exactly where supplied. "
-            "Camera motion is deliberate and restrained; the shot must remain visually legible on a vertical mobile frame."
-        )
+        prompt = (f"Scene {scene.get('scene_order')}, clip {index}. {source_block} {cinematic} Primary visual focus: {focus}. Use the clip purpose '{clip.get('role','scene progression')}' only as production structure, not as permission to invent an event. Preserve identity, geography, object state, and source dialogue exactly where supplied. Camera motion is deliberate and restrained; the shot must remain visually legible on a vertical mobile frame.")
         if index <= len(dialogue):
             prompt += f' Use source dialogue exactly: "{dialogue[index-1]}".'
         clips.append({**clip, "prompt": prompt, "source_visual_focus": focus})
@@ -330,12 +302,7 @@ def enhance_generation_package(
     shots = []
     for index, shot in enumerate(old_shots[:8], 1):
         focus = moments[(index - 1) % len(moments)]
-        prompt = (
-            f"Scene {scene.get('scene_order')}, shot {index}, {shot.get('purpose','continuity shot')}. "
-            f"{source_block} {cinematic} Source-grounded focus: {focus}. "
-            "Maintain 180-degree spatial logic unless the source clearly changes orientation, preserve continuity state between shots, "
-            "and progress visually without fabricating unsupported story events or character traits."
-        )
+        prompt = (f"Scene {scene.get('scene_order')}, shot {index}, {shot.get('purpose','continuity shot')}. {source_block} {cinematic} Source-grounded focus: {focus}. Maintain 180-degree spatial logic unless the source clearly changes orientation, preserve continuity state between shots, and progress visually without fabricating unsupported story events or character traits.")
         if index <= len(dialogue):
             prompt += f' Source dialogue when this shot carries dialogue: "{dialogue[index-1]}".'
         shots.append({**shot, "prompt": prompt, "source_visual_focus": focus})
@@ -344,28 +311,6 @@ def enhance_generation_package(
     long["source_visual_moments"] = moments
 
     inference = dict(media.get("visual_inference") or {})
-    inference["cinematic_scene_intelligence"] = {
-        "enabled": True,
-        "camera": camera,
-        "source_visual_moments": moments,
-        "character_blocking": visible_blocking,
-        "referenced_characters": referenced_characters,
-        "dialogue_candidates": dialogue,
-        "rule": "Source evidence controls what exists; referenced names do not become visible characters; cinematic choices control how established content is photographed or staged; unsupported facts remain unknown.",
-    }
+    inference["cinematic_scene_intelligence"] = {"enabled": True, "camera": camera, "source_visual_moments": moments, "character_blocking": visible_blocking, "referenced_characters": referenced_characters, "dialogue_candidates": dialogue, "rule": "Source evidence controls what exists; referenced names do not become visible characters; cinematic choices control how established content is photographed or staged; unsupported facts remain unknown."}
 
-    return {
-        **media,
-        "visual_inference": inference,
-        "image": {
-            **(media.get("image") or {}),
-            "prompt": image_prompt,
-            "dialogue_overlays": overlays,
-            "cinematic_direction": camera,
-            "source_visual_moments": moments,
-            "character_blocking": visible_blocking,
-            "referenced_characters": referenced_characters,
-        },
-        "short_video": short,
-        "long_video": long,
-    }
+    return {**media, "visual_inference": inference, "image": {**(media.get("image") or {}), "prompt": image_prompt, "dialogue_overlays": overlays, "cinematic_direction": camera, "source_visual_moments": moments, "character_blocking": visible_blocking, "referenced_characters": referenced_characters}, "short_video": short, "long_video": long}
