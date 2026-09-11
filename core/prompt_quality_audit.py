@@ -6,6 +6,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+_COMMON_NON_CHARACTER_NAMES = {
+    "who", "what", "when", "where", "which", "why", "this", "that", "these", "those"
+}
+
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
@@ -19,6 +23,18 @@ def _top_dimension(plan: dict[str, Any], key: str) -> dict[str, Any] | None:
     return top if isinstance(top, dict) else None
 
 
+def _sample_indices(count: int, sample_count: int) -> list[int]:
+    if count <= 0:
+        return []
+    if sample_count >= count:
+        return list(range(count))
+    targets = {0, count - 1, count // 2}
+    while len(targets) < sample_count:
+        fraction = len(targets) / max(sample_count - 1, 1)
+        targets.add(min(count - 1, round(fraction * (count - 1))))
+    return sorted(targets)[:sample_count]
+
+
 def audit_package(package_path: str | Path, sample_count: int = 8) -> dict[str, Any]:
     path = Path(package_path)
     package = json.loads(path.read_text(encoding="utf-8"))
@@ -26,6 +42,7 @@ def audit_package(package_path: str | Path, sample_count: int = 8) -> dict[str, 
     failures = []
     observations: Counter[str] = Counter()
     samples: list[dict[str, Any]] = []
+    sample_indices = set(_sample_indices(len(scenes), max(1, min(sample_count, 32))))
 
     for index, record in enumerate(scenes):
         plan = record.get("plan") or {}
@@ -33,7 +50,6 @@ def audit_package(package_path: str | Path, sample_count: int = 8) -> dict[str, 
         image = media.get("image") or {}
         inference = media.get("visual_inference") or plan.get("visual_inference") or {}
         image_prompt = _text(plan.get("image_prompt"))
-        moments = _text(image_prompt)
 
         issues: list[str] = []
         if record.get("qa_status") != "pass":
@@ -52,18 +68,21 @@ def audit_package(package_path: str | Path, sample_count: int = 8) -> dict[str, 
             issues.append("missing_primary_visual_moment")
         if "DETECTED STORY WORLD" not in image_prompt:
             issues.append("missing_world_context_in_prompt")
-        if not isinstance(inference, dict) or not inference.get("characters", inference.get("enabled", False)):
-            observations["visual_inference_structure_unusual"] += 1
+        if not isinstance(inference, dict) or inference.get("enabled") is not True:
+            issues.append("invalid_visual_inference_package")
 
         characters = plan.get("characters") or []
         for character in characters:
+            name = _text(character.get("canonical_name"))
             profile = character.get("visual_profile") or {}
+            if name.lower() in _COMMON_NON_CHARACTER_NAMES:
+                issues.append(f"obvious_non_character_name:{name}")
             if profile and not profile.get("identity_anchor"):
-                issues.append(f"missing_identity_anchor:{character.get('canonical_name', '?')}")
+                issues.append(f"missing_identity_anchor:{name or '?'}")
             if profile and "source_facts" not in profile:
-                issues.append(f"missing_source_facts:{character.get('canonical_name', '?')}")
+                issues.append(f"missing_source_facts:{name or '?'}")
             if profile and "inferred_facts" not in profile:
-                issues.append(f"missing_inferred_facts:{character.get('canonical_name', '?')}")
+                issues.append(f"missing_inferred_facts:{name or '?'}")
 
         if issues:
             failures.append({
@@ -73,7 +92,7 @@ def audit_package(package_path: str | Path, sample_count: int = 8) -> dict[str, 
                 "issues": issues,
             })
 
-        if index < sample_count:
+        if index in sample_indices:
             samples.append({
                 "scene_id": record.get("scene_id"),
                 "scene_order": record.get("scene_order"),
@@ -97,7 +116,7 @@ def audit_package(package_path: str | Path, sample_count: int = 8) -> dict[str, 
             })
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "package": str(path),
         "scene_count": len(scenes),
         "embedded_qa_passed": package.get("qa_passed") is True,
