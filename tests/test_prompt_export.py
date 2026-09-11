@@ -27,6 +27,11 @@ def _valid_plan():
         "placement": "largest protected negative-space region opposite the primary subject, away from faces, hands, important objects, and primary action",
         "readability": "high contrast, short lines, mobile-readable typography",
     }]
+    visual_inference = {
+        "policy": "controlled missing-detail inference",
+        "provenance_separate": True,
+        "locked_for_continuity": True,
+    }
     return {
         "plan_status": "ready",
         "source_grounded": True,
@@ -34,11 +39,7 @@ def _valid_plan():
         "image_prompt": image_prompt,
         "image_layout": image_layout,
         "image_dialogue_overlays": image_overlays,
-        "visual_inference": {
-            "policy": "controlled_missing-detail inference",
-            "provenance_separate": True,
-            "locked_for_continuity": True,
-        },
+        "visual_inference": visual_inference,
         "characters": [{
             "canonical_name": "Lord Shiva",
             "visual_profile": {
@@ -71,15 +72,12 @@ def _valid_plan():
         "media_prompt_package": {
             "source_grounded": True,
             "unknowns_must_remain_unknown": True,
+            "visual_inference": visual_inference,
             "image": {
                 "prompt": image_prompt,
                 "layout": image_layout,
                 "dialogue_overlays": image_overlays,
-                "visual_inference": {
-                    "policy": "controlled missing-detail inference",
-                    "provenance_separate": True,
-                    "locked_for_continuity": True,
-                },
+                "visual_inference": visual_inference,
             },
             "short_video": {},
             "long_video": {},
