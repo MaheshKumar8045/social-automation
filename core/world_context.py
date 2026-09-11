@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -22,9 +23,9 @@ SIGNALS: dict[str, dict[str, tuple[str, ...]]] = {
     },
     "religious_context": {
         "hindu": ("hindu", "shiva", "vishnu", "krishna", "rama", "sita", "ravana", "ganesha", "hanuman", "devi", "asura", "veda", "upanishad", "dharma", "puja", "mandir", "yajna"),
-        "christian": ("christian", "jesus", "christ", "bible", "church", "gospel", "prayer", "christianity"),
+        "christian": ("christian", "jesus", "christ", "bible", "church", "gospel", "christianity"),
         "islamic": ("islam", "islamic", "muslim", "quran", "allah", "mosque", "ramadan", "imam"),
-        "buddhist": ("buddhist", "buddha", "dharma", "sangha", "monastery", "sutra"),
+        "buddhist": ("buddhist", "buddha", "sangha", "monastery", "sutra", "bodhisattva"),
         "jewish": ("jewish", "judaism", "torah", "synagogue", "rabbi", "israelite"),
         "sikh": ("sikh", "sikhism", "guru nanak", "gurdwara", "khalsa", "grantha"),
     },
@@ -72,11 +73,7 @@ def _score_dimension(text: str, rules: dict[str, tuple[str, ...]]) -> list[dict[
     ranked = []
     for label, score in scores.most_common():
         confidence = round(min(0.99, score / max(total, 1) * 0.75 + min(score, 5) * 0.05), 3)
-        ranked.append({
-            "label": label,
-            "confidence": confidence,
-            "evidence": evidence.get(label, [])[:12],
-        })
+        ranked.append({"label": label, "confidence": confidence, "evidence": evidence.get(label, [])[:12]})
     return ranked
 
 
@@ -85,21 +82,17 @@ def analyze_text(text: str) -> dict[str, Any]:
     for dimension, rules in SIGNALS.items():
         ranked = _score_dimension(text, rules)
         top = ranked[0] if ranked else None
-        dimensions[dimension] = {
-            "top": top,
-            "candidates": ranked[:5],
-        }
+        dimensions[dimension] = {"top": top, "candidates": ranked[:5]}
 
     notes: list[str] = []
-    narrative_top = dimensions["narrative_type"]["top"]
-    religion_top = dimensions["religious_context"]["top"]
-    culture_top = dimensions["culture"]["top"]
-    if narrative_top and narrative_top["confidence"] < 0.55:
-        notes.append("Narrative-type evidence is mixed; treat classification as provisional.")
-    if religion_top and religion_top["confidence"] < 0.55:
-        notes.append("Religious-context evidence is mixed; do not force a religion-specific visual policy.")
-    if culture_top and culture_top["confidence"] < 0.55:
-        notes.append("Cultural evidence is mixed; prefer source-described details and keep broad culture uncertain.")
+    for key, message in (
+        ("narrative_type", "Narrative-type evidence is mixed; treat classification as provisional."),
+        ("religious_context", "Religious-context evidence is mixed; do not force a religion-specific visual policy."),
+        ("culture", "Cultural evidence is mixed; prefer source-described details and keep broad culture uncertain."),
+    ):
+        top = dimensions[key]["top"]
+        if top and top["confidence"] < 0.55:
+            notes.append(message)
 
     return {
         "schema_version": 1,
@@ -110,9 +103,9 @@ def analyze_text(text: str) -> dict[str, Any]:
     }
 
 
-def build_world_profile(database_path: str | Path, document_id: int) -> dict[str, Any]:
+@lru_cache(maxsize=16)
+def _build_world_profile_cached(database_path: str, document_id: int) -> dict[str, Any]:
     with sqlite3.connect(database_path) as con:
-        con.row_factory = sqlite3.Row
         page_text = [str(row[0] or "") for row in con.execute(
             "SELECT text FROM pages WHERE document_id=? ORDER BY page_number", (document_id,)
         ).fetchall()]
@@ -133,6 +126,10 @@ def build_world_profile(database_path: str | Path, document_id: int) -> dict[str
         },
         **analysis,
     }
+
+
+def build_world_profile(database_path: str | Path, document_id: int) -> dict[str, Any]:
+    return _build_world_profile_cached(str(Path(database_path).resolve()), int(document_id))
 
 
 __all__ = ["analyze_text", "build_world_profile"]
