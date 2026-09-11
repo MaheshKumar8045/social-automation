@@ -106,7 +106,7 @@ def gate(
     direct = sum(1 for x in contexts if re.search(DIRECT_PERSON_CUE.pattern.format(name=re.escape(n)), x, re.I))
 
     if conflicting_entity_types and conflicting_entity_types & {"location", "environment"}:
-        if direct == 0 and speech == 0 and action == 0:
+        if direct == 0:
             return "non_character", 1.0, ["ambiguous_name_without_person_evidence"]
         reasons.append("name_also_classified_as_location_or_environment")
 
