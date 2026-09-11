@@ -107,10 +107,7 @@ def gate(
 
     if conflicting_entity_types and conflicting_entity_types & {"location", "environment"}:
         if direct == 0 and speech == 0 and action == 0:
-            return "non_character", 1.0, [
-                "same_name_classified_as_location_or_environment",
-                "ambiguous_name_without_person_evidence",
-            ]
+            return "non_character", 1.0, ["ambiguous_name_without_person_evidence"]
         reasons.append("name_also_classified_as_location_or_environment")
 
     if title and len(bare) == 1 and bare[0].lower() in STOPWORDS and direct == 0:
@@ -127,15 +124,13 @@ def gate(
     if scenes >= 2:
         score += 0.10; reasons.append("multi_scene_presence")
     if direct:
-        score += 0.15; reasons.append("direct_person_reference")
+        score += 0.25; reasons.append("direct_person_reference")
     if speech:
         score += 0.05; reasons.append("speech_context")
     if action:
         score += 0.05; reasons.append("character_action_context")
     if any(w.lower() in STOPWORDS for w in bare):
         score -= 0.45; reasons.append("stopword_name_component")
-    # Single-word names without person evidence remain weak, but a direct
-    # person reference is strong enough to preserve them as candidates.
     if len(bare) == 1 and not title and direct == 0:
         score = min(score, 0.44); reasons.append("single_word_without_direct_person_reference")
     if len(bare) >= 2 and not title and direct == 0 and exact < 3:
@@ -180,10 +175,10 @@ def build(db: str | Path, document_id: int) -> dict[str, int]:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Conservative character candidate gate")
-    p.add_argument("database", type=str)
+    p.add_argument("db", type=str)
     p.add_argument("document_id", type=int)
     a = p.parse_args()
-    r = build(a.database, a.document_id)
+    r = build(a.db, a.document_id)
     print("=== CHARACTER CANDIDATE GATE ===")
     for k in ("validated", "probable", "review", "non_character"):
         print(f"{k}: {r.get(k, 0)}")
