@@ -44,6 +44,67 @@ def _positive_int(value: Any) -> int:
         return 0
 
 
+def _write_scene_media_files(output_dir: Path, record: dict[str, Any]) -> None:
+    """Write copy-friendly per-scene files for each primary media type."""
+    plan = record["plan"]
+    scene_number = int(record["scene_order"])
+    scene_stem = f"scene_{scene_number:03d}"
+    header = (
+        f"SOURCE: {Path(plan.get('source_database') or record.get('source_database') or '').name}\n"
+        f"SCENE: {scene_number}\n"
+        f"TITLE: {record.get('title') or ''}\n"
+        f"PAGES: {record.get('page_start')}–{record.get('page_end')}\n\n"
+    )
+
+    image_dir = output_dir / "image"
+    short_dir = output_dir / "short_video"
+    long_dir = output_dir / "long_video"
+    for directory in (image_dir, short_dir, long_dir):
+        directory.mkdir(parents=True, exist_ok=True)
+
+    media = _mapping(plan.get("media_prompt_package"))
+    image = _mapping(media.get("image"))
+    image_prompt = str(plan.get("image_prompt") or image.get("prompt") or "").strip()
+    image_layout = _mapping(image.get("layout"))
+    image_overlays = image.get("dialogue_overlays")
+    image_text = (
+        header
+        + "=== IMAGE GENERATION PROMPT ===\n"
+        + image_prompt
+        + "\n\n=== IMAGE LAYOUT ===\n"
+        + json.dumps(image_layout, ensure_ascii=False, indent=2)
+        + "\n\n=== DIALOGUE / NARRATIVE OVERLAYS ===\n"
+        + json.dumps(image_overlays if isinstance(image_overlays, list) else [], ensure_ascii=False, indent=2)
+        + "\n"
+    )
+    (image_dir / f"{scene_stem}.txt").write_text(image_text, encoding="utf-8")
+
+    short_video = _mapping(plan.get("short_video_prompt_package"))
+    clips = short_video.get("clips") if isinstance(short_video.get("clips"), list) else []
+    short_parts = [header + "=== SHORT VIDEO GENERATION ==="]
+    for index, clip in enumerate(clips, 1):
+        clip = _mapping(clip)
+        short_parts.append(
+            f"\n--- CLIP {clip.get('clip_number', index)} ---\n"
+            f"{str(clip.get('prompt') or '').strip()}"
+        )
+    audio = _mapping(plan.get("audio_prompt"))
+    short_parts.append("\n\n=== AUDIO DIRECTION ===\n" + json.dumps(audio, ensure_ascii=False, indent=2))
+    (short_dir / f"{scene_stem}.txt").write_text("\n".join(short_parts) + "\n", encoding="utf-8")
+
+    long_video = _mapping(plan.get("long_video_prompt_package"))
+    shots = long_video.get("shots") if isinstance(long_video.get("shots"), list) else []
+    long_parts = [header + "=== LONG VIDEO GENERATION ==="]
+    for index, shot in enumerate(shots, 1):
+        shot = _mapping(shot)
+        long_parts.append(
+            f"\n--- SHOT {shot.get('shot_number', index)} ---\n"
+            f"{str(shot.get('prompt') or '').strip()}"
+        )
+    long_parts.append("\n\n=== AUDIO DIRECTION ===\n" + json.dumps(audio, ensure_ascii=False, indent=2))
+    (long_dir / f"{scene_stem}.txt").write_text("\n".join(long_parts) + "\n", encoding="utf-8")
+
+
 def validate_plan(plan: dict[str, Any]) -> list[str]:
     """Validate the canonical generation-plan/media-package contract.
 
@@ -217,6 +278,7 @@ def build_all_prompts(database: str | Path, document_id: int, output_dir: str | 
                 "plan": plan,
             }
             handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            _write_scene_media_files(output_dir, record)
             plans.append(record)
             if errors:
                 failures.append({"scene_id": record["scene_id"], "errors": errors})
@@ -244,6 +306,11 @@ def build_all_prompts(database: str | Path, document_id: int, output_dir: str | 
         "output_dir": str(output_dir),
         "package": str(package_path),
         "jsonl": str(jsonl_path),
+        "media_prompt_dirs": {
+            "image": str(output_dir / "image"),
+            "short_video": str(output_dir / "short_video"),
+            "long_video": str(output_dir / "long_video"),
+        },
         "stages": stages,
     }
     (output_dir / "prompt_export_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
