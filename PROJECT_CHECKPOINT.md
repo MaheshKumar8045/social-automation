@@ -1,3 +1,54 @@
+## World & Knowledge Intelligence v1 — 2026-09-11
+
+Implemented and integrated a lightweight, dependency-free document world-context layer.
+
+### Architecture
+- Added `core/world_context.py` for document-wide source signal analysis.
+- The analyzer determines ranked candidates for narrative type, religious context, culture, region, and period.
+- Each classification carries confidence and the source terms that triggered it.
+- Low-confidence results remain provisional; missing dimensions remain unknown instead of being forced.
+- `core/generation_context.py` now builds the world profile dynamically per document and exposes it to generation.
+- `core/generation_planner.py` carries the world profile into the generation plan and uses it for controlled character inference.
+- `core/media_prompt_compiler.py` includes the detected world context in the unified media prompt while explicitly keeping it contextual rather than authoritative.
+- `core/visual_generation_policy.py` no longer defaults to mythology; `general_narrative` is the safe fallback.
+- `config/visual_generation_policy.json` now uses `general_narrative` as its default.
+- Document world analysis is cached per database/document during a process to avoid rescanning every page for every scene.
+
+### Evidence policy
+1. Explicit source evidence is authoritative.
+2. Strong source-derived context may guide production inference.
+3. Deterministic world context may guide missing visual production details.
+4. No exact eye color, hair color, height, exact age, or facial measurements are inferred without source evidence.
+5. External knowledge bases and an LLM are intentionally not required for v1; the interface can accept them later as optional enrichment providers.
+
+### Real Asura validation — 2026-09-11
+The synchronized local code completed the full 442-page Asura DOD run.
+
+- pages: 442
+- sections: 63
+- stories: 63
+- scenes: 191
+- entities: 2078
+- mentions: 6463
+- aliases: 2109
+- events: 191
+- continuity entity states: 5140
+- visual knowledge bible: 25 profiles, 3 facts
+- canonical visual bible: 25 profiles, 3 facts
+- contradictions: 0
+- prompt QA: passed with 0 failures
+
+The current run proves the existing prompt-generation contract remains operational after integration. It does not yet prove that the new world classifier is semantically correct for every future source; targeted synthetic tests cover mythology, patriotic/historical, and unknown-world cases.
+
+### Next validation
+- Sync local `main` with the latest GitHub commits.
+- Run the full pytest suite.
+- Re-run the Asura DOD after the world-context integration so generated output contains the dynamic world profile.
+- Inspect several generated scene plans to verify that the detected world context influences visual inference without overriding source facts.
+- Later milestone: optional external knowledge enrichment (Wikidata/DBpedia/etc.) behind a provider interface; no LLM required for the baseline.
+
+# Project Checkpoint
+
 ## Visual generation policy upgrade — 2026-09-11
 
 Implemented locally by this upgrade script:
@@ -13,8 +64,6 @@ Implemented locally by this upgrade script:
 - Prompt QA now validates the visual inference package, 9:16 image layout, required text box, provenance-separated character profiles, and reports aggregate failure counts.
 
 The generated production prompts remain deterministic and source-grounded in story content while allowing explicitly labeled production inference for missing visual-generation details.
-
-This upgrade is ready for local test validation. Do not mark the Asura DOD as passing until the full pytest suite and real 442-page DOD run both complete successfully.
 
 # Project Checkpoint
 
@@ -83,4 +132,4 @@ The repository's earlier checkpoint and project history remain preserved below t
 - Character identity and visual grounding remain conservative: unsupported appearance must stay unknown.
 
 ## Current next steps
-Use the “Latest real validation — 2026-09-10” section above as the authoritative restart point. Do not weaken QA to make the DOD pass. Focus next on prompt compilation quality, character/context propagation, scene-title/character reconciliation, and validation of the 63-section structure before another full run.
+Use the “World & Knowledge Intelligence v1” section above as the authoritative restart point. Do not weaken QA to make the DOD pass. Focus next on validating dynamic world-context propagation, inspecting several generated plans, and then considering optional external knowledge providers.
