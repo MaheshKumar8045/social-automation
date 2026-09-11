@@ -77,8 +77,6 @@ def gate(
     reasons: list[str] = []
     if entity_type != "character":
         return "non_character", 1.0, ["upstream_type_not_character"]
-    if conflicting_entity_types and conflicting_entity_types & {"location", "environment"}:
-        return "non_character", 1.0, ["same_name_classified_as_location_or_environment"]
     if TITLE_ONLY.match(n):
         return "non_character", 1.0, ["title_only"]
     if low in STOPWORDS or low in NON_PERSON:
@@ -106,6 +104,16 @@ def gate(
     speech = sum(1 for x in contexts if SPEECH_CUE.search(x))
     action = sum(1 for x in contexts if ACTION_CUE.search(x))
     direct = sum(1 for x in contexts if re.search(DIRECT_PERSON_CUE.pattern.format(name=re.escape(n)), x, re.I))
+
+    # A name shared with a location/environment is only disqualifying when the
+    # current evidence lacks a direct person reference. Real source characters
+    # can legitimately share names with places or concepts, while weak ambiguous
+    # candidates should still be kept out of the canonical layer.
+    if conflicting_entity_types and conflicting_entity_types & {"location", "environment"}:
+        if direct == 0 and speech == 0 and action == 0:
+            return "non_character", 1.0, ["ambiguous_name_without_person_evidence"]
+        reasons.append("name_also_classified_as_location_or_environment")
+
     if title and len(bare) == 1 and bare[0].lower() in STOPWORDS and direct == 0:
         return "review", 0.35, ["title_with_stopword_name_without_direct_person_reference"]
     score = 0.25
