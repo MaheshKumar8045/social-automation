@@ -7,12 +7,14 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .world_context import build_world_profile
+
 
 class GenerationContext:
     """Assemble a deterministic scene package for media generation.
 
-    Source evidence and production inference remain separate. This layer only
-    joins database evidence; visual inference happens in the media compiler.
+    Source evidence and production inference remain separate. This layer joins
+    database evidence and a document-level, dependency-free world profile.
     """
 
     def __init__(self, database_path: str | Path):
@@ -36,12 +38,17 @@ class GenerationContext:
             continuity = self._continuity(con, document_id, scene_id)
             self._add_canonical_continuity_ids(continuity, characters)
 
+            world_profile = build_world_profile(self.database_path, document_id)
+            narrative_top = (world_profile.get("dimensions", {}).get("narrative_type", {}).get("top") or {})
+            visual_genre = narrative_top.get("label") or "general_narrative"
+
             return {
                 "document_id": document_id,
                 "scene_id": scene_id,
                 "source_grounded": True,
                 "unknowns_must_remain_unknown": True,
-                "visual_genre": "mythological_epic",
+                "visual_genre": visual_genre,
+                "world_profile": world_profile,
                 "scene": {
                     "story_id": scene["story_id"],
                     "scene_order": scene["scene_order"],
@@ -65,6 +72,7 @@ class GenerationContext:
                     "Controlled production inference may fill missing visual-generation details.",
                     "Inferred attributes must be explicitly marked as production inference and kept deterministic.",
                     "Never contradict source facts.",
+                    "Use the world profile as contextual guidance, not as a replacement for source evidence.",
                 ],
             }
 
@@ -220,7 +228,14 @@ class GenerationContext:
             "scene_id": scene_id,
             "source_grounded": True,
             "unknowns_must_remain_unknown": True,
-            "visual_genre": "mythological_epic",
+            "visual_genre": "general_narrative",
+            "world_profile": {
+                "schema_version": 1,
+                "method": "deterministic_source_signal_analysis",
+                "llm_used": False,
+                "dimensions": {},
+                "notes": [reason],
+            },
             "error": reason,
             "scene": None,
             "characters": [],
