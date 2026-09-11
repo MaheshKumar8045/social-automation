@@ -34,7 +34,10 @@ _DIALOGUE_START_RE = re.compile(
     r"let|perhaps|if|there|here)\b",
     re.I,
 )
-_HEADING_PREFIX_RE = re.compile(r"^\s*(?:[IVXLCDM]+|\d{1,3})[.)]?\s+", re.I)
+# Roman-numeral headings are only unambiguous when followed by punctuation,
+# or by a title-cased word. This prevents the pronoun "I" in prose such as
+# "I should have killed him..." from being stripped as a section marker.
+_HEADING_PREFIX_RE = re.compile(r"^\s*(?:(?:[IVXLCDM]{1,8}[.)]\s+)|(?:[IVXLCDM]{1,8}\s+(?=[A-Z]))|(?:\d{1,3}[.)]?\s+))", re.I)
 _NAME_TOKEN_RE = re.compile(r"^[A-Z][A-Za-z'’-]*$")
 
 
