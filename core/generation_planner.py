@@ -48,17 +48,20 @@ class GenerationPlanner:
                 "unknowns_must_remain_unknown": True,
             }
 
+        world_profile = context.get("world_profile") or {}
         characters = [
             enrich_character(
                 character,
-                genre=context.get("visual_genre", "mythological_epic"),
+                genre=context.get("visual_genre", "general_narrative"),
+                world_context=world_profile,
             )
             for character in (context.get("characters") or [])
         ]
 
         visual_constraints = [
             "Preserve source-supported visual facts exactly.",
-            "Controlled production visual inference is allowed for missing attributes using the configured genre policy.",
+            "Controlled production visual inference is allowed for missing attributes using the dynamically detected story-world context and configured genre policy.",
+            "World context is contextual guidance only and must never override a source-supported fact.",
             "Never override, contradict, or silently relabel a source-supported fact as an inference.",
             "Never infer exact eye color, hair color, height, exact age, or facial measurements unless source evidence supplies them.",
             "Lock deterministic inferred profile attributes across scenes for the same canonical identity.",
@@ -80,10 +83,11 @@ class GenerationPlanner:
         return {
             "document_id": document_id,
             "scene_id": scene_id,
-            "plan_version": 5,
+            "plan_version": 6,
             "plan_status": "ready",
             "source_grounded": True,
             "unknowns_must_remain_unknown": True,
+            "world_profile": world_profile,
             "scene": context["scene"],
             "characters": characters,
             "objects": context.get("objects") or [],
