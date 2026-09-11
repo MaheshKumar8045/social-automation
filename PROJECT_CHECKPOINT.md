@@ -1,3 +1,48 @@
+## Media Prompt Export — 2026-09-11
+
+### Completed
+- Fixed the character-candidate location/environment collision bug so unrelated speech/action evidence cannot validate a colliding name.
+- Added regression coverage for direct person evidence versus location-only evidence.
+- Local full test suite: **54 passed** before the media-export change.
+- Added copy-friendly per-scene media prompt export to `core/prompt_export.py`.
+- Each generated scene now gets its own text file in three dedicated folders:
+  - `image/scene_001.txt` … one file per scene for image generation, including the image prompt, layout constraints, and dialogue/narrative overlay data.
+  - `short_video/scene_001.txt` … one file per scene containing all short-video clips plus audio direction.
+  - `long_video/scene_001.txt` … one file per scene containing all long-video shots plus audio direction.
+- Added regression coverage that verifies all three per-scene folders/files are produced.
+- Existing aggregate outputs remain unchanged: `all_prompts.json`, `scene_prompts.jsonl`, and `prompt_export_summary.json`.
+
+### Output layout
+```text
+<data stem>_prompts/
+  all_prompts.json
+  scene_prompts.jsonl
+  prompt_export_summary.json
+  image/
+    scene_001.txt
+    scene_002.txt
+    ...
+  short_video/
+    scene_001.txt
+    scene_002.txt
+    ...
+  long_video/
+    scene_001.txt
+    scene_002.txt
+    ...
+```
+
+### Real Asura validation still required
+After syncing `main`, run:
+```powershell
+git pull origin main
+python -m pytest -q
+python -m core.dod "data\Asura\Asura - Tale Of The Vanquished.pdf"
+python -m core.prompt_quality_audit "data\Asura\Asura - Tale Of The Vanquished_structure_prompts\all_prompts.json" --sample-count 8
+```
+
+Then inspect the generated `image`, `short_video`, and `long_video` folders scene-by-scene for actual generation quality.
+
 ## Character Identity QA — 2026-09-11
 
 Generation Intelligence QA confirmed the emitted Asura package is structurally valid, but representative samples exposed split identity variants such as `Lord Shiva`, `Lord Shiva Pasupathi`, and `Lord Shiva Pasupathi Literally`.
@@ -31,7 +76,7 @@ The candidate gate had a cross-type collision protection for character candidate
 - Branch: `main`
 - Latest character-gate regression commits are on GitHub `main`.
 - Local environment is correctly using `M:\social-automation\.venv\Scripts\python.exe`.
-- `python -m pytest -q` passes: **54 passed**.
+- `python -m pytest -q` passes: **54 passed** before the media export test was added.
 - Real Asura DB was located at:
   `data\Asura\Asura - Tale Of The Vanquished_structure.db`
 - Confirmed SQLite schema includes `documents`, `entities`, `entity_mentions`, `canonical_characters`, `mention_identity_resolution`, visual tables, and related pipeline tables.
@@ -48,18 +93,14 @@ python -m core.prompt_quality_audit "data\Asura\Asura - Tale Of The Vanquished_s
 ```
 
 ### Prompt review / generation inspection
-The generated package is designed to contain the three primary generation prompt families:
-- image prompt
-- short-video clips
-- long-video shots
+The generated package now has three copy-friendly per-scene media folders:
+- `image\scene_###.txt`
+- `short_video\scene_###.txt`
+- `long_video\scene_###.txt`
 
-The same visual policy feeds all three and carries source grounding, world context, visual inference, continuity constraints, and deterministic text/audio guidance.
+Each file is scoped to one scene. Image files contain the image prompt plus layout/overlay guidance. Short-video files contain all clips for that scene plus audio direction. Long-video files contain all shots for that scene plus audio direction.
 
-After DOD completes, inspect the full generated package with:
-```powershell
-Get-Content "data\Asura\Asura - Tale Of The Vanquished_structure_prompts\all_prompts.json" -Raw | Set-Content "data\Asura\asura_prompts_for_ai_review.txt"
-```
-The JSON is the authoritative machine-readable package. For an AI review, the preferred input is the generated `all_prompts.json`; the command above creates a text copy that is easy to open/copy from PowerShell. Do not treat a prompt preview as equivalent to the full package.
+The aggregate `all_prompts.json` remains the authoritative machine-readable package.
 
 ### What the next review should check
 1. canonical-character count versus the prior 25-character baseline;
