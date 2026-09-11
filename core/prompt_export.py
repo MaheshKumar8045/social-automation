@@ -45,13 +45,19 @@ def _positive_int(value: Any) -> int:
 
 
 def _write_scene_media_files(output_dir: Path, record: dict[str, Any]) -> None:
-    """Write copy-friendly per-scene files for each primary media type."""
+    """Write copy-friendly per-scene files for each primary media type.
+
+    Filenames use the globally unique scene_id rather than scene_order because
+    scene_order restarts within each story and would otherwise overwrite files.
+    """
     plan = record["plan"]
-    scene_number = int(record["scene_order"])
-    scene_stem = f"scene_{scene_number:03d}"
+    scene_id = int(record["scene_id"])
+    scene_order = int(record["scene_order"])
+    scene_stem = f"scene_{scene_id:03d}"
     header = (
         f"SOURCE: {Path(plan.get('source_database') or record.get('source_database') or '').name}\n"
-        f"SCENE: {scene_number}\n"
+        f"SCENE ID: {scene_id}\n"
+        f"SCENE ORDER: {scene_order}\n"
         f"TITLE: {record.get('title') or ''}\n"
         f"PAGES: {record.get('page_start')}–{record.get('page_end')}\n\n"
     )
@@ -106,13 +112,7 @@ def _write_scene_media_files(output_dir: Path, record: dict[str, Any]) -> None:
 
 
 def validate_plan(plan: dict[str, Any]) -> list[str]:
-    """Validate the canonical generation-plan/media-package contract.
-
-    Validation follows the emitted schema rather than requiring a second,
-    subtly different representation in tests. It accepts equivalent canonical
-    representations where a derived field can be safely recovered, while still
-    rejecting genuinely incomplete production packages.
-    """
+    """Validate the canonical generation-plan/media-package contract."""
     errors: list[str] = []
     if plan.get("plan_status") != "ready":
         errors.append("plan_status is not ready")
@@ -167,9 +167,7 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
         else:
             if layout.get("aspect_ratio") != "9:16":
                 errors.append("primary image aspect ratio must be 9:16")
-            minimum_boxes = _positive_int(
-                layout.get("dialogue_box_count_minimum", layout.get("dialogue_box_min_count"))
-            )
+            minimum_boxes = _positive_int(layout.get("dialogue_box_count_minimum", layout.get("dialogue_box_min_count")))
             overlays = image.get("dialogue_overlays")
             overlay_count = len(overlays) if isinstance(overlays, list) else 0
             if max(minimum_boxes, overlay_count) < 1:
@@ -233,10 +231,7 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
 
     if characters and _nonempty_text(image_prompt):
         lowered_prompt = image_prompt.lower()
-        names = [
-            str(c.get("canonical_name") or "").strip().lower()
-            for c in characters if isinstance(c, dict) and c.get("canonical_name")
-        ]
+        names = [str(c.get("canonical_name") or "").strip().lower() for c in characters if isinstance(c, dict) and c.get("canonical_name")]
         if names and not any(name in lowered_prompt for name in names):
             errors.append("image prompt does not contain any canonical character from the generation plan")
     return errors
