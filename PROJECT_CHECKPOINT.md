@@ -24,16 +24,18 @@ Implemented and integrated a lightweight, dependency-free document world-context
 
 ### Validation status
 - Local pytest after the classifier correction: **41 passed in 6.96s**.
-- Initial v1 classifier exposed a real bug where generic historical terms could outrank stronger mythology signals.
-- Fixed with weighted signal scoring and added regression coverage for mixed mythology/historical wording.
-- Current GitHub `main` contains the classifier fix, dynamic world-profile integration, and updated tests.
-- Prior synchronized Asura DOD: 442 pages, 191 scenes, prompt QA 0 failures; that run preceded the final world-classification correction/integration.
+- Initial v1 classifier exposed a real bug where generic historical terms could outrank stronger mythology signals; fixed with weighted signal scoring and regression coverage.
+- The first real Asura DOD after integrating world context reached the prompt-building stage but failed because `world_context.py` queried `sections.page_number`, while the canonical SQLite schema stores section start pages in `sections.page_start`.
+- Fixed `core/world_context.py` to order section titles by `page_start` and aligned `tests/test_world_context.py` with the production section schema.
+- GitHub commits: `fa05773185f740c4f03d6abb00a9a8f329ad1e31` (production fix), `69369bbdbe16da3eed080c2742b8f23d202663e9` (regression test schema fix).
+- The failed DOD still confirmed the source pipeline itself completed successfully: 442 pages, 63 reconciled sections, 63 stories, 191 scenes, 2078 entities, 6463 mentions, 2109 aliases, and 191 events before prompt generation failed.
 
 ### Next validation
-1. Re-run the Asura DOD after syncing local `main` with the latest GitHub commits.
-2. Inspect world-profile classification and several scene plans to verify the detected world context reaches visual inference and final prompts.
-3. Confirm source facts continue to override contextual inference.
-4. Later milestone: optional external knowledge enrichment (Wikidata/DBpedia/etc.) behind a provider interface; no LLM required for the baseline.
+1. Sync local `main` with the latest GitHub commits.
+2. Re-run the Asura DOD and confirm world-profile classification completes against the real SQLite schema.
+3. Inspect world profile, several scene plans, visual inference, and final unified prompts.
+4. Confirm source facts continue to override contextual inference and QA passes.
+5. Later milestone: optional external knowledge enrichment (Wikidata/DBpedia/etc.) behind a provider interface; no LLM required for the baseline.
 
 ## Previous checkpoint
 
