@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import argparse
@@ -5,62 +6,35 @@ import json
 import re
 from typing import Any
 
+from .visual_generation_policy import composition_policy, enrich_character, load_visual_policy
 
-_QUOTE_RE = re.compile(r'["“](.*?)["”]', re.S)
+
+_QUOTE_RE = re.compile(r'["“](.*?)[“”"]', re.S)
 _SENTENCE_RE = re.compile(r'(?<=[.!?])\s+')
 _SPEECH_CUE_RE = re.compile(
-    r'\b(said|asked|replied|answered|exclaimed|cried|shouted|whispered|remarked|called|murmured|observed|added)\b',
-    re.I,
+    r"\b(said|asked|replied|answered|exclaimed|cried|shouted|whispered|"
+    r"remarked|called|murmured|observed|added|told|said to)\b", re.I
 )
 _ACTION_RE = re.compile(
-    r'\b(approach(?:ed|es|ing)?|arriv(?:ed|es|ing)|ask(?:ed|s|ing)?|answer(?:ed|s|ing)?|'
-    r'climb(?:ed|s|ing)?|come|cross(?:ed|es|ing)?|cry|cried|enter(?:ed|s|ing)?|'
-    r'exclaim(?:ed|s|ing)?|fall(?:en|ing|s)?|flee(?:d|s|ing)?|follow(?:ed|s|ing)?|'
-    r'go(?:es|ing)?|grab(?:bed|s|bing)?|look(?:ed|s|ing)?|move(?:d|s|ing)?|'
-    r'open(?:ed|s|ing)?|reach(?:ed|es|ing)?|return(?:ed|s|ing)?|run(?:s|ning)?|'
-    r'saw|see(?:s|ing)?|sit(?:s|ting)?|stand(?:s|ing)?|start(?:ed|s|ing)?|'
-    r'stop(?:ped|s|ping)?|take|took|tell(?:s|ing)?|turn(?:ed|s|ing)?|'
-    r'walk(?:ed|s|ing)?|watch(?:ed|es|ing)?|whisper(?:ed|s|ing)?|'
-    r'shake|shook|hold|held|carry|carried|fight|fought|strike|struck|save(?:d|s|ing)?)\b',
-    re.I,
+    r"\b(approach\w*|arriv\w*|ask\w*|answer\w*|climb\w*|come|cross\w*|"
+    r"cry|cried|enter\w*|exclaim\w*|fall\w*|flee\w*|follow\w*|go\w*|"
+    r"grab\w*|look\w*|move\w*|open\w*|reach\w*|return\w*|run\w*|"
+    r"saw|see\w*|sit\w*|stand\w*|start\w*|stop\w*|take|took|tell\w*|"
+    r"turn\w*|walk\w*|watch\w*|whisper\w*|shake\w*|hold\w*|held|"
+    r"carry\w*|fight|fought|strike|struck|save\w*|captur\w*|die\w*|"
+    r"kill\w*|battle\w*|travel\w*|leave\w*|arrive\w*)\b", re.I
 )
-_METADATA_PREFIX_RE = re.compile(r'^(?:[A-Z][A-Z0-9\s,:;!?\'’\-]{7,})\.\s+')
-
-_EMOTION_PATTERNS = {
-    "urgency": re.compile(r'\b(hurry|quick|quickly|urgent|rush|hast|danger|dangerous|escape|flee|alarm|warn|warning|go)\b', re.I),
-    "fear": re.compile(r'\b(afraid|fear|fright|terrified|terror|dread|trembl|horror|panic|death)\b', re.I),
-    "grief": re.compile(r'\b(grief|griev|sorrow|sad|sadness|mourn|tears|wept|crying|lament|poor)\b', re.I),
-    "anger": re.compile(r'\b(angry|anger|rage|furious|fury|threat|threaten|excited)\b', re.I),
-    "joy": re.compile(r'\b(joy|glad|happy|laugh|smile|delight|cheer|pleased)\b', re.I),
-    "calm": re.compile(r'\b(calm|quiet|peace|peaceful|rest|resting|still|serene|gentle)\b', re.I),
-    "awe": re.compile(r'\b(awe|wonder|wondrous|magnificent|immense|astonish|marvel|spectacular)\b', re.I),
-}
 
 
-def _clean(text: Any, limit: int = 240) -> str:
-    value = re.sub(r'\s+', ' ', str(text or '')).strip()
-    return value[:limit].rstrip() if len(value) > limit else value
-
-
-def _strip_metadata_prefix(text: str) -> str:
-    value = _clean(text, 600)
-    previous = None
-    while value and value != previous:
-        previous = value
-        value = _METADATA_PREFIX_RE.sub('', value).strip()
-    return value
-
-
-def _strip_dialogue(text: str) -> str:
-    """Remove clearly quoted dialogue before selecting visual/action prose."""
-    return re.sub(r'["“].*?["”]', ' ', text, flags=re.S)
+def _clean(value: Any, limit: int = 240) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text[:limit].rstrip() if len(text) > limit else text
 
 
 def _unique(values: list[str], limit: int = 8) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
+    result, seen = [], set()
     for value in values:
-        value = _clean(value, 180)
+        value = _clean(value, 240)
         key = value.lower()
         if value and key not in seen:
             seen.add(key)
@@ -70,271 +44,332 @@ def _unique(values: list[str], limit: int = 8) -> list[str]:
     return result
 
 
-def _visual_facts(character: dict[str, Any]) -> list[str]:
-    facts: list[str] = []
-    for fact in character.get("visual_facts", []):
-        status = str(fact.get("status") or "").lower()
-        value = _clean(fact.get("value"), 120)
-        attribute = _clean(fact.get("attribute"), 80)
-        if not value or status in {"unknown", "rejected", "conflict"}:
-            continue
-        facts.append(f"{attribute}: {value}" if attribute else value)
-    return _unique(facts, 10)
-
-
-def _source_sentences(scene: dict[str, Any]) -> list[str]:
-    text = str(scene.get("text") or "")
-    sentences = []
-    for raw in _SENTENCE_RE.split(re.sub(r'\s+', ' ', text).strip()):
-        value = _strip_metadata_prefix(raw)
-        if value:
-            sentences.append(value)
-    return sentences
+def _strip_dialogue(text: str) -> str:
+    return re.sub(r'["“].*?["”]', " ", text, flags=re.S)
 
 
 def _dialogue(scene: dict[str, Any]) -> list[str]:
     text = str(scene.get("text") or "")
-    candidates: list[tuple[int, str]] = []
+    ranked: list[tuple[int, str]] = []
     for match in _QUOTE_RE.finditer(text):
-        value = _clean(match.group(1), 180).strip("'’“” ")
-        if not value:
+        value = _clean(match.group(1), 180).strip(" '’“”")
+        if len(value.split()) < 4:
             continue
-        words = value.split()
-        score = min(len(value), 120)
-        before = text[max(0, match.start() - 100):match.start()]
+        before = text[max(0, match.start() - 120):match.start()]
         after = text[match.end():match.end() + 100]
+        score = min(len(value), 120)
         if _SPEECH_CUE_RE.search(before) or _SPEECH_CUE_RE.search(after):
-            score += 60
-        if len(value) < 24:
-            score -= 45
-        if len(words) < 4:
-            score -= 25
-        if value.lower().rstrip(" ,.!?") in {"thanks", "well", "yes", "no", "thanks from my heart"}:
-            score -= 60
-        candidates.append((score, value))
-    candidates.sort(key=lambda item: (-item[0], item[1].lower()))
-    return _unique([value for _, value in candidates if len(value.split()) >= 4], 3)
+            score += 80
+        ranked.append((score, value))
+    ranked.sort(key=lambda x: (-x[0], x[1].lower()))
+    return _unique([x[1] for x in ranked], 3)
 
 
-def _action_candidates(scene: dict[str, Any], events: list[dict[str, Any]]) -> list[str]:
+def _visual_moments(scene: dict[str, Any], events: list[dict[str, Any]], characters: list[dict[str, Any]]) -> list[str]:
+    name_tokens = [
+        _clean(c.get("canonical_name"), 100).lower()
+        for c in characters
+        if c.get("canonical_name")
+    ]
     candidates: list[tuple[int, str]] = []
-
     for event in events:
-        value = _strip_metadata_prefix(_clean(event.get("text"), 220))
-        if value:
-            score = 45 + (25 if _ACTION_RE.search(value) else 0)
-            candidates.append((score, value))
-
-    # Select narrative prose, not dialogue. This prevents quoted speech from becoming
-    # the image's "action" while retaining visible narrator-described actions/reactions.
-    narrative = _strip_dialogue(str(scene.get("text") or ""))
-    for raw in _SENTENCE_RE.split(re.sub(r'\s+', ' ', narrative).strip()):
-        sentence = _strip_metadata_prefix(raw)
-        if len(sentence) < 25:
+        text = _clean(event.get("text"), 260)
+        if not text:
             continue
-        if sentence.startswith(('"', '“', "'") ):
+        score = 50 + (25 if _ACTION_RE.search(text) else 0)
+        score += sum(12 for name in name_tokens if name and name in text.lower())
+        candidates.append((score, text))
+
+    narrative = _strip_dialogue(str(scene.get("text") or ""))
+    for sentence in _SENTENCE_RE.split(re.sub(r"\s+", " ", narrative).strip()):
+        sentence = _clean(sentence, 260)
+        if len(sentence.split()) < 5:
             continue
         if _SPEECH_CUE_RE.search(sentence) and not _ACTION_RE.search(sentence):
             continue
-        score = 20
-        if _ACTION_RE.search(sentence):
-            score += 50
-        if 6 <= len(sentence.split()) <= 35:
+        score = 10 + (45 if _ACTION_RE.search(sentence) else 0)
+        score += sum(10 for name in name_tokens if name and name in sentence.lower())
+        if 6 <= len(sentence.split()) <= 32:
             score += 10
-        if sentence.endswith(':'):
-            score -= 20
         candidates.append((score, sentence))
 
-    candidates.sort(key=lambda item: (-item[0], item[1].lower()))
-    return _unique([value for _, value in candidates], 5)
+    candidates.sort(key=lambda x: (-x[0], x[1].lower()))
+    return _unique([x[1] for x in candidates], 3)
+
+
+def _objects(objects: list[dict[str, Any]], continuity: dict[str, Any]) -> list[str]:
+    values = [_clean(o.get("canonical_name"), 100) for o in objects if o.get("canonical_name")]
+    state = continuity.get("environment_state") if continuity.get("available") else {}
+    if isinstance(state, dict):
+        values.extend(
+            f"{_clean(k, 80)}: {_clean(v, 120)}"
+            for k, v in state.items()
+            if isinstance(v, str) and v.strip()
+        )
+    return _unique(values, 8)
 
 
 def _character_lines(characters: list[dict[str, Any]]) -> list[str]:
     result = []
-    for character in characters:
+    for raw in characters:
+        character = raw
         name = _clean(character.get("canonical_name"), 100)
         if not name:
             continue
-        facts = _visual_facts(character)
-        status = str(character.get("status") or "").lower()
-        if facts:
-            result.append(name + " (" + "; ".join(facts) + ")")
-        elif status in {"confirmed", "likely"}:
-            result.append(name)
+        profile = character.get("visual_profile") or {}
+        source_facts = profile.get("source_facts") or []
+        inferred = profile.get("inferred_facts") or []
+        source_text = "; ".join(
+            f"{_clean(f.get('attribute'), 70)}: {_clean(f.get('value'), 120)}"
+            for f in source_facts[:8]
+        )
+        inferred_text = "; ".join(
+            _clean(f.get("value"), 140) for f in inferred[:8]
+        )
+        line = f"{name} [identity anchor: {profile.get('identity_anchor', 'none')}]"
+        if source_text:
+            line += f" | SOURCE VISUAL FACTS: {source_text}"
+        if inferred_text:
+            line += f" | CONTROLLED VISUAL INFERENCE: {inferred_text}"
+        result.append(line)
     return _unique(result, 8)
 
 
-def _environment(objects: list[dict[str, Any]], continuity: dict[str, Any]) -> list[str]:
-    result = [_clean(o.get("canonical_name"), 100) for o in objects if o.get("canonical_name")]
-    state = continuity.get("environment_state") if continuity.get("available") else {}
-    if isinstance(state, dict):
-        for key, value in state.items():
-            if isinstance(value, str) and value.strip():
-                result.append(f"{key}: {value}")
-    return _unique(result, 8)
+def _overlay(dialogue: list[str], scene: dict[str, Any], layout: dict[str, Any]) -> list[dict[str, Any]]:
+    if dialogue:
+        boxes = [
+            {
+                "box_number": 1,
+                "box_type": "dialogue_box",
+                "text": line,
+                "text_source": "source_dialogue",
+                "required": True,
+                "placement": "auto_safe_zone",
+                "max_width_percent": layout["dialogue_box_max_width_percent"],
+                "max_height_percent": layout["dialogue_box_max_height_percent"],
+                "avoid": ["faces", "hands", "important_objects", "primary_action"],
+            }
+            for line in dialogue[:2]
+        ]
+    else:
+        title = _clean(scene.get("title"), 120) or "Scene"
+        boxes = [{
+            "box_number": 1,
+            "box_type": "narrative_box",
+            "text": title,
+            "text_source": "source_scene_title",
+            "required": True,
+            "placement": "auto_safe_zone",
+            "max_width_percent": layout["dialogue_box_max_width_percent"],
+            "max_height_percent": layout["dialogue_box_max_height_percent"],
+            "avoid": ["faces", "hands", "important_objects", "primary_action"],
+        }]
+    return boxes
 
 
-def _emotion_cues(dialogue: list[str], actions: list[str]) -> list[str]:
-    source = " ".join(dialogue + actions)
-    return [name for name, pattern in _EMOTION_PATTERNS.items() if pattern.search(source)][:3]
+def _layout_prompt(layout: dict[str, Any]) -> str:
+    return (
+        f"Mobile-first vertical composition at {layout['aspect_ratio']} aspect ratio. "
+        f"Keep critical subjects inside the central {layout['critical_subject_safe_area_percent']}% safe area "
+        f"with approximately {layout['safe_margin_percent']}% outer margins. "
+        f"Keep {layout['background_visible_percent'][0]}-{layout['background_visible_percent'][1]}% of the frame "
+        "as meaningful environment/background rather than crowding the frame. "
+        f"Primary character scale about {layout['main_subject_height_percent'][0]}-"
+        f"{layout['main_subject_height_percent'][1]}% of frame height; secondary characters about "
+        f"{layout['secondary_subject_height_percent'][0]}-{layout['secondary_subject_height_percent'][1]}%; "
+        f"group compositions about {layout['group_subject_height_percent'][0]}-"
+        f"{layout['group_subject_height_percent'][1]}%. "
+        "Select the strongest empty safe region for text and never cover faces, hands, primary action, "
+        "or important source-identified objects."
+    )
 
 
-def _base_visual_prompt(
+def _base_prompt(
+    scene: dict[str, Any],
     characters: list[dict[str, Any]],
     objects: list[dict[str, Any]],
-    actions: list[str],
+    moments: list[str],
     continuity: dict[str, Any],
+    layout: dict[str, Any],
+    inference_genre: str,
 ) -> str:
-    character_lines = _character_lines(characters)
-    environment = _environment(objects, continuity)
-    parts = []
-    if character_lines:
-        parts.append("Subjects: " + ", ".join(character_lines) + ".")
-    if actions:
-        parts.append("Source-grounded visual moments: " + "; ".join(actions[:3]) + ".")
-    if environment:
-        parts.append("Source-supported setting/objects: " + ", ".join(environment) + ".")
+    parts = [
+        f"Source-grounded {inference_genre} media depiction.",
+        f"Scene {scene.get('scene_order', '')}: {_clean(scene.get('title'), 160)}.",
+        _layout_prompt(layout),
+        "Preserve canonical identity anchors across every scene. "
+        "Source-supported visual facts have priority; controlled visual inference is allowed only "
+        "for missing production details and must never contradict source evidence.",
+    ]
+    lines = _character_lines(characters)
+    if lines:
+        parts.append("CHARACTER VISUAL PROFILES: " + " || ".join(lines) + ".")
+    if moments:
+        parts.append(
+            "PRIMARY SOURCE VISUAL MOMENT: " + moments[0] + "."
+        )
+        if len(moments) > 1:
+            parts.append("SECONDARY SOURCE CONTEXT: " + moments[1] + ".")
+    env = _objects(objects, continuity)
+    if env:
+        parts.append("SOURCE-IDENTIFIED OBJECTS / ENVIRONMENT STATE: " + ", ".join(env) + ".")
     parts.append(
-        "Ultra-realistic cinematic 3D live-action hero frame, photoreal human proportions, "
-        "physically plausible materials and lighting, crisp facial and environmental detail, "
-        "strong depth, clear subject separation, natural composition, thumbnail-attention framing."
-    )
-    parts.append(
-        "Reserve clean negative space for a dialogue box when needed. Preserve canonical identity "
-        "and continuity; use only supplied source facts and leave unknown appearance or story details unknown."
+        "Ultra-realistic cinematic live-action presentation, physically credible anatomy and materials, "
+        "cinematic depth, readable subject separation, natural lighting consistent with the scene, "
+        "no modern elements unless source-supported."
     )
     return " ".join(parts)
 
 
-def _clip_prompt(index: int, total: int, base: str, action: str, dialogue: str | None, role: str) -> dict[str, Any]:
-    prompt = (
-        f"Clip {index} of {total}, {role}. {base} Focus on this source-grounded moment: {action}. "
-        "Use one readable primary action, restrained cinematic camera movement, natural pacing, "
-        "and a clear visual handoff into the next clip. Do not add new story events."
-    )
-    if dialogue:
-        prompt += f' Spoken dialogue source: "{dialogue}". Preserve the wording; do not invent dialogue.'
-    return {
-        "clip_number": index,
-        "duration_seconds": 5,
-        "role": role,
-        "prompt": prompt,
-        "dialogue": dialogue,
-    }
-
-
-def _shot_roles(count: int) -> list[str]:
-    roles = [
-        "establish the source setting",
-        "show the principal subject",
-        "focus on the source action",
-        "capture dialogue or reaction",
-        "show a relevant visual detail",
-        "close on the established moment",
-        "hold continuity",
-        "final reaction/detail",
-    ]
-    return [roles[i % len(roles)] for i in range(count)]
-
-
 def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[str, Any]:
     scene = context.get("scene") or {}
-    characters = context.get("characters") or []
+    raw_characters = context.get("characters") or []
+    policy = context.get("visual_generation_policy") or load_visual_policy()
+    genre = context.get("visual_genre") or policy.get("default_genre", "mythological_epic")
+    characters = [
+        enrich_character(c, genre=genre, policy=policy)
+        for c in raw_characters
+        if c.get("canonical_name")
+    ]
     objects = context.get("objects") or []
     events = context.get("events") or []
     continuity = context.get("continuity") or {}
-    constraints = context.get("generation_constraints") or []
+    layout = composition_policy(policy)
 
     dialogue = _dialogue(scene)
-    actions = _action_candidates(scene, events)
-    emotion_cues = _emotion_cues(dialogue, actions)
-    base = _base_visual_prompt(characters, objects, actions, continuity)
+    moments = _visual_moments(scene, events, characters)
+    if not moments:
+        moments = ["Hold the established source scene state without adding a new event."]
+    base = _base_prompt(scene, characters, objects, moments, continuity, layout, genre)
+    overlays = _overlay(dialogue, scene, layout)
 
     count = max(1, min(int(clip_count), 8))
-    if not actions:
-        actions = ["Maintain the established source scene state without adding an event."]
-    roles = _shot_roles(count)
+    roles = [
+        "establish the environment",
+        "introduce the principal subject",
+        "show the primary source action",
+        "capture reaction or dialogue",
+        "show a relevant source object/detail",
+        "close while preserving established continuity",
+    ]
     clips = []
     for i in range(count):
-        action = actions[i % len(actions)]
+        action = moments[i % len(moments)]
         line = dialogue[i] if i < len(dialogue) else None
-        clips.append(_clip_prompt(i + 1, count, base, action, line, roles[i]))
+        text = (
+            f"Clip {i+1} of {count}; {roles[i % len(roles)]}. {base} "
+            f"Visual focus: {action}. "
+            "Use one clear primary action, restrained camera motion, and a clean transition. "
+            "Do not add a new story event."
+        )
+        if line:
+            text += f' Source dialogue: "{line}".'
+        clips.append({
+            "clip_number": i + 1,
+            "duration_seconds": 5,
+            "role": roles[i % len(roles)],
+            "prompt": text,
+            "dialogue": line,
+        })
 
-    music_direction = [
-        "Use restrained cinematic instrumental music that supports the source-derived emotional cues without changing the story."
+    long_count = min(8, max(4, min(6, len(moments) + 3)))
+    long_roles = [
+        "wide establishing shot",
+        "medium character composition",
+        "action-focused shot",
+        "reaction or dialogue shot",
+        "environment/object detail",
+        "continuity close",
     ]
-    if emotion_cues:
-        music_direction.append("Source-derived emotional cues: " + ", ".join(emotion_cues) + ".")
-    music_direction.append("Use only source-compatible environmental/action sound; do not invent voices, events, or off-screen actions.")
-
-    long_count = min(8, max(4, len(actions) + 2))
-    long_roles = _shot_roles(long_count)
     long_shots = []
     for i in range(long_count):
-        action = actions[i % len(actions)]
-        dialogue_line = dialogue[i] if i < len(dialogue) else None
+        action = moments[i % len(moments)]
+        line = dialogue[i] if i < len(dialogue) else None
         prompt = (
-            f"{base} Shot {i + 1}: {long_roles[i]}. Source-grounded focus: {action}. "
-            "Keep character identity, established environment, object state, lighting logic, and spatial continuity consistent. "
-            "Do not invent unsupported appearance, dialogue, events, or progression."
+            f"{base} Shot {i+1}: {long_roles[i % len(long_roles)]}. "
+            f"Source-grounded focus: {action}. "
+            "Maintain identity anchors, subject scale, environment logic, object state, and spatial continuity. "
+            "Do not invent unsupported story progression."
         )
-        if dialogue_line:
-            prompt += f' Dialogue source for this shot: "{dialogue_line}".'
+        if line:
+            prompt += f' Source dialogue: "{line}".'
         long_shots.append({
             "shot_number": i + 1,
-            "purpose": long_roles[i],
+            "purpose": long_roles[i % len(long_roles)],
             "prompt": prompt,
         })
 
-    overlay = [
-        {
-            "text": line,
-            "purpose": "key source dialogue only",
-            "placement": "safe dialogue-box area, away from faces and primary action",
-        }
-        for line in dialogue
-    ]
+    music = ["Use restrained cinematic instrumental music supporting the source-derived emotional tone."]
+    if dialogue:
+        music.append("Dialogue remains source-derived; preserve wording and pacing.")
+    music.append("Sound design may use only source-compatible environmental/action sounds.")
+
+    inference_summary = {
+        "enabled": True,
+        "genre": genre,
+        "rule": "Source facts override inference; inferred values fill missing production details only.",
+        "characters": [
+            {
+                "canonical_character_id": c.get("canonical_character_id"),
+                "canonical_name": c.get("canonical_name"),
+                "identity_anchor": (c.get("visual_profile") or {}).get("identity_anchor"),
+                "visual_role": (c.get("visual_profile") or {}).get("visual_role"),
+                "source_fact_count": len((c.get("visual_profile") or {}).get("source_facts") or []),
+                "inferred_fact_count": len((c.get("visual_profile") or {}).get("inferred_facts") or []),
+                "unknown_source_attributes": (c.get("visual_profile") or {}).get("unknown_source_attributes", []),
+            }
+            for c in characters
+        ],
+    }
 
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "source_grounded": True,
         "unknowns_must_remain_unknown": True,
+        "visual_inference": inference_summary,
         "image": {
-            "prompt": base,
-            "dialogue_overlays": overlay,
-            "dialogue_rendering_note": "Render dialogue as a separate deterministic overlay; do not require the image model to draw readable text.",
+            "prompt": base + " Include one required dialogue-or-narrative box in a protected safe region.",
+            "dialogue_overlays": overlays,
+            "layout": {
+                **layout,
+                "dialogue_box_count_minimum": layout["dialogue_box_min_count"],
+                "text_rendering": "Render readable text as a separate deterministic overlay whenever the production system supports it.",
+                "placement_algorithm": "Choose the largest safe negative-space region opposite the main subject/action; never overlap faces, hands, important objects, or the primary action.",
+            },
         },
         "short_video": {
+            "aspect_ratio": layout["aspect_ratio"],
+            "orientation": layout["orientation"],
             "clip_count": count,
             "clips": clips,
             "audio": {
-                "music_direction": music_direction,
+                "music_direction": music,
                 "dialogue_source": dialogue,
                 "sound_design": "Use only source-compatible environmental and action sounds; do not invent events.",
             },
         },
         "long_video": {
+            "aspect_ratio": layout["aspect_ratio"],
+            "orientation": layout["orientation"],
             "shots": long_shots,
             "audio": {
-                "music_direction": music_direction,
+                "music_direction": music,
                 "dialogue_source": dialogue,
                 "sound_design": "Maintain continuity across shots and use only source-compatible environmental/action sound.",
             },
         },
-        "constraints": constraints,
+        "constraints": list(context.get("generation_constraints") or []),
     }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Compile source-grounded image, short-video, and long-video prompts")
+    parser = argparse.ArgumentParser(description="Compile mobile-first source-grounded media prompts")
     parser.add_argument("database")
     parser.add_argument("document_id", type=int)
     parser.add_argument("scene_id", type=int)
     parser.add_argument("--clips", type=int, default=3)
     args = parser.parse_args()
-
     from .generation_context import get_generation_context
-
     context = get_generation_context(args.database, args.document_id, args.scene_id)
     if context.get("error"):
         print(json.dumps({"status": "unavailable", "reason": context["error"]}, indent=2))

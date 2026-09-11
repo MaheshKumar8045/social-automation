@@ -1,3 +1,21 @@
+## Visual generation policy upgrade — 2026-09-11
+
+Implemented locally by this upgrade script:
+
+- Source-supported visual facts and production inference are now separated by provenance.
+- Controlled inference is deterministic and genre-configurable; source facts always override it.
+- Mythological-epic priors provide broad missing production details without inventing exact eye color, hair color, height, exact age, or facial measurements.
+- Canonical characters receive stable visual identity anchors and locked inferred attributes for cross-scene continuity.
+- Primary media composition is mobile-first 9:16, with explicit safe-area, subject-scale, background-share, and dialogue-box rules.
+- Images require at least one dialogue-or-narrative box; source dialogue is preserved when present, otherwise the source scene title is used as a non-spoken narrative box so the system never fabricates speech.
+- Prompt compilation now selects one primary visual moment plus limited secondary context instead of concatenating unrelated prose.
+- Continuity now exposes canonical character IDs in addition to legacy entity IDs.
+- Prompt QA now validates the visual inference package, 9:16 image layout, required text box, provenance-separated character profiles, and reports aggregate failure counts.
+
+The generated production prompts remain deterministic and source-grounded in story content while allowing explicitly labeled production inference for missing visual-generation details.
+
+This upgrade is ready for local test validation. Do not mark the Asura DOD as passing until the full pytest suite and real 442-page DOD run both complete successfully.
+
 # Project Checkpoint
 
 ## Latest real validation — 2026-09-10
