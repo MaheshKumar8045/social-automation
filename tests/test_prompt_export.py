@@ -9,7 +9,11 @@ def _valid_plan():
         "mobile-first vertical 9:16 composition, preserving only supplied visual facts and continuity, "
         "with realistic composition, physically plausible lighting, clear subject separation, and no invented "
         "appearance or story details. Include one required dialogue-or-narrative box in protected negative space "
-        "away from faces, hands, important objects, and primary action."
+        "away from faces, hands, important objects, and primary action. "
+        "SOURCE-ANCHORED SCENE INTERPRETATION: the scene is staged around the supplied visual moment, "
+        "with source-supported character blocking and environment emphasis. "
+        "CINEMATIC DIRECTION: use an intentional camera position, lens/framing choice, depth, lighting, "
+        "and mood appropriate to the source moment."
     )
     image_layout = {
         "aspect_ratio": "9:16",
@@ -19,6 +23,8 @@ def _valid_plan():
         "critical_subject_safe_area_percent": 86,
         "background_visible_percent": [35, 55],
         "main_subject_height_percent": [45, 65],
+        "secondary_subject_height_percent": [25, 50],
+        "group_subject_height_percent": [30, 55],
         "dialogue_box_max_width_percent": 68,
         "dialogue_box_max_height_percent": 15,
         "dialogue_box_min_count": 1,
@@ -58,13 +64,13 @@ def _valid_plan():
             "clip_count": 1,
             "clips": [{
                 "clip_number": 1,
-                "prompt": "Source-grounded short-video clip showing the supplied action with restrained camera movement and no invented story events, while preserving character identity, environment, continuity, and unknown visual attributes.",
+                "prompt": "Source-grounded short-video clip showing the supplied action with restrained camera movement and no invented story events, while preserving character identity, environment, continuity, and unknown visual attributes. SOURCE-ANCHORED SCENE INTERPRETATION: stage the clip around the supplied visual moment."
             }],
         },
         "long_video_prompt_package": {
             "shots": [{
                 "shot_number": 1,
-                "prompt": "Source-grounded long-video shot preserving the established subject, setting, action, continuity, and unknown appearance details, with coherent spatial progression and no unsupported narrative additions.",
+                "prompt": "Source-grounded long-video shot preserving the established subject, setting, action, continuity, and unknown appearance details, with coherent spatial progression and no unsupported narrative additions. SOURCE-ANCHORED SCENE INTERPRETATION: stage the shot around the supplied visual moment."
             }],
         },
         "audio_prompt": {
