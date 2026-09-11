@@ -2,11 +2,43 @@ from core.prompt_export import validate_plan
 
 
 def _valid_plan():
+    image_prompt = (
+        "Source-grounded cinematic image of Lord Shiva in the established scene, "
+        "mobile-first vertical 9:16 composition, preserving only supplied visual facts and continuity, "
+        "with realistic composition, physically plausible lighting, clear subject separation, and no invented "
+        "appearance or story details. Include one required dialogue-or-narrative box in protected negative space "
+        "away from faces, hands, important objects, and primary action."
+    )
+    image_layout = {
+        "aspect_ratio": "9:16",
+        "orientation": "vertical",
+        "mobile_first": True,
+        "safe_margin_percent": 7,
+        "critical_subject_safe_area_percent": 86,
+        "background_visible_percent": [35, 55],
+        "main_subject_height_percent": [45, 65],
+        "dialogue_box_max_width_percent": 68,
+        "dialogue_box_max_height_percent": 15,
+        "dialogue_box_min_count": 1,
+    }
+    image_overlays = [{
+        "text": "Source-grounded scene title",
+        "purpose": "required narrative box when no source dialogue is available",
+        "placement": "largest protected negative-space region opposite the primary subject, away from faces, hands, important objects, and primary action",
+        "readability": "high contrast, short lines, mobile-readable typography",
+    }]
     return {
         "plan_status": "ready",
         "source_grounded": True,
         "unknowns_must_remain_unknown": True,
-        "image_prompt": "Source-grounded cinematic image of Lord Shiva in the established scene, preserving only supplied visual facts and continuity, with realistic composition, physically plausible lighting, clear subject separation, and no invented appearance or story details.",
+        "image_prompt": image_prompt,
+        "image_layout": image_layout,
+        "image_dialogue_overlays": image_overlays,
+        "visual_inference": {
+            "policy": "controlled_missing-detail inference",
+            "provenance_separate": True,
+            "locked_for_continuity": True,
+        },
         "characters": [{
             "canonical_name": "Lord Shiva",
             "visual_profile": {
@@ -39,7 +71,16 @@ def _valid_plan():
         "media_prompt_package": {
             "source_grounded": True,
             "unknowns_must_remain_unknown": True,
-            "image": {},
+            "image": {
+                "prompt": image_prompt,
+                "layout": image_layout,
+                "dialogue_overlays": image_overlays,
+                "visual_inference": {
+                    "policy": "controlled missing-detail inference",
+                    "provenance_separate": True,
+                    "locked_for_continuity": True,
+                },
+            },
             "short_video": {},
             "long_video": {},
         },
