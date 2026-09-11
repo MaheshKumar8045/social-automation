@@ -49,7 +49,11 @@ SEMANTIC_TERMS = {
     'university', 'company', 'country', 'province', 'city', 'village', 'station', 'port',
 }
 QUALIFIER_WORDS = {
-    'literally', 'the', 'great', 'greatest', 'holy', 'divine', 'sacred', 'lord', 'lady',
+    'literally', 'the', 'great', 'greatest', 'holy', 'divine', 'sacred',
+}
+TITLE_WORDS = {
+    'mr', 'mrs', 'ms', 'miss', 'dr', 'prof', 'professor', 'capt', 'captain', 'sir', 'lady', 'lord',
+    'rev', 'reverend', 'colonel', 'major', 'lieutenant', 'herr', 'monsieur', 'madame',
 }
 
 def norm(name: str) -> str:
@@ -91,20 +95,20 @@ def compatible(a: str, b: str) -> tuple[bool,float,str,str]:
     if len(tb) == 1 and len(ta) >= 2 and tb[0] == ta[-1]:
         return True, 0.82, 'surname_variant', 'IDENTITY_ALIAS'
 
-    # Treat a longer form as an epithet/qualification only when it preserves
-    # the full shorter identity and the additional words are descriptive.
-    # This safely merges forms such as "Lord Shiva" and
-    # "Lord Shiva Pasupathi Literally" without globally collapsing unrelated names.
-    for short, long, short_tokens, long_tokens in (
-        (aa, bb, ta, tb),
-        (bb, aa, tb, ta),
-    ):
-        if len(short_tokens) < 2 or len(long_tokens) <= len(short_tokens):
+    full_a = re.sub(r'[^a-z0-9]+', ' ', na.lower()).split()
+    full_b = re.sub(r'[^a-z0-9]+', ' ', nb.lower()).split()
+    # Preserve an exact titled identity prefix and allow a short epithet suffix.
+    # A single arbitrary epithet is safe enough to cover source forms such as
+    # "Lord Shiva Pasupathi"; a two-word suffix must end in an explicit qualifier.
+    for short, long in ((full_a, full_b), (full_b, full_a)):
+        if len(short) < 2 or len(long) <= len(short) or short[0] not in TITLE_WORDS:
             continue
-        if long_tokens[:len(short_tokens)] != short_tokens:
+        if long[:len(short)] != short:
             continue
-        extras = set(long_tokens[len(short_tokens):])
-        if len(extras) <= 2 and extras and extras.issubset(QUALIFIER_WORDS):
+        extras = long[len(short):]
+        if len(extras) == 1:
+            return True, 0.88, 'qualified_identity_variant', 'IDENTITY_ALIAS'
+        if len(extras) == 2 and extras[-1] in QUALIFIER_WORDS:
             return True, 0.88, 'qualified_identity_variant', 'IDENTITY_ALIAS'
 
     return False, 0.0, 'no_safe_identity_match', 'UNRESOLVED'
@@ -133,5 +137,5 @@ def build(db: str|Path, document_id:int)->dict[str,int]:
         con.commit(); return {'groups':created,'members':members,'multi_member_groups':int(multi)}
 
 def main():
-    p=argparse.ArgumentParser(description='Conservative, source-agnostic character identity normalization'); p.add_argument('database'); p.add_argument('document_id',type=int); a=p.parse_args(); r=build(a.database,a.document_id); print('=== CHARACTER IDENTITY NORMALIZATION ==='); print('groups:',r['groups']); print('members:',r['members']); print('multi-member groups:',r['multi_member_groups'])
+    p=argparse.ArgumentParser(description='Conservative, source-agnostic character identity normalization'); p.add_argument('database',type=str); p.add_argument('document_id',type=int); a=p.parse_args(); r=build(a.database,a.document_id); print('=== CHARACTER IDENTITY NORMALIZATION ==='); [print(f'{k}: {r[k]}') for k in ('groups','members','multi_member_groups')]
 if __name__=='__main__': main()
