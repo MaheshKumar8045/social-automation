@@ -107,7 +107,7 @@ def gate(
 
     if conflicting_entity_types and conflicting_entity_types & {"location", "environment"}:
         if direct == 0 and speech == 0 and action == 0:
-            return "non_character", 1.0, ["ambiguous_name_without_person_evidence"]
+            return "non_character", 1.0, ["same_name_classified_as_location_or_environment"]
         reasons.append("name_also_classified_as_location_or_environment")
 
     if title and len(bare) == 1 and bare[0].lower() in STOPWORDS and direct == 0:
@@ -175,10 +175,10 @@ def build(db: str | Path, document_id: int) -> dict[str, int]:
 
 def main() -> None:
     p = argparse.ArgumentParser(description="Conservative character candidate gate")
-    p.add_argument("db", type=str)
+    p.add_argument("database", type=str)
     p.add_argument("document_id", type=int)
     a = p.parse_args()
-    r = build(a.db, a.document_id)
+    r = build(a.database, a.document_id)
     print("=== CHARACTER CANDIDATE GATE ===")
     for k in ("validated", "probable", "review", "non_character"):
         print(f"{k}: {r.get(k, 0)}")
