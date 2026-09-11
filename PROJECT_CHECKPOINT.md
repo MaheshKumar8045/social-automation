@@ -7,14 +7,22 @@
 - Added source-text dialogue extraction with quote-first behavior and a conservative first-person/speech-cue fallback.
 - Hardened dialogue extraction against OCR contamination: section/chapter prefixes and likely speaker-name prefixes are removed before first-person dialogue is accepted.
 - Character presence is now split into `visible` versus `referenced`; a name-only reference is never automatically rendered as a visible character.
-- Visible character blocking requires physical/presence evidence from that character's own scene mention context.
+- Visible character blocking requires physical/presence evidence from that character's own scene mention context or a matching scene event.
+- Matching scene-event text is preferred over abbreviated mention snippets when establishing visible character blocking, preserving the canonical event wording.
 - Referenced-but-not-visually-established characters are retained as semantic metadata so they remain traceable without contaminating the image composition.
 - Added deterministic cinematic direction: framing, lens/perspective, camera height, lighting, and movement style chosen from source signals such as destruction, combat, travel, dialogue, or character presence.
 - Added scene-specific visual hierarchy and environment-first guidance so locations materially present in the source are not reduced to generic portraits.
 - Added cinematic direction to short-video clips and long-video shots while preserving source events, identity anchors, spatial continuity, and unknown attributes.
 - Image overlays prefer supportable source dialogue; when no dialogue is supportable, the overlay uses a source visual moment rather than blindly using the scene title.
 - Strengthened prompt-export QA to require scene interpretation and cinematic direction in generated image/video prompts.
-- Added regression coverage for OCR heading/speaker contamination, name-only character references, and physical-presence requirements.
+- Added regression coverage for OCR heading/speaker contamination, name-only character references, physical-presence requirements, and event-vs-mention character blocking.
+
+### Regression correction — 2026-09-11
+- Local pytest after the first semantic patch reported **61 passed, 2 failed**.
+- Failure 1 was caused by dialogue cleanup treating the legitimate first-person `I` as an OCR speaker-prefix token. The cleanup now preserves first-person pronouns.
+- Failure 2 was caused by character blocking using the abbreviated mention `my son captured Kumbha.` instead of the canonical scene event `Kumbha was captured by my son.`. Blocking now prefers a matching event text when it establishes physical/action evidence.
+- These regressions were fixed in commit `28212b49064f60e4003fc78d6964ccc1f10f615f`.
+- The next required validation is a fresh local full pytest run; no test pass is claimed until that run completes.
 
 ### Export hardening
 - Per-scene files use globally unique `scene_id`, not story-local `scene_order`.
