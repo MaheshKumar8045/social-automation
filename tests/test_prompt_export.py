@@ -7,7 +7,18 @@ def _valid_plan():
         "source_grounded": True,
         "unknowns_must_remain_unknown": True,
         "image_prompt": "Source-grounded cinematic image of Lord Shiva in the established scene, preserving only supplied visual facts and continuity, with realistic composition, physically plausible lighting, clear subject separation, and no invented appearance or story details.",
-        "characters": [{"canonical_name": "Lord Shiva"}],
+        "characters": [{
+            "canonical_name": "Lord Shiva",
+            "visual_profile": {
+                "identity_anchor": "vib-test-shiva",
+                "source_facts": [],
+                "inferred_facts": [{
+                    "attribute": "visual_style",
+                    "value": "dignified cinematic presentation",
+                    "basis": "genre_prior",
+                }],
+            },
+        }],
         "short_video_prompt_package": {
             "clip_count": 1,
             "clips": [{
