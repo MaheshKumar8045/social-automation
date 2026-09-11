@@ -24,15 +24,12 @@ def _top_dimension(plan: dict[str, Any], key: str) -> dict[str, Any] | None:
 
 
 def _sample_indices(count: int, sample_count: int) -> list[int]:
-    if count <= 0:
+    if count <= 0 or sample_count <= 0:
         return []
-    if sample_count >= count:
-        return list(range(count))
-    targets = {0, count - 1, count // 2}
-    while len(targets) < sample_count:
-        fraction = len(targets) / max(sample_count - 1, 1)
-        targets.add(min(count - 1, round(fraction * (count - 1))))
-    return sorted(targets)[:sample_count]
+    sample_count = min(sample_count, count)
+    if sample_count == 1:
+        return [0]
+    return sorted({round(i * (count - 1) / (sample_count - 1)) for i in range(sample_count)})
 
 
 def audit_package(package_path: str | Path, sample_count: int = 8) -> dict[str, Any]:
@@ -47,9 +44,8 @@ def audit_package(package_path: str | Path, sample_count: int = 8) -> dict[str, 
     for index, record in enumerate(scenes):
         plan = record.get("plan") or {}
         media = plan.get("media_prompt_package") or {}
-        image = media.get("image") or {}
-        inference = media.get("visual_inference") or plan.get("visual_inference") or {}
         image_prompt = _text(plan.get("image_prompt"))
+        inference = media.get("visual_inference") or plan.get("visual_inference") or {}
 
         issues: list[str] = []
         if record.get("qa_status") != "pass":
@@ -62,7 +58,7 @@ def audit_package(package_path: str | Path, sample_count: int = 8) -> dict[str, 
             observations["missing_culture"] += 1
         if not _top_dimension(plan, "religious_context"):
             observations["missing_religious_context"] += 1
-        if not _text(image_prompt):
+        if not image_prompt:
             issues.append("missing_image_prompt")
         if "PRIMARY SOURCE VISUAL MOMENT:" not in image_prompt:
             issues.append("missing_primary_visual_moment")
@@ -116,7 +112,7 @@ def audit_package(package_path: str | Path, sample_count: int = 8) -> dict[str, 
             })
 
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "package": str(path),
         "scene_count": len(scenes),
         "embedded_qa_passed": package.get("qa_passed") is True,
