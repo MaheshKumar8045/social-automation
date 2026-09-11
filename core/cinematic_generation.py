@@ -18,10 +18,24 @@ _ACTION_RE = re.compile(
     r"take\w*|turn\w*|walk\w*|watch\w*|travel\w*|strike\w*|"
     r"destroy\w*|burn\w*|collapse\w*|kneel\w*|rise\w*|speak\w*)\b", re.I
 )
+_PRESENCE_RE = re.compile(
+    r"\b(?:was|were|is|are|stood|sat|lay|remained|waited|rested|"
+    r"entered|arrived|appeared|left|returned|looked|watched|"
+    r"faced|knelt|rose|walked|ran|fled|followed|held|carried|"
+    r"spoke|sang|wept|cried)\b", re.I
+)
 _DESTRUCTION_RE = re.compile(r"\b(?:ruin|ruined|destroyed|destruction|ashes|ash|embers|burnt|burned|fire|smoke|collapse|collapsed|wreck|wreckage|dead|dying|death)\b", re.I)
 _COMBAT_RE = re.compile(r"\b(?:battle|fight|fought|attack|attacked|strike|struck|weapon|sword|kill|killed|capture|captured)\b", re.I)
 _TRAVEL_RE = re.compile(r"\b(?:walk|walked|run|ran|travel|travelled|traveled|arrive|arrived|leave|left|cross|crossed|journey)\b", re.I)
 _REACTION_RE = re.compile(r"\b(?:fear|afraid|frightened|angry|furious|grief|sad|wept|cried|shocked|astonished|surprised|regret|regretted)\b", re.I)
+_DIALOGUE_START_RE = re.compile(
+    r"^(?:i|we|my|our|you|your|this|that|it|he|she|they|tomorrow|today|tonight|"
+    r"why|how|what|when|where|who|can|could|will|would|shall|should|must|"
+    r"let|perhaps|if|there|here)\b",
+    re.I,
+)
+_HEADING_PREFIX_RE = re.compile(r"^\s*(?:[IVXLCDM]+|\d{1,3})[\.)]?\s+", re.I)
+_NAME_TOKEN_RE = re.compile(r"^[A-Z][A-Za-z'’-]*$")
 
 
 def _clean(value: Any, limit: int = 320) -> str:
@@ -29,27 +43,81 @@ def _clean(value: Any, limit: int = 320) -> str:
     return text[:limit].rstrip() if len(text) > limit else text
 
 
+def _normalize_for_match(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
+def _strip_scene_heading(text: str, scene: dict[str, Any] | None = None) -> str:
+    value = _clean(text, 2000)
+    title = _clean((scene or {}).get("title"), 160)
+    if title:
+        title_norm = _normalize_for_match(title)
+        value_norm = _normalize_for_match(value)
+        if value_norm.startswith(title_norm):
+            value = value[len(value.split(title.split()[-1], 1)[0]) if title.split()[-1] in value else 0 :].strip()
+            if value.lower().startswith(title.lower()):
+                value = value[len(title):].lstrip(" -:;,.\t")
+    value = _HEADING_PREFIX_RE.sub("", value, count=1)
+    return value.strip()
+
+
 def _sentences(text: str) -> list[str]:
     normalized = re.sub(r"\s+", " ", text or "").strip()
     return [_clean(x, 320) for x in _SENTENCE_RE.split(normalized) if len(x.split()) >= 4]
 
 
-def _source_dialogue(scene_text: str) -> list[str]:
+def _clean_dialogue_candidate(sentence: str, scene: dict[str, Any] | None = None) -> str:
+    value = _clean(sentence, 220).strip(" '’“”")
+    if not value:
+        return ""
+
+    # Remove an OCR-leaked chapter/section heading before considering dialogue.
+    value = _HEADING_PREFIX_RE.sub("", value, count=1)
+    title = _clean((scene or {}).get("title"), 160)
+    if title:
+        title_norm = _normalize_for_match(title)
+        value_norm = _normalize_for_match(value)
+        if value_norm.startswith(title_norm):
+            # Preserve the original punctuation while removing the normalized heading prefix.
+            match = re.match(r"^\s*" + re.escape(title), value, re.I)
+            if match:
+                value = value[match.end():].lstrip(" -:;,.\t")
+
+    # Handle OCR such as: "1 The end Ravana Tomorrow is my funeral."
+    # Once a dialogue-leading word is reached, discard preceding name/title tokens.
+    words = value.split()
+    for index, word in enumerate(words):
+        token = re.sub(r"^[^A-Za-z]+|[^A-Za-z]+$", "", word)
+        if index > 0 and _DIALOGUE_START_RE.match(token):
+            prefix = words[:index]
+            if all(_NAME_TOKEN_RE.match(re.sub(r"[^A-Za-z'’-]", "", item)) for item in prefix if item):
+                value = " ".join(words[index:])
+            break
+
+    return _clean(value, 220)
+
+
+def _source_dialogue(scene_text: str, scene: dict[str, Any] | None = None) -> list[str]:
     quoted: list[str] = []
     for match in _QUOTE_RE.finditer(scene_text or ""):
-        value = _clean(match.group(1), 220).strip(" '’“”")
+        value = _clean_dialogue_candidate(match.group(1), scene)
         if len(value.split()) >= 3:
             quoted.append(value)
     if quoted:
         return list(dict.fromkeys(quoted))[:3]
 
     candidates: list[str] = []
-    for sentence in _sentences(scene_text):
-        if _SPEECH_RE.search(sentence):
-            candidates.append(sentence)
+    for sentence in _sentences(_strip_scene_heading(scene_text, scene)):
+        value = _clean_dialogue_candidate(sentence, scene)
+        if not value:
             continue
-        if re.search(r"\b(?:I|we|my|our)\b", sentence, re.I) and len(sentence.split()) <= 28:
-            candidates.append(sentence)
+        # Speech verbs are strong evidence. First-person clauses are only a fallback,
+        # and heading/speaker-label fragments are removed before returning the text.
+        if _SPEECH_RE.search(value):
+            candidates.append(value)
+            continue
+        if re.search(r"\b(?:I|we|my|our)\b", value, re.I) and len(value.split()) <= 28:
+            candidates.append(value)
     return list(dict.fromkeys(candidates))[:2]
 
 
@@ -68,7 +136,7 @@ def _visual_moments(scene_text: str, events: list[dict[str, Any]], characters: l
         if any(name and name in text.lower() for name in names):
             score += 10
         candidates.append((score, text))
-    for sentence in _sentences(scene_text):
+    for sentence in _sentences(_strip_scene_heading(scene_text)):
         if _SPEECH_RE.search(sentence) and not _ACTION_RE.search(sentence):
             continue
         score = 10
@@ -87,9 +155,9 @@ def _visual_moments(scene_text: str, events: list[dict[str, Any]], characters: l
     return list(dict.fromkeys(text for _, text in candidates))[:4]
 
 
-def _character_blocking(scene_text: str, characters: list[dict[str, Any]]) -> list[str]:
-    result: list[str] = []
-    text = scene_text or ""
+def _character_blocking(scene_text: str, characters: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
+    visible: list[str] = []
+    referenced: list[str] = []
     for character in characters:
         name = _clean(character.get("canonical_name"), 100)
         if not name:
@@ -97,17 +165,18 @@ def _character_blocking(scene_text: str, characters: list[dict[str, Any]]) -> li
         local_contexts = []
         for mention in character.get("scene_mentions") or []:
             context = _clean(mention.get("context"), 280)
-            if name.lower() in context.lower():
+            if re.search(rf"\b{re.escape(name)}\b", context, re.I):
                 local_contexts.append(context)
         local_contexts = list(dict.fromkeys(local_contexts))
-        action = next((c for c in local_contexts if _ACTION_RE.search(c)), None)
-        if action:
-            result.append(f"{name}: {action}")
+        physical_context = next(
+            (c for c in local_contexts if _ACTION_RE.search(c) or _PRESENCE_RE.search(c)),
+            None,
+        )
+        if physical_context:
+            visible.append(f"{name}: {physical_context}")
         elif local_contexts:
-            result.append(f"{name}: present; exact blocking/action not explicitly established by source")
-        elif re.search(rf"\b{re.escape(name)}\b", text, re.I):
-            result.append(f"{name}: present in source scene; exact blocking/action not explicitly established by source")
-    return result[:6]
+            referenced.append(name)
+    return visible[:6], referenced[:8]
 
 
 def _camera_direction(scene_text: str, moments: list[str], dialogue: list[str], characters: list[dict[str, Any]]) -> dict[str, str]:
@@ -125,7 +194,7 @@ def _camera_direction(scene_text: str, moments: list[str], dialogue: list[str], 
         lens = "wide perspective that preserves geography and travel direction"
         lighting = "naturalistic scene lighting consistent with the source environment"
     elif dialogue:
-        shot = "medium two-shot or over-the-shoulder composition held long enough for readable source dialogue"
+        shot = "medium dialogue framing or over-the-shoulder composition held long enough for readable source dialogue"
         lens = "natural perspective with shallow-to-moderate depth of field"
         lighting = "soft motivated key with natural fill and restrained background separation"
     elif characters:
@@ -154,12 +223,12 @@ def enhance_generation_package(
     media: dict[str, Any],
 ) -> dict[str, Any]:
     text = str(scene.get("text") or "")
-    dialogue = _source_dialogue(text)
+    dialogue = _source_dialogue(text, scene)
     moments = _visual_moments(text, events, characters)
     if not moments:
         moments = ["Preserve the established source scene state without adding a new event."]
-    blocking = _character_blocking(text, characters)
-    camera = _camera_direction(text, moments, dialogue, characters)
+    visible_blocking, referenced_characters = _character_blocking(text, characters)
+    camera = _camera_direction(text, moments, dialogue, visible_blocking)
 
     world_lines = []
     dims = (world_profile or {}).get("dimensions") or {}
@@ -169,9 +238,12 @@ def enhance_generation_package(
             world_lines.append(f"{key.replace('_', ' ')}={top['label']}")
 
     char_lines = []
-    for character in characters[:8]:
-        profile = character.get("visual_profile") or {}
+    visible_names = {line.split(":", 1)[0] for line in visible_blocking}
+    for character in characters:
         name = _clean(character.get("canonical_name"), 90)
+        if name not in visible_names:
+            continue
+        profile = character.get("visual_profile") or {}
         source_facts = profile.get("source_facts") or []
         fact_text = "; ".join(
             f"{_clean(f.get('attribute'),60)}: {_clean(f.get('value'),120)}"
@@ -191,8 +263,10 @@ def enhance_generation_package(
     source_block = "SOURCE-ANCHORED SCENE INTERPRETATION: " + moments[0]
     if len(moments) > 1:
         source_block += " SECONDARY CONTEXT: " + moments[1]
-    if blocking:
-        source_block += " CHARACTER BLOCKING: " + " | ".join(blocking) + "."
+    if visible_blocking:
+        source_block += " VISIBLE CHARACTER BLOCKING: " + " | ".join(visible_blocking) + "."
+    if referenced_characters:
+        source_block += " REFERENCED BUT NOT VISUALLY ESTABLISHED: " + ", ".join(referenced_characters) + ". Do not render these references as visible characters."
     if world_lines:
         source_block += " WORLD CONTEXT FOR PRODUCTION CONSISTENCY ONLY: " + ", ".join(world_lines) + "."
 
@@ -200,7 +274,7 @@ def enhance_generation_package(
     image_prompt = (
         f"Create a source-grounded {genre} cinematic image for scene {scene.get('scene_order', '')}: "
         f"{_clean(scene.get('title'), 140)}. {source_block} "
-        f"Characters: {' | '.join(char_lines) if char_lines else 'no canonical characters are source-confirmed in this scene'}. "
+        f"Characters: {' | '.join(char_lines) if char_lines else 'no visible canonical characters are source-confirmed in this scene'}. "
         f"Source-identified objects/environment: {', '.join(_clean(o.get('canonical_name'),80) for o in objects if o.get('canonical_name')) or 'none explicitly identified'}. "
         f"{cinematic} "
         "Preserve every canonical identity anchor and continuity state. Unknown source attributes remain unknown. "
@@ -274,9 +348,10 @@ def enhance_generation_package(
         "enabled": True,
         "camera": camera,
         "source_visual_moments": moments,
-        "character_blocking": blocking,
+        "character_blocking": visible_blocking,
+        "referenced_characters": referenced_characters,
         "dialogue_candidates": dialogue,
-        "rule": "Source evidence controls what exists; cinematic choices control how it is photographed or staged; unsupported facts remain unknown.",
+        "rule": "Source evidence controls what exists; referenced names do not become visible characters; cinematic choices control how established content is photographed or staged; unsupported facts remain unknown.",
     }
 
     return {
@@ -288,7 +363,8 @@ def enhance_generation_package(
             "dialogue_overlays": overlays,
             "cinematic_direction": camera,
             "source_visual_moments": moments,
-            "character_blocking": blocking,
+            "character_blocking": visible_blocking,
+            "referenced_characters": referenced_characters,
         },
         "short_video": short,
         "long_video": long,
