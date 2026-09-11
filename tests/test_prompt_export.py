@@ -113,6 +113,7 @@ def test_validate_plan_rejects_character_loss_between_plan_and_image_prompt():
 def test_write_scene_media_files_creates_one_file_per_media_type(tmp_path: Path):
     plan = _valid_plan()
     record = {
+        "scene_id": 123,
         "scene_order": 7,
         "title": "The Seed",
         "page_start": 16,
@@ -121,12 +122,13 @@ def test_write_scene_media_files_creates_one_file_per_media_type(tmp_path: Path)
     }
     _write_scene_media_files(tmp_path, record)
 
-    image = tmp_path / "image" / "scene_007.txt"
-    short_video = tmp_path / "short_video" / "scene_007.txt"
-    long_video = tmp_path / "long_video" / "scene_007.txt"
+    image = tmp_path / "image" / "scene_123.txt"
+    short_video = tmp_path / "short_video" / "scene_123.txt"
+    long_video = tmp_path / "long_video" / "scene_123.txt"
     assert image.exists()
     assert short_video.exists()
     assert long_video.exists()
+    assert "scene_123" in image.name
     assert "IMAGE GENERATION PROMPT" in image.read_text(encoding="utf-8")
     assert "SHORT VIDEO GENERATION" in short_video.read_text(encoding="utf-8")
     assert "LONG VIDEO GENERATION" in long_video.read_text(encoding="utf-8")
