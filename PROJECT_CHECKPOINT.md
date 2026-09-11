@@ -1,46 +1,42 @@
-## Media Prompt Export — 2026-09-11
+## Cinematic Generation Intelligence — 2026-09-11
 
 ### Completed
-- Fixed the character-candidate location/environment collision bug so unrelated speech/action evidence cannot validate a colliding name.
-- Added regression coverage for direct person evidence versus location-only evidence.
-- Local full test suite before export fix: **54 passed**.
-- Added copy-friendly per-scene media prompt export to `core/prompt_export.py`.
-- Diagnosed and fixed a filename collision in that exporter: `scene_order` restarts inside each story, so using it as the filename caused later stories to overwrite earlier files and left only the last few files visible.
-- Per-scene media filenames now use the globally unique `scene_id`.
-- Each generated scene gets its own text file in three dedicated folders:
-  - `image/scene_001.txt` … one file per scene for image generation, including the image prompt, layout constraints, and dialogue/narrative overlay data.
-  - `short_video/scene_001.txt` … one file per scene containing all short-video clips plus audio direction.
-  - `long_video/scene_001.txt` … one file per scene containing all long-video shots plus audio direction.
-- Existing aggregate outputs remain unchanged: `all_prompts.json`, `scene_prompts.jsonl`, and `prompt_export_summary.json`.
+- Added `core/cinematic_generation.py` as a dedicated scene-level cinematic composition layer between generation context/media compilation and final generation-plan output.
+- Integrated it into `core/generation_planner.py`; generation plans now receive the cinematic enhancement before image, short-video, and long-video prompts are exported.
+- Scene interpretation now separates source-anchored visual moments from controlled production inference.
+- Added source-text dialogue extraction with quote-first behavior and a conservative first-person/speech-cue fallback so useful source dialogue is not discarded merely because OCR/formatting omitted quotation marks.
+- Added character-specific blocking derived only from that character's scene mentions; when source does not establish exact blocking, the prompt says so rather than inventing it.
+- Added deterministic cinematic direction: framing, lens/perspective, camera height, lighting, and movement style chosen from source signals such as destruction, combat, travel, dialogue, or character presence.
+- Added scene-specific visual hierarchy and environment-first guidance so locations materially present in the source are not reduced to generic portraits.
+- Added cinematic direction to short-video clips and long-video shots while preserving source events, identity anchors, spatial continuity, and unknown attributes.
+- Changed image overlays so available source dialogue/first-person source sentences are preferred; when no dialogue is supportable, the overlay uses a source visual moment rather than blindly using the scene title.
+- Strengthened prompt-export QA to require scene interpretation and cinematic direction in generated image/video prompts.
+- Added `tests/test_cinematic_generation.py` regression coverage for destruction-scene direction, source sentence overlays, character-specific blocking, and propagation to video prompts.
 
-### Expected real Asura output
-The source package contains **191 scenes**. A clean DOD run after syncing this fix should therefore produce **191 image files + 191 short-video files + 191 long-video files**, one per scene, with no overwriting from repeated story-local scene ordering.
+### Export hardening
+- Per-scene files use globally unique `scene_id`, not story-local `scene_order`.
+- Export now removes prior `image`, `short_video`, and `long_video` directories before regeneration so stale files cannot inflate or corrupt file counts.
+- Per-scene files include source database path, scene ID/order, title, and pages.
+- Expected Asura output remains exactly **191 image + 191 short-video + 191 long-video files**.
 
-### Output layout
+### Quality target
+The generation pipeline is moving from a generic prompt template toward a cinematic-generation intelligence stack:
 ```text
-<data stem>_prompts/
-  all_prompts.json
-  scene_prompts.jsonl
-  prompt_export_summary.json
-  image/
-    scene_001.txt
-    scene_002.txt
-    ...
-    scene_191.txt
-  short_video/
-    scene_001.txt
-    scene_002.txt
-    ...
-    scene_191.txt
-  long_video/
-    scene_001.txt
-    scene_002.txt
-    ...
-    scene_191.txt
+SOURCE TEXT
+  -> source-anchored scene interpretation
+  -> primary visual moment
+  -> character-specific blocking
+  -> source-derived environment/object state
+  -> continuity + identity anchors
+  -> controlled camera / lens / lighting / movement inference
+  -> deterministic dialogue/narrative overlay
+  -> generator-ready image / short-video / long-video prompts
 ```
 
-### Required validation
-After syncing `main`, run:
+Source evidence controls **what exists**. Cinematic inference controls **how it is photographed/staged**. Unsupported facts remain unknown.
+
+### Validation required next
+Sync and run:
 ```powershell
 git pull origin main
 python -m pytest -q
@@ -48,13 +44,27 @@ python -m core.dod "data\Asura\Asura - Tale Of The Vanquished.pdf"
 python -m core.prompt_quality_audit "data\Asura\Asura - Tale Of The Vanquished_structure_prompts\all_prompts.json" --sample-count 8
 ```
 
-Then verify file counts:
+Then verify the media file counts:
 ```powershell
 (Get-ChildItem "data\Asura\Asura - Tale Of The Vanquished_structure_prompts\image" -Filter *.txt).Count
 (Get-ChildItem "data\Asura\Asura - Tale Of The Vanquished_structure_prompts\short_video" -Filter *.txt).Count
 (Get-ChildItem "data\Asura\Asura - Tale Of The Vanquished_structure_prompts\long_video" -Filter *.txt).Count
 ```
-Each count should be **191**.
+Expected:
+```text
+191
+191
+191
+```
+
+### Scene-level review
+Open any one scene independently:
+```powershell
+notepad "data\Asura\Asura - Tale Of The Vanquished_structure_prompts\image\scene_001.txt"
+notepad "data\Asura\Asura - Tale Of The Vanquished_structure_prompts\short_video\scene_001.txt"
+notepad "data\Asura\Asura - Tale Of The Vanquished_structure_prompts\long_video\scene_001.txt"
+```
+The image file contains the image prompt, layout constraints, and deterministic text overlays. The short-video file contains all clips plus audio direction. The long-video file contains all shots plus audio direction.
 
 ### Character Identity QA — 2026-09-11
 
@@ -65,53 +75,25 @@ Generation Intelligence QA confirmed the emitted Asura package is structurally v
 - After the initial identity/gate tightening: **9 confirmed + 4 singleton = 13 canonical characters**.
 - The 13-character DOD still passed structural QA, but the large drop was treated as a quality regression rather than accepted as correct.
 - Prompt-quality audit remained **191 scenes, 0 failures, 0 observations**; this audit is structural/propagation-oriented and does not establish that the character inventory is complete.
-- Latest local pytest before the export filename fix: **54 passed**.
+- Local full pytest before the cinematic-generation changes was **54 passed**.
 
 ### Root cause addressed
 The candidate gate had a cross-type collision protection for character candidates that could accidentally use speech/action evidence from the surrounding context as evidence for the colliding name itself. That could let a place such as `Mithila` survive as a character when another character in the same context was speaking or acting.
 
-### Current fix
+### Current character-gate fix
 - `core/character_candidate_gate.py`
   - A character/location or character/environment collision is rejected when the **candidate name itself has no direct person evidence**.
   - Direct person evidence still allows a legitimate character to survive a cross-type collision.
   - This keeps the protection conservative without deleting valid characters merely because a place or concept shares the same normalized name.
-- `tests/test_character_candidate_gate.py`
-  - Covers strong person evidence surviving a location collision.
-  - Covers weak location-only evidence being rejected.
-  - Includes the regression needed to prevent unrelated contextual speech/action cues from being treated as evidence for the colliding name.
-- `core/character_identity_normalizer.py`
-  - Retains conservative qualified-name matching for titled identity prefixes with short epithet suffixes.
-- `tests/test_character_identity_qualifiers.py`
-  - Covers `Lord Shiva` / qualified variants and keeps `Lord Shiva` distinct from `Lord Vishnu`.
+- Tests cover strong person evidence surviving a location collision, location-only evidence being rejected, and unrelated contextual speech/action not validating the colliding name.
 
-### Current repository / validation state
+### Current repository state
 - Repository: `MaheshKumar8045/social-automation`
 - Branch: `main`
 - Real Asura DB:
   `data\Asura\Asura - Tale Of The Vanquished_structure.db`
 - Confirmed SQLite schema includes `documents`, `entities`, `entity_mentions`, `canonical_characters`, `mention_identity_resolution`, visual tables, and related pipeline tables.
 - Local environment uses `M:\social-automation\.venv\Scripts\python.exe`.
-
-### Prompt review / generation inspection
-The generated package now has three copy-friendly per-scene media folders:
-- `image\scene_###.txt`
-- `short_video\scene_###.txt`
-- `long_video\scene_###.txt`
-
-Each file is scoped to one scene. Image files contain the image prompt plus layout/overlay guidance. Short-video files contain all clips for that scene plus audio direction. Long-video files contain all shots for that scene plus audio direction.
-
-The aggregate `all_prompts.json` remains the authoritative machine-readable package.
-
-### What the next review should check
-1. Three media directories each contain exactly 191 files for the Asura source.
-2. Canonical-character count versus the prior 25-character baseline.
-3. `Lord Shiva` variants sharing one `identity_anchor`.
-4. No `Who`, `Mithila`, or similar place/common names becoming canonical characters.
-5. Character-free scenes remaining character-free only where source evidence supports it.
-6. Image prompts being concrete enough for generation while preserving source-grounded facts and clearly separating inference.
-7. Short-video clips and long-video shots being sufficiently specific for actual video generation rather than generic descriptions.
-8. Deterministic overlays/dialogue and audio guidance staying subordinate to the primary visual moment.
-9. World profile remaining contextual guidance rather than fabricated source facts.
 
 ### Known separate quality item
 Docling still reports noisy OCR/recovered headings and 63 final sections despite numbered headings reaching 65. DOD is not blocked, but section reconciliation remains a separate quality item before section extraction is treated as final ground truth.
