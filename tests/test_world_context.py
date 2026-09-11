@@ -42,7 +42,7 @@ def test_document_profile_reads_structured_source_data(tmp_path):
     db = tmp_path / "source.db"
     with sqlite3.connect(db) as con:
         con.execute("CREATE TABLE pages (document_id INTEGER, page_number INTEGER, text TEXT)")
-        con.execute("CREATE TABLE sections (document_id INTEGER, page_number INTEGER, title TEXT)")
+        con.execute("CREATE TABLE sections (document_id INTEGER, page_start INTEGER, title TEXT)")
         con.execute("CREATE TABLE entities (document_id INTEGER, id INTEGER, canonical_name TEXT)")
         con.execute(
             "INSERT INTO pages VALUES (1, 1, ?)",
