@@ -111,7 +111,10 @@ def gate(
     # candidates should still be kept out of the canonical layer.
     if conflicting_entity_types and conflicting_entity_types & {"location", "environment"}:
         if direct == 0 and speech == 0 and action == 0:
-            return "non_character", 1.0, ["ambiguous_name_without_person_evidence"]
+            return "non_character", 1.0, [
+                "same_name_classified_as_location_or_environment",
+                "ambiguous_name_without_person_evidence",
+            ]
         reasons.append("name_also_classified_as_location_or_environment")
 
     if title and len(bare) == 1 and bare[0].lower() in STOPWORDS and direct == 0:
