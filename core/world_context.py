@@ -92,7 +92,7 @@ def analyze_text(text: str) -> dict[str, Any]:
 def _build_world_profile_cached(database_path: str, document_id: int) -> dict[str, Any]:
     with sqlite3.connect(database_path) as con:
         page_text = [str(row[0] or "") for row in con.execute("SELECT text FROM pages WHERE document_id=? ORDER BY page_number", (document_id,)).fetchall()]
-        section_titles = [str(row[0] or "") for row in con.execute("SELECT title FROM sections WHERE document_id=? ORDER BY page_number", (document_id,)).fetchall()]
+        section_titles = [str(row[0] or "") for row in con.execute("SELECT title FROM sections WHERE document_id=? ORDER BY page_start", (document_id,)).fetchall()]
         entity_text = [str(row[0] or "") for row in con.execute("SELECT canonical_name FROM entities WHERE document_id=? ORDER BY id", (document_id,)).fetchall()]
     return {"source": {"document_id": document_id, "evidence_scope": "document-wide"}, **analyze_text(" ".join(page_text + section_titles + entity_text))}
 
