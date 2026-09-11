@@ -23,18 +23,17 @@ Implemented and integrated a lightweight, dependency-free document world-context
 5. External knowledge bases and an LLM are intentionally not required for v1; the architecture can accept them later as optional enrichment providers.
 
 ### Validation status
-- Local baseline before v1 integration: 36 tests passed.
+- Local pytest after the classifier correction: **41 passed in 6.96s**.
 - Initial v1 classifier exposed a real bug where generic historical terms could outrank stronger mythology signals.
 - Fixed with weighted signal scoring and added regression coverage for mixed mythology/historical wording.
-- Current GitHub `main` contains the classifier fix and updated tests; local validation is required after sync.
-- The prior synchronized Asura DOD run completed all 442 pages, 191 scenes, and prompt QA with 0 failures, but that run preceded the final world-classification correction.
+- Current GitHub `main` contains the classifier fix, dynamic world-profile integration, and updated tests.
+- Prior synchronized Asura DOD: 442 pages, 191 scenes, prompt QA 0 failures; that run preceded the final world-classification correction/integration.
 
-### Next local validation
-- Sync local `main` with the latest GitHub commits.
-- Run the full pytest suite; expected count is now 41 tests.
-- Re-run the Asura DOD after the classifier fix and world-context integration.
-- Inspect several generated scene plans to verify the world profile is dynamic and reaches visual inference/prompts.
-- Later milestone: optional external knowledge enrichment (Wikidata/DBpedia/etc.) behind a provider interface; no LLM required for the baseline.
+### Next validation
+1. Re-run the Asura DOD after syncing local `main` with the latest GitHub commits.
+2. Inspect world-profile classification and several scene plans to verify the detected world context reaches visual inference and final prompts.
+3. Confirm source facts continue to override contextual inference.
+4. Later milestone: optional external knowledge enrichment (Wikidata/DBpedia/etc.) behind a provider interface; no LLM required for the baseline.
 
 ## Previous checkpoint
 
