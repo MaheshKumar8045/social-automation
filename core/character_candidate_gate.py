@@ -105,10 +105,6 @@ def gate(
     action = sum(1 for x in contexts if ACTION_CUE.search(x))
     direct = sum(1 for x in contexts if re.search(DIRECT_PERSON_CUE.pattern.format(name=re.escape(n)), x, re.I))
 
-    # A name shared with a location/environment is only disqualifying when the
-    # current evidence lacks a direct person reference. Real source characters
-    # can legitimately share names with places or concepts, while weak ambiguous
-    # candidates should still be kept out of the canonical layer.
     if conflicting_entity_types and conflicting_entity_types & {"location", "environment"}:
         if direct == 0 and speech == 0 and action == 0:
             return "non_character", 1.0, [
@@ -138,6 +134,8 @@ def gate(
         score += 0.05; reasons.append("character_action_context")
     if any(w.lower() in STOPWORDS for w in bare):
         score -= 0.45; reasons.append("stopword_name_component")
+    # Single-word names without person evidence remain weak, but a direct
+    # person reference is strong enough to preserve them as candidates.
     if len(bare) == 1 and not title and direct == 0:
         score = min(score, 0.44); reasons.append("single_word_without_direct_person_reference")
     if len(bare) >= 2 and not title and direct == 0 and exact < 3:
