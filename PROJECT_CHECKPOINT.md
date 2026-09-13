@@ -1,47 +1,55 @@
 ## Social Automation Project Checkpoint — 2026-09-13
 
-### Current milestone: Local LLM runtime hardening
+### Current milestone: Local LLM runtime hardening — quality-first Qwen3 30B
 
 All LLM work remains isolated on `llm-local-qwen`; original `main` is untouched.
 
-### User-confirmed baseline before this milestone
-- Full pytest: **67 passed**
-- `tests/test_scene_semantic_llm.py`: **4 passed**
-- `tests/test_cinematic_generation.py`: **8 passed**
-- Ollama 0.34.0 installed locally
-- `qwen3:30b` installed and `tools.check_ollama` passed
-- First full Asura shadow run completed in about **1h 18m** for 191 scenes
+### User-confirmed local validation
+- Full pytest: **73 passed**
+- Focused LLM/cinematic tests: **18 passed**
+- `qwen3:30b` installed locally
+- `tools.check_ollama --model qwen3:30b`: **PASS**
+- First full Asura shadow run completed in about **1h 18m** for 191 scenes, but its Qwen semantic calls timed out; this must not be treated as successful LLM semantic interpretation.
 
-### Scene 2 review finding
-Scene 2's LLM semantic result was rejected because Ollama timed out. The deterministic fallback exposed three runtime/design issues: shadow-mode mutation risk, truncated visual moments propagating into prompts, and image QA requiring an explicit dialogue/narrative-box instruction even when structured overlays existed.
+### Scene 2 finding
+Scene 2 generation completed, but the actual LLM semantic result was rejected because `qwen3:30b` timed out after 900 seconds. The generated diagnostic JSON itself was valid, but Windows PowerShell `>` redirected stdout as UTF-16 LE with BOM, causing a later UTF-8 inspection command to fail. This was an output/inspection issue, not an Ollama JSON issue.
+
+### Quality-first runtime decisions
+- Keep **`qwen3:30b`** as the recommended model; do not downgrade to 8B/14B merely for speed.
+- Qwen thinking is **enabled by default** (`SOCIAL_AUTOMATION_LLM_THINK=true`).
+- Default per-scene Ollama timeout is **1800 seconds (30 minutes)** and remains configurable with `SOCIAL_AUTOMATION_LLM_TIMEOUT`.
+- `SOCIAL_AUTOMATION_LLM_THINK=false` remains available only as an explicit diagnostic/speed mode.
 
 ### Changes now committed on `llm-local-qwen`
 - `core/ollama_client.py`
-  - default per-scene timeout raised from 300s to 900s
-  - timeout remains configurable with `SOCIAL_AUTOMATION_LLM_TIMEOUT`
-  - invalid/non-positive timeout fails fast
+  - quality-first `qwen3:30b` default
+  - default timeout 1800s
+  - configurable timeout and thinking mode
+  - Qwen thinking explicitly passed to Ollama
   - timeout errors report the configured duration
 - `core/generation_planner.py`
-  - plan version 9
-  - shadow mode is observation-only: LLM semantics are exported but cannot mutate production media prompts
+  - shadow mode is observation-only: LLM semantics cannot mutate production media prompts
   - only `enhance` mode can apply a source-validated ready LLM result
-  - truncated source visual fragments are extended to the next real source sentence boundary before export
-  - image prompt receives an explicit dialogue-or-narrative safe-area instruction when missing, aligning prompt text with QA contract
-  - automatic per-scene progress prints include completed/total, percentage, elapsed time, average seconds/scene and ETA
+  - truncated source visual fragments are extended to the next real source sentence boundary
+  - image prompt receives explicit dialogue-or-narrative safe-area instruction when missing
+  - progress is written to **stderr**, keeping stdout machine-readable
+  - `--output` writes planner JSON directly as UTF-8, avoiding PowerShell UTF-16 redirection
 - `core/dod.py`
   - computes scene total and enables automatic progress reporting
-  - adds `--llm-timeout`
+  - supports LLM timeout configuration
 - `tests/test_llm_runtime_hardening.py`
-  - regressions for timeout defaults/override/validation and truncated source-fragment repair
-
-### Git commits for this milestone
-- `f1fd140fbfa42c79423b387a226e9864f135499a` planner hardening
-- `536a345a3ee33332bdbc7f0146ca67064cd5c830` Ollama timeout hardening
-- `0f6da7a1295121de8ee9562cdf5800a78d50fc60` DOD progress/timeout CLI
-- `dbbd59c85746f247b0283f40d3163b3dbd548199` runtime hardening regressions
+  - timeout, thinking-mode, validation, and source-fragment regressions
+- `requirements.txt`
+  - aligns the tracked Windows dependency versions with the validated local environment and includes `ollama==0.6.2`
 
 ### Required local validation next
-Pull the branch, run the full test suite, then run Scene 2 only with Qwen before another 191-scene pass. Do not enable full-book `enhance` until Scene 2 returns `status=ready`, `llm_used=true`, and `source_validated=true` and its semantic output is reviewed.
+1. Pull the latest `llm-local-qwen` branch.
+2. Run `pip check` and the full pytest suite.
+3. Run the Ollama health/model check.
+4. Run **Scene 2 only** using the explicit UTF-8 `--output` option.
+5. Review the returned semantic result.
+6. Only if Scene 2 returns `status=ready`, `llm_used=true`, and `source_validated=true`, run a controlled `enhance` test on Scene 2.
+7. Only after the controlled enhance output is accepted should the full 191-scene enhance run begin.
 
 ### Recommended local commands
 ```powershell
@@ -53,8 +61,10 @@ python -m pytest tests\test_llm_runtime_hardening.py tests\test_scene_semantic_l
 python -m tools.check_ollama --model qwen3:30b
 $env:SOCIAL_AUTOMATION_LLM_MODE="shadow"
 $env:SOCIAL_AUTOMATION_LLM_MODEL="qwen3:30b"
-$env:SOCIAL_AUTOMATION_LLM_TIMEOUT="900"
-python -m core.generation_planner "data\Asura\Asura - Tale Of The Vanquished_structure.db" 1 2 > scene2_after_hardening.json
+$env:SOCIAL_AUTOMATION_LLM_TIMEOUT="1800"
+$env:SOCIAL_AUTOMATION_LLM_THINK="true"
+python -m core.generation_planner "data\Asura\Asura - Tale Of The Vanquished_structure.db" 1 2 --output scene2_after_hardening.json
+python -c "import json; d=json.load(open('scene2_after_hardening.json',encoding='utf-8')); print(json.dumps(d.get('llm_scene_semantics',{}),indent=2,ensure_ascii=False))"
 ```
 
-Review `scene2_after_hardening.json`. If Scene 2 is ready and source validated, proceed to a controlled enhance test for Scene 2 only before a full-book enhance run.
+Do not start the full-book `enhance` run until the Scene 2 semantic result is genuinely `ready` and source validated and the resulting media prompts have been reviewed.
