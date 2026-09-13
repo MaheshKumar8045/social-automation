@@ -17,6 +17,7 @@ def run(
     llm_mode: str | None = None,
     llm_model: str | None = None,
     llm_timeout: float | None = None,
+    llm_think: bool | None = None,
 ) -> dict:
     """Process a PDF through the architecture and export all prompts."""
     if llm_mode is not None:
@@ -30,6 +31,8 @@ def run(
         if llm_timeout <= 0:
             raise ValueError("llm_timeout must be greater than zero")
         os.environ["SOCIAL_AUTOMATION_LLM_TIMEOUT"] = str(llm_timeout)
+    if llm_think is not None:
+        os.environ["SOCIAL_AUTOMATION_LLM_THINK"] = "true" if llm_think else "false"
 
     pdf_path = Path(pdf_path)
     structure, document_id = run_document_pipeline(pdf_path, max_pages=max_pages)
@@ -48,7 +51,8 @@ def run(
         "database": str(database_path),
         "llm_mode": os.getenv("SOCIAL_AUTOMATION_LLM_MODE", "off"),
         "llm_model": os.getenv("SOCIAL_AUTOMATION_LLM_MODEL", "qwen3:30b"),
-        "llm_timeout": float(os.getenv("SOCIAL_AUTOMATION_LLM_TIMEOUT", "900")),
+        "llm_timeout": float(os.getenv("SOCIAL_AUTOMATION_LLM_TIMEOUT", "1800")),
+        "llm_think": os.getenv("SOCIAL_AUTOMATION_LLM_THINK", "false").lower() == "true",
         "scene_total": scene_total,
         "prompt_export": prompt_result,
     }
@@ -60,9 +64,12 @@ def main() -> None:
     parser.add_argument("--max-pages", type=int, default=None)
     parser.add_argument("--llm-mode", choices=["off", "shadow", "enhance"], default=None)
     parser.add_argument("--llm-model", default=None)
-    parser.add_argument("--llm-timeout", type=float, default=None, help="Per-scene Ollama timeout in seconds; default 900")
+    parser.add_argument("--llm-timeout", type=float, default=None, help="Per-scene Ollama timeout in seconds; default 1800")
+    parser.add_argument("--llm-think", dest="llm_think", action="store_true", help="Enable Qwen thinking for semantic extraction")
+    parser.add_argument("--no-llm-think", dest="llm_think", action="store_false", help="Disable Qwen thinking for semantic extraction")
+    parser.set_defaults(llm_think=None)
     args = parser.parse_args()
-    result = run(args.pdf, max_pages=args.max_pages, llm_mode=args.llm_mode, llm_model=args.llm_model, llm_timeout=args.llm_timeout)
+    result = run(args.pdf, max_pages=args.max_pages, llm_mode=args.llm_mode, llm_model=args.llm_model, llm_timeout=args.llm_timeout, llm_think=args.llm_think)
     print("\n" + "=" * 60)
     print("DOD COMPLETE")
     print("=" * 60)
