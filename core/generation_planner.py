@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,7 @@ def _progress_tick(scene_id: int) -> None:
     print(
         f"LLM {llm_mode().upper()} | Scene {_PROGRESS_DONE}/{total} (id={scene_id}) | "
         f"{pct:5.1f}% | elapsed {elapsed/60:.1f}m | avg {average:.1f}s/scene | ETA {eta/60:.1f}m",
+        file=sys.stderr,
         flush=True,
     )
 
@@ -169,7 +171,6 @@ class GenerationPlanner:
         source = str((context.get("scene") or {}).get("text") or "")
         media = _repair_truncated_visual_moments(media, source)
 
-        # Shadow is observation-only. Only enhance mode may mutate production media.
         if llm_mode() == "enhance":
             media = GenerationPlanner._apply_llm_semantics(media, context.get("llm_scene_semantics_result"))
 
@@ -256,8 +257,13 @@ def main() -> None:
     parser.add_argument("document_id", type=int)
     parser.add_argument("scene_id", type=int)
     parser.add_argument("--summary", action="store_true")
+    parser.add_argument("--output", help="Write JSON directly as UTF-8 to this file")
     args = parser.parse_args()
-    print(json.dumps(build_generation_plan(args.database, args.document_id, args.scene_id), indent=2, ensure_ascii=False))
+    payload = json.dumps(build_generation_plan(args.database, args.document_id, args.scene_id), indent=2, ensure_ascii=False)
+    if args.output:
+        Path(args.output).write_text(payload + "\n", encoding="utf-8")
+    else:
+        print(payload)
 
 
 if __name__ == "__main__":
