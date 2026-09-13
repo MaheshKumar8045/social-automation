@@ -12,7 +12,8 @@ class OllamaSettings:
     host: str = "http://localhost:11434"
     model: str = "qwen3:30b"
     timeout_seconds: float = 1800.0
-    think: bool = True
+    think: bool = False
+    context_tokens: int = 4096
 
     @classmethod
     def from_env(cls) -> "OllamaSettings":
@@ -23,14 +24,26 @@ class OllamaSettings:
             raise ValueError("SOCIAL_AUTOMATION_LLM_TIMEOUT must be a number of seconds") from exc
         if timeout <= 0:
             raise ValueError("SOCIAL_AUTOMATION_LLM_TIMEOUT must be greater than zero")
-        raw_think = os.getenv("SOCIAL_AUTOMATION_LLM_THINK", "true").strip().lower()
-        if raw_think not in {"0", "1", "false", "true", "no", "yes"}:
-            raise ValueError("SOCIAL_AUTOMATION_LLM_THINK must be true or false")
+
+        raw_think = os.getenv("SOCIAL_AUTOMATION_LLM_THINK", str(cls.think)).strip().lower()
+        if raw_think not in {"true", "false", "1", "0", "yes", "no", "on", "off"}:
+            raise ValueError("SOCIAL_AUTOMATION_LLM_THINK must be a boolean")
+        think = raw_think in {"true", "1", "yes", "on"}
+
+        raw_context = os.getenv("SOCIAL_AUTOMATION_LLM_CONTEXT", str(cls.context_tokens)).strip()
+        try:
+            context_tokens = int(raw_context)
+        except ValueError as exc:
+            raise ValueError("SOCIAL_AUTOMATION_LLM_CONTEXT must be an integer") from exc
+        if context_tokens < 1024:
+            raise ValueError("SOCIAL_AUTOMATION_LLM_CONTEXT must be at least 1024")
+
         return cls(
             host=os.getenv("SOCIAL_AUTOMATION_LLM_HOST", cls.host).rstrip("/"),
             model=os.getenv("SOCIAL_AUTOMATION_LLM_MODEL", cls.model).strip() or cls.model,
             timeout_seconds=timeout,
-            think=raw_think in {"1", "true", "yes"},
+            think=think,
+            context_tokens=context_tokens,
         )
 
 
@@ -76,8 +89,8 @@ class OllamaClient:
                 model=self.settings.model,
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 format=SceneSemanticAnalysis.model_json_schema(),
-                options={"temperature": 0},
                 think=self.settings.think,
+                options={"temperature": 0, "num_ctx": self.settings.context_tokens},
                 stream=False,
             )
         except Exception as exc:
