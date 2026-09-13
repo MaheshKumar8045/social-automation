@@ -12,7 +12,7 @@ class OllamaSettings:
     host: str = "http://localhost:11434"
     model: str = "qwen3:30b"
     timeout_seconds: float = 1800.0
-    think: bool = False
+    think: bool = True
 
     @classmethod
     def from_env(cls) -> "OllamaSettings":
@@ -23,7 +23,7 @@ class OllamaSettings:
             raise ValueError("SOCIAL_AUTOMATION_LLM_TIMEOUT must be a number of seconds") from exc
         if timeout <= 0:
             raise ValueError("SOCIAL_AUTOMATION_LLM_TIMEOUT must be greater than zero")
-        raw_think = os.getenv("SOCIAL_AUTOMATION_LLM_THINK", "false").strip().lower()
+        raw_think = os.getenv("SOCIAL_AUTOMATION_LLM_THINK", "true").strip().lower()
         if raw_think not in {"0", "1", "false", "true", "no", "yes"}:
             raise ValueError("SOCIAL_AUTOMATION_LLM_THINK must be true or false")
         return cls(
