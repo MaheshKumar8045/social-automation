@@ -1,163 +1,60 @@
-## Social Automation Project Checkpoint — 2026-09-11
+## Social Automation Project Checkpoint — 2026-09-13
 
-### Current milestone: Local LLM Successor Branch
+### Current milestone: Local LLM runtime hardening
 
-The original `main` branch remains unchanged by this LLM milestone. All new LLM work is isolated on branch `llm-local-qwen` so it can later be pushed into a separately named successor repository.
+All LLM work remains isolated on `llm-local-qwen`; original `main` is untouched.
 
-### Baseline status before LLM work
-- Original repository: `MaheshKumar8045/social-automation`
-- Original branch: `main`
-- Full local pytest baseline after cinematic fixes: **63 passed**
-- Focused cinematic-generation suite: **8 passed**
-- Real Asura DOD is currently being run locally for Scene 2 review.
+### User-confirmed baseline before this milestone
+- Full pytest: **67 passed**
+- `tests/test_scene_semantic_llm.py`: **4 passed**
+- `tests/test_cinematic_generation.py`: **8 passed**
+- Ollama 0.34.0 installed locally
+- `qwen3:30b` installed and `tools.check_ollama` passed
+- First full Asura shadow run completed in about **1h 18m** for 191 scenes
 
-### LLM direction agreed
-Use a local LLM for semantic interpretation while retaining deterministic extraction, source-evidence validation, identity/continuity controls, and deterministic prompt QA.
+### Scene 2 review finding
+Scene 2's LLM semantic result was rejected because Ollama timed out. The deterministic fallback exposed three runtime/design issues: shadow-mode mutation risk, truncated visual moments propagating into prompts, and image QA requiring an explicit dialogue/narrative-box instruction even when structured overlays existed.
 
-Target architecture:
-```text
-PDF / Book
-  -> Docling
-  -> SQLite canonical source
-  -> sections / stories / scenes / entities / continuity
-  -> local Qwen scene semantic analysis
-  -> exact source-evidence validation
-  -> deterministic visual policy + continuity
-  -> cinematic/media prompt composition
-  -> deterministic prompt QA
-  -> image / short video / long video prompts
-```
-
-The LLM is never treated as the source of truth. Evidence must come from the extracted book/source. LLM interpretation is rejected when source evidence cannot be verified.
-
-### Local LLM implementation completed on `llm-local-qwen`
-Added:
-- `core/llm_schemas.py`
-  - Pydantic schemas for scene semantics, character visibility, dialogue, visual moments, source facts, and controlled inferences.
+### Changes now committed on `llm-local-qwen`
 - `core/ollama_client.py`
-  - local Ollama client wrapper
-  - configurable host/model/timeout
-  - model availability checks
-  - structured JSON-schema output
-  - temperature 0
-- `core/scene_semantic_llm.py`
-  - strict source-grounded scene semantic interpreter
-  - visible vs referenced vs unknown character classification contract
-  - dialogue contamination safeguards
-  - exact source-substring evidence validation
-  - rejects hallucinated source moments/facts/dialogue
-- `tools/check_ollama.py`
-  - local Ollama connectivity/model smoke test
-- `LOCAL_LLM_SETUP.md`
-  - Windows install/setup instructions
-  - Ollama service/model checks
-  - off/shadow/enhance modes
-  - architecture and evidence rules
-- `tests/test_scene_semantic_llm.py`
-  - validates accepted source evidence
-  - rejects hallucinated primary visual moments
-  - rejects hallucinated dialogue
-  - verifies exact-evidence prompt contract
+  - default per-scene timeout raised from 300s to 900s
+  - timeout remains configurable with `SOCIAL_AUTOMATION_LLM_TIMEOUT`
+  - invalid/non-positive timeout fails fast
+  - timeout errors report the configured duration
+- `core/generation_planner.py`
+  - plan version 9
+  - shadow mode is observation-only: LLM semantics are exported but cannot mutate production media prompts
+  - only `enhance` mode can apply a source-validated ready LLM result
+  - truncated source visual fragments are extended to the next real source sentence boundary before export
+  - image prompt receives an explicit dialogue-or-narrative safe-area instruction when missing, aligning prompt text with QA contract
+  - automatic per-scene progress prints include completed/total, percentage, elapsed time, average seconds/scene and ETA
+- `core/dod.py`
+  - computes scene total and enables automatic progress reporting
+  - adds `--llm-timeout`
+- `tests/test_llm_runtime_hardening.py`
+  - regressions for timeout defaults/override/validation and truncated source-fragment repair
 
-### Generation pipeline integration
-`core/generation_planner.py` now supports:
-- `SOCIAL_AUTOMATION_LLM_MODE=off|shadow|enhance`
-- `SOCIAL_AUTOMATION_LLM_MODEL` (default `qwen3:30b`)
-- shadow mode: run local Qwen semantic analysis and expose validated results without changing prompts
-- enhance mode: allow only source-validated LLM semantics to improve dialogue, visible-character decisions, and scene/media prompt context
-- enhance mode fails closed when the LLM is unavailable or its source-evidence validation rejects the scene
-- plan version advanced to 8 when LLM-aware planner code is active
+### Git commits for this milestone
+- `f1fd140fbfa42c79423b387a226e9864f135499a` planner hardening
+- `536a345a3ee33332bdbc7f0146ca67064cd5c830` Ollama timeout hardening
+- `0f6da7a1295121de8ee9562cdf5800a78d50fc60` DOD progress/timeout CLI
+- `dbbd59c85746f247b0283f40d3163b3dbd548199` runtime hardening regressions
 
-`core/dod.py` supports:
+### Required local validation next
+Pull the branch, run the full test suite, then run Scene 2 only with Qwen before another 191-scene pass. Do not enable full-book `enhance` until Scene 2 returns `status=ready`, `llm_used=true`, and `source_validated=true` and its semantic output is reviewed.
+
+### Recommended local commands
 ```powershell
-python -m core.dod "data\Asura\Asura - Tale Of The Vanquished.pdf" --llm-mode enhance --llm-model qwen3:30b
-```
-
-### Dependency
-`requirements.txt` adds:
-```text
-ollama==0.6.2
-```
-The existing dependency list is retained.
-
-### Model choice
-Default local model is `qwen3:30b`.
-
-### Local validation performed by this session
-A standalone reconstruction of the new semantic modules and their unit tests was executed locally in the development environment:
-```text
-3 passed in 0.13s
-```
-This validates the Python/Pydantic semantic contract but does **not** validate actual Ollama inference because no local Ollama service/model exists in this execution environment.
-
-### Important repository limitation
-The connected GitHub capability can create/update branches, files, commits and pull requests, but it does not expose a GitHub "create repository" operation. Therefore the successor is currently prepared on the isolated branch `llm-local-qwen` of the original repository. The original `main` is left unchanged.
-
-Recommended successor repository name:
-```text
-social-automation-local-llm
-```
-
-### Windows prerequisites for the user
-GitHub CLI is installed by the user but was not yet visible to the current PowerShell session. Restart PowerShell before running:
-```powershell
-gh auth login
-```
-Then create the successor repository:
-```powershell
-gh repo create MaheshKumar8045/social-automation-local-llm --public
-```
-
-Install Ollama:
-```powershell
-irm https://ollama.com/install.ps1 | iex
-```
-Restart PowerShell and verify:
-```powershell
-ollama --version
-nvidia-smi
-ollama pull qwen3:30b
-ollama list
-Invoke-RestMethod http://localhost:11434/api/tags | ConvertTo-Json -Depth 5
-```
-Inside the successor project virtual environment:
-```powershell
-python -m pip install -U ollama==0.6.2
-python -c "import ollama; print('ollama-python import: OK')"
-```
-Project-specific smoke test:
-```powershell
-python tools\check_ollama.py --model qwen3:30b
-```
-
-### Successor repository transfer
-After creating the new repository, clone the prepared branch and push it as the new repository's `main`:
-```powershell
-git clone https://github.com/MaheshKumar8045/social-automation.git M:\social-automation-local-llm
-cd M:\social-automation-local-llm
-git fetch origin
 git checkout llm-local-qwen
-git remote remove origin
-git remote add origin https://github.com/MaheshKumar8045/social-automation-local-llm.git
-git push -u origin llm-local-qwen:main
-```
-
-### Validation sequence after transfer
-1. Confirm baseline branch tests:
-```powershell
+git pull origin llm-local-qwen
+python -m pip check
 python -m pytest -q
+python -m pytest tests\test_llm_runtime_hardening.py tests\test_scene_semantic_llm.py tests\test_cinematic_generation.py -q
+python -m tools.check_ollama --model qwen3:30b
+$env:SOCIAL_AUTOMATION_LLM_MODE="shadow"
+$env:SOCIAL_AUTOMATION_LLM_MODEL="qwen3:30b"
+$env:SOCIAL_AUTOMATION_LLM_TIMEOUT="900"
+python -m core.generation_planner "data\Asura\Asura - Tale Of The Vanquished_structure.db" 1 2 > scene2_after_hardening.json
 ```
-2. Run local Ollama smoke test:
-```powershell
-python tools\check_ollama.py --model qwen3:30b
-```
-3. Run LLM `shadow` mode on a representative sample before changing production prompts.
-4. Review Scene 2 and the shadow semantic output.
-5. Only after shadow results are accepted, run `enhance` mode for the full 191-scene DOD.
 
-### Current resume point
-1. User has confirmed **63/63 tests passing**.
-2. User is running the deterministic Asura DOD now.
-3. User will provide **Scene 2** output for direct semantic/cinematic quality review.
-4. Do not activate LLM enhancement until Scene 2 baseline quality is assessed.
-5. Then complete the successor repository creation and local Ollama validation.
+Review `scene2_after_hardening.json`. If Scene 2 is ready and source validated, proceed to a controlled enhance test for Scene 2 only before a full-book enhance run.
