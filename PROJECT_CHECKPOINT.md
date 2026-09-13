@@ -1,74 +1,120 @@
 ## Social Automation Project Checkpoint — 2026-09-13
 
-### Current milestone: Local LLM runtime hardening — quality-first Qwen3 30B
+### Current milestone: Local LLM runtime validated — Qwen3 30B no-think inference completes
 
 All LLM work remains isolated on `llm-local-qwen`; original `main` is untouched.
 
-### User-confirmed local validation
-- Full pytest: **76 passed**
-- Focused LLM/cinematic tests: **21 passed**
+### User-confirmed local validation — today
+- Full pytest: **79 passed in 7.48s**
+- Focused LLM/cinematic tests: **24 passed in 0.13s**
 - `qwen3:30b` installed locally
 - `tools.check_ollama --model qwen3:30b`: **PASS**
-- First full Asura shadow run completed in about **1h 18m** for 191 scenes, but its Qwen semantic calls timed out; this must not be treated as successful LLM semantic interpretation.
+- Qwen3 30B semantic inference with `SOCIAL_AUTOMATION_LLM_THINK=false` completed on Scene 2 within the 1800s timeout.
+- This confirms the local Qwen runtime is usable on the current laptop when hidden thinking is disabled for this structured semantic extraction stage.
 
-### Scene 2 finding
-Scene 2 generation completed, but the actual LLM semantic result was rejected because `qwen3:30b` timed out after **1800 seconds** even with a 30-minute timeout. The model is installed and Ollama health checks pass, so the remaining issue is inference/runtime efficiency rather than installation.
+### Scene 2 LLM result — latest
+The latest Scene 2 run used:
+- model: `qwen3:30b`
+- mode: `shadow`
+- timeout: `1800s`
+- thinking: `false`
+- context: `4096`
+- output written directly as UTF-8 with `--output`
 
-### Quality-first runtime decisions
-- Keep **`qwen3:30b`** as the primary model; do not downgrade to 8B/14B merely for speed.
-- The semantic extraction call now explicitly controls Qwen thinking through `SOCIAL_AUTOMATION_LLM_THINK`.
-- Default thinking is **disabled for semantic extraction**. This does **not** change the model: Qwen3 30B remains the semantic engine, while hidden chain-of-thought is unnecessary for a tightly source-constrained structured extraction and can consume the inference budget.
-- Set `SOCIAL_AUTOMATION_LLM_THINK=true` when deeper reasoning is explicitly desired.
-- Default per-scene Ollama timeout is **1800 seconds (30 minutes)** and remains configurable with `SOCIAL_AUTOMATION_LLM_TIMEOUT`.
-- Context defaults to **4096 tokens** and is configurable with `SOCIAL_AUTOMATION_LLM_CONTEXT`.
+The model returned `llm_used=true`, but the semantic result was **rejected by the existing strict source-grounding validator** (`source_validated=false`).
 
-### Changes now committed on `llm-local-qwen`
-- `core/ollama_client.py`
-  - quality-first `qwen3:30b` default
-  - default timeout 1800s
-  - explicit thinking control, default off for semantic extraction
-  - explicit 4096-token context default
-  - timeout errors report the configured duration
-- `core/generation_planner.py`
-  - shadow mode is observation-only: LLM semantics cannot mutate production media prompts
-  - only `enhance` mode can apply a source-validated ready LLM result
-  - truncated source visual fragments are extended to the next real source sentence boundary
-  - image prompt receives explicit dialogue-or-narrative safe-area instruction when missing
-  - progress is written to **stderr**, keeping stdout machine-readable
-  - `--output` writes planner JSON directly as UTF-8, avoiding PowerShell UTF-16 redirection
-- `core/dod.py`
-  - computes scene total and enables automatic progress reporting
-  - supports LLM timeout and thinking controls
-- `tests/test_llm_runtime_hardening.py`
-  - timeout, thinking-mode, context, validation, and source-fragment regressions
-- `requirements.txt`
-  - aligns the tracked Windows dependency versions with the validated local environment and includes `ollama==0.6.2`
+Observed rejection categories included:
+- visual-moment evidence/text not matching the exact scene source span
+- dialogue not verbatim source
+- source-fact evidence not matching the exact scene source span
+- names/entities such as **Ravana, Rama, Meghanada, jackals, and rats** were returned without matching scene-local canonical evidence
 
-### Required local validation next
-1. Pull the latest `llm-local-qwen` branch.
-2. Run `pip check` and the full pytest suite.
-3. Run the Ollama health/model check.
-4. Run **Scene 2 only** with `SOCIAL_AUTOMATION_LLM_THINK=false` using the explicit UTF-8 `--output` option.
-5. Review the returned semantic result and runtime.
-6. If Scene 2 is still too weak, repeat Scene 2 with `SOCIAL_AUTOMATION_LLM_THINK=true` as the quality comparison.
-7. Only if Scene 2 returns `status=ready`, `llm_used=true`, and `source_validated=true`, run a controlled `enhance` test on Scene 2.
-8. Only after the controlled enhance output is accepted should the full 191-scene enhance run begin.
+### Important architectural decision — DO NOT weaken the validator
+The validator must remain strict and unchanged.
 
-### Recommended local commands
+Story/world knowledge is a separate concern from scene-local source evidence. A character, creature, object, relationship, or other entity can legitimately belong to the broader story even when its name is absent from the extracted text of a particular scene.
+
+Therefore:
+- Do **not** remove or relax exact source-evidence validation.
+- Do **not** treat valid story/world entities as hallucinations merely because they are absent from one scene's text.
+- Future work should improve the knowledge/context supplied to the LLM so it can distinguish **story/world knowledge** from **scene-local evidence**.
+- Scene visibility/presence still requires appropriate scene evidence; global story knowledge must not silently create physical presence in a scene.
+
+### Current generation architecture
+```text
+PDF / Book
+  ↓
+Docling
+  ↓
+SQLite canonical store
+  ↓
+Sections → Stories → Scenes
+  ↓
+Entities / Characters / Locations / Events
+  ↓
+Character candidate gate / identity normalization / canonical characters
+  ↓
+Visual Knowledge Bible
+  ↓
+Canonical Visual Bible
+  ↓
+Scene visual state / continuity
+  ↓
+Generation Context + World & Knowledge Intelligence
+  ↓
+Local Qwen3 30B semantic interpretation (shadow/enhance)
+  ↓
+Strict source validation
+  ↓
+Generation Planner
+  ↓
+Unified Media Prompt Compiler
+  ↓
+ ┌─────────────┬────────────────┬────────────────┐
+ │    IMAGE    │  SHORT VIDEO   │   LONG VIDEO   │
+ │    PROMPT   │    CLIPS       │    SHOTS       │
+ └─────────────┴────────────────┴────────────────┘
+```
+
+### User's immediate next objective
+**Stop investigating the LLM runtime for now. Produce the three generation prompts for one selected scene and test them manually in an AI generator.**
+
+The three outputs to review are:
+1. **Image prompt**
+2. **Short-video prompt package**
+3. **Long-video prompt package**
+
+Audio remains supporting material for video generation and is not a fourth primary prompt type.
+
+### Important testing rule
+Do not enable full-book `enhance` yet. First manually review one scene's three generated prompts and judge the actual visual/video quality in an external AI generator.
+
+### Next engineering step after manual visual test
+Use the user's visual feedback from the three generated outputs to decide what prompt-composition changes are actually needed. Preserve the strict validator while improving world/story knowledge handling separately.
+
+### Existing runtime settings
 ```powershell
-git checkout llm-local-qwen
-git pull origin llm-local-qwen
-python -m pip check
-python -m pytest -q
-python -m pytest tests\test_llm_runtime_hardening.py tests\test_scene_semantic_llm.py tests\test_cinematic_generation.py -q
-python -m tools.check_ollama --model qwen3:30b
 $env:SOCIAL_AUTOMATION_LLM_MODE="shadow"
 $env:SOCIAL_AUTOMATION_LLM_MODEL="qwen3:30b"
 $env:SOCIAL_AUTOMATION_LLM_TIMEOUT="1800"
 $env:SOCIAL_AUTOMATION_LLM_THINK="false"
 $env:SOCIAL_AUTOMATION_LLM_CONTEXT="4096"
-python -m core.generation_planner "data\Asura\Asura - Tale Of The Vanquished_structure.db" 1 2 --output scene2_after_hardening.json
-python -c "import json; d=json.load(open('scene2_after_hardening.json',encoding='utf-8')); print(json.dumps(d.get('llm_scene_semantics',{}),indent=2,ensure_ascii=False))"
 ```
 
-Do not start the full-book `enhance` run until the Scene 2 semantic result is genuinely `ready` and source validated and the resulting media prompts have been reviewed.
+### Verified tests
+```text
+python -m pytest -q
+79 passed in 7.48s
+
+python -m pytest tests\test_llm_runtime_hardening.py tests\test_scene_semantic_llm.py tests\test_cinematic_generation.py -q
+24 passed in 0.13s
+
+python -m tools.check_ollama --model qwen3:30b
+OLLAMA CHECK: PASS
+```
+
+### Do not forget
+- Original `main` remains untouched.
+- Keep quality-first `qwen3:30b`; do not downgrade to 8B/14B merely for speed.
+- Do not weaken the validator to accommodate LLM output.
+- Do not start the full 191-scene `enhance` run before the manual three-prompt visual test is reviewed.
