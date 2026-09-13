@@ -11,7 +11,8 @@ from .llm_schemas import SceneSemanticAnalysis
 class OllamaSettings:
     host: str = "http://localhost:11434"
     model: str = "qwen3:30b"
-    timeout_seconds: float = 900.0
+    timeout_seconds: float = 1800.0
+    think: bool = False
 
     @classmethod
     def from_env(cls) -> "OllamaSettings":
@@ -22,10 +23,14 @@ class OllamaSettings:
             raise ValueError("SOCIAL_AUTOMATION_LLM_TIMEOUT must be a number of seconds") from exc
         if timeout <= 0:
             raise ValueError("SOCIAL_AUTOMATION_LLM_TIMEOUT must be greater than zero")
+        raw_think = os.getenv("SOCIAL_AUTOMATION_LLM_THINK", "false").strip().lower()
+        if raw_think not in {"0", "1", "false", "true", "no", "yes"}:
+            raise ValueError("SOCIAL_AUTOMATION_LLM_THINK must be true or false")
         return cls(
             host=os.getenv("SOCIAL_AUTOMATION_LLM_HOST", cls.host).rstrip("/"),
             model=os.getenv("SOCIAL_AUTOMATION_LLM_MODEL", cls.model).strip() or cls.model,
             timeout_seconds=timeout,
+            think=raw_think in {"1", "true", "yes"},
         )
 
 
@@ -72,6 +77,7 @@ class OllamaClient:
                 messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 format=SceneSemanticAnalysis.model_json_schema(),
                 options={"temperature": 0},
+                think=self.settings.think,
                 stream=False,
             )
         except Exception as exc:
