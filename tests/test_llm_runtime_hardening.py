@@ -1,7 +1,7 @@
 import pytest
 
 import core.generation_planner as planner_module
-from core.generation_planner import GenerationPlanner, _extend_truncated_source_fragment
+from core.generation_planner import _extend_truncated_source_fragment
 from core.llm_schemas import SceneSemanticAnalysis, SceneSemanticResult
 from core.ollama_client import OllamaSettings
 
@@ -21,7 +21,6 @@ def test_shadow_mode_never_applies_llm_mutation(monkeypatch):
         "image": {"prompt": "source-grounded prompt with dialogue", "dialogue_overlays": [], "layout": {}},
         "short_video": {"clips": []}, "long_video": {"shots": []}, "visual_inference": {},
     }
-    # _apply_llm_semantics itself is the enhance primitive; shadow isolation is enforced by _prompt_bundle.
     assert "LLM-VALIDATED" not in original["image"]["prompt"]
     assert planner_module.llm_mode() == "shadow"
 
@@ -44,9 +43,9 @@ def test_default_ollama_timeout_is_thirty_minutes(monkeypatch):
     assert OllamaSettings.from_env().timeout_seconds == 1800.0
 
 
-def test_default_qwen_thinking_is_enabled(monkeypatch):
+def test_default_qwen_thinking_is_disabled_for_semantic_extraction(monkeypatch):
     monkeypatch.delenv("SOCIAL_AUTOMATION_LLM_THINK", raising=False)
-    assert OllamaSettings.from_env().think is True
+    assert OllamaSettings.from_env().think is False
 
 
 def test_ollama_timeout_can_be_overridden(monkeypatch):
@@ -54,9 +53,19 @@ def test_ollama_timeout_can_be_overridden(monkeypatch):
     assert OllamaSettings.from_env().timeout_seconds == 2400.0
 
 
-def test_ollama_thinking_can_be_disabled(monkeypatch):
-    monkeypatch.setenv("SOCIAL_AUTOMATION_LLM_THINK", "false")
-    assert OllamaSettings.from_env().think is False
+def test_ollama_thinking_can_be_enabled(monkeypatch):
+    monkeypatch.setenv("SOCIAL_AUTOMATION_LLM_THINK", "true")
+    assert OllamaSettings.from_env().think is True
+
+
+def test_default_context_is_4096(monkeypatch):
+    monkeypatch.delenv("SOCIAL_AUTOMATION_LLM_CONTEXT", raising=False)
+    assert OllamaSettings.from_env().context_tokens == 4096
+
+
+def test_ollama_context_can_be_overridden(monkeypatch):
+    monkeypatch.setenv("SOCIAL_AUTOMATION_LLM_CONTEXT", "8192")
+    assert OllamaSettings.from_env().context_tokens == 8192
 
 
 def test_invalid_ollama_timeout_fails_fast(monkeypatch):
@@ -67,5 +76,11 @@ def test_invalid_ollama_timeout_fails_fast(monkeypatch):
 
 def test_invalid_ollama_thinking_fails_fast(monkeypatch):
     monkeypatch.setenv("SOCIAL_AUTOMATION_LLM_THINK", "maybe")
-    with pytest.raises(ValueError, match="true or false"):
+    with pytest.raises(ValueError, match="boolean"):
+        OllamaSettings.from_env()
+
+
+def test_invalid_ollama_context_fails_fast(monkeypatch):
+    monkeypatch.setenv("SOCIAL_AUTOMATION_LLM_CONTEXT", "512")
+    with pytest.raises(ValueError, match="at least 1024"):
         OllamaSettings.from_env()
