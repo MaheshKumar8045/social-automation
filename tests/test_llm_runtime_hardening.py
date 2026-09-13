@@ -39,17 +39,33 @@ def test_complete_visual_fragment_is_unchanged():
     assert _extend_truncated_source_fragment("Ravana lay wounded.", source) == "Ravana lay wounded."
 
 
-def test_default_ollama_timeout_is_fifteen_minutes(monkeypatch):
+def test_default_ollama_timeout_is_thirty_minutes(monkeypatch):
     monkeypatch.delenv("SOCIAL_AUTOMATION_LLM_TIMEOUT", raising=False)
-    assert OllamaSettings.from_env().timeout_seconds == 900.0
+    assert OllamaSettings.from_env().timeout_seconds == 1800.0
+
+
+def test_default_qwen_thinking_is_enabled(monkeypatch):
+    monkeypatch.delenv("SOCIAL_AUTOMATION_LLM_THINK", raising=False)
+    assert OllamaSettings.from_env().think is True
 
 
 def test_ollama_timeout_can_be_overridden(monkeypatch):
-    monkeypatch.setenv("SOCIAL_AUTOMATION_LLM_TIMEOUT", "1200")
-    assert OllamaSettings.from_env().timeout_seconds == 1200.0
+    monkeypatch.setenv("SOCIAL_AUTOMATION_LLM_TIMEOUT", "2400")
+    assert OllamaSettings.from_env().timeout_seconds == 2400.0
+
+
+def test_ollama_thinking_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("SOCIAL_AUTOMATION_LLM_THINK", "false")
+    assert OllamaSettings.from_env().think is False
 
 
 def test_invalid_ollama_timeout_fails_fast(monkeypatch):
     monkeypatch.setenv("SOCIAL_AUTOMATION_LLM_TIMEOUT", "0")
     with pytest.raises(ValueError, match="greater than zero"):
+        OllamaSettings.from_env()
+
+
+def test_invalid_ollama_thinking_fails_fast(monkeypatch):
+    monkeypatch.setenv("SOCIAL_AUTOMATION_LLM_THINK", "maybe")
+    with pytest.raises(ValueError, match="true or false"):
         OllamaSettings.from_env()
