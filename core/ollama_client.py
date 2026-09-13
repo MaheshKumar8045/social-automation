@@ -11,14 +11,21 @@ from .llm_schemas import SceneSemanticAnalysis
 class OllamaSettings:
     host: str = "http://localhost:11434"
     model: str = "qwen3:30b"
-    timeout_seconds: float = 300.0
+    timeout_seconds: float = 900.0
 
     @classmethod
     def from_env(cls) -> "OllamaSettings":
+        raw_timeout = os.getenv("SOCIAL_AUTOMATION_LLM_TIMEOUT", str(cls.timeout_seconds)).strip()
+        try:
+            timeout = float(raw_timeout)
+        except ValueError as exc:
+            raise ValueError("SOCIAL_AUTOMATION_LLM_TIMEOUT must be a number of seconds") from exc
+        if timeout <= 0:
+            raise ValueError("SOCIAL_AUTOMATION_LLM_TIMEOUT must be greater than zero")
         return cls(
             host=os.getenv("SOCIAL_AUTOMATION_LLM_HOST", cls.host).rstrip("/"),
-            model=os.getenv("SOCIAL_AUTOMATION_LLM_MODEL", cls.model),
-            timeout_seconds=float(os.getenv("SOCIAL_AUTOMATION_LLM_TIMEOUT", cls.timeout_seconds)),
+            model=os.getenv("SOCIAL_AUTOMATION_LLM_MODEL", cls.model).strip() or cls.model,
+            timeout_seconds=timeout,
         )
 
 
@@ -31,17 +38,15 @@ class OllamaClient:
         self.settings = settings or OllamaSettings.from_env()
         try:
             from ollama import Client
-        except ImportError as exc:  # pragma: no cover - exercised only without optional dependency
+        except ImportError as exc:
             raise OllamaUnavailable("Python package 'ollama' is not installed") from exc
         self._client = Client(host=self.settings.host, timeout=self.settings.timeout_seconds)
 
     def health(self) -> dict[str, Any]:
         try:
             return self._client.list()
-        except Exception as exc:  # pragma: no cover - depends on local service
-            raise OllamaUnavailable(
-                f"Ollama is unreachable at {self.settings.host}: {exc}"
-            ) from exc
+        except Exception as exc:
+            raise OllamaUnavailable(f"Ollama is unreachable at {self.settings.host}: {exc}") from exc
 
     def models(self) -> list[str]:
         response = self.health()
@@ -57,25 +62,23 @@ class OllamaClient:
         names = self.models()
         requested = self.settings.model
         if requested not in names:
-            raise OllamaUnavailable(
-                f"Model '{requested}' is not installed. Available local models: {', '.join(names) or '(none)'}"
-            )
+            raise OllamaUnavailable(f"Model '{requested}' is not installed. Available local models: {', '.join(names) or '(none)'}")
 
     def analyze_scene(self, *, system_prompt: str, user_prompt: str) -> SceneSemanticAnalysis:
         self.assert_model_available()
         try:
             response = self._client.chat(
                 model=self.settings.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
                 format=SceneSemanticAnalysis.model_json_schema(),
                 options={"temperature": 0},
                 stream=False,
             )
-        except Exception as exc:  # pragma: no cover - depends on local service/model
-            raise OllamaUnavailable(f"Ollama inference failed: {exc}") from exc
+        except Exception as exc:
+            detail = str(exc)
+            if "timed out" in detail.lower() or "timeout" in detail.lower():
+                detail = f"timed out after {self.settings.timeout_seconds:g}s"
+            raise OllamaUnavailable(f"Ollama inference failed: {detail}") from exc
 
         content = response.message.content if hasattr(response, "message") else response["message"]["content"]
         try:
