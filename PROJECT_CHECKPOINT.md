@@ -5,27 +5,29 @@
 All LLM work remains isolated on `llm-local-qwen`; original `main` is untouched.
 
 ### User-confirmed local validation
-- Full pytest: **73 passed**
-- Focused LLM/cinematic tests: **18 passed**
+- Full pytest: **76 passed**
+- Focused LLM/cinematic tests: **21 passed**
 - `qwen3:30b` installed locally
 - `tools.check_ollama --model qwen3:30b`: **PASS**
 - First full Asura shadow run completed in about **1h 18m** for 191 scenes, but its Qwen semantic calls timed out; this must not be treated as successful LLM semantic interpretation.
 
 ### Scene 2 finding
-Scene 2 generation completed, but the actual LLM semantic result was rejected because `qwen3:30b` timed out after 900 seconds. The generated diagnostic JSON itself was valid, but Windows PowerShell `>` redirected stdout as UTF-16 LE with BOM, causing a later UTF-8 inspection command to fail. This was an output/inspection issue, not an Ollama JSON issue.
+Scene 2 generation completed, but the actual LLM semantic result was rejected because `qwen3:30b` timed out after **1800 seconds** even with a 30-minute timeout. The model is installed and Ollama health checks pass, so the remaining issue is inference/runtime efficiency rather than installation.
 
 ### Quality-first runtime decisions
-- Keep **`qwen3:30b`** as the recommended model; do not downgrade to 8B/14B merely for speed.
-- Qwen thinking is **enabled by default** (`SOCIAL_AUTOMATION_LLM_THINK=true`).
+- Keep **`qwen3:30b`** as the primary model; do not downgrade to 8B/14B merely for speed.
+- The semantic extraction call now explicitly controls Qwen thinking through `SOCIAL_AUTOMATION_LLM_THINK`.
+- Default thinking is **disabled for semantic extraction**. This does **not** change the model: Qwen3 30B remains the semantic engine, while hidden chain-of-thought is unnecessary for a tightly source-constrained structured extraction and can consume the inference budget.
+- Set `SOCIAL_AUTOMATION_LLM_THINK=true` when deeper reasoning is explicitly desired.
 - Default per-scene Ollama timeout is **1800 seconds (30 minutes)** and remains configurable with `SOCIAL_AUTOMATION_LLM_TIMEOUT`.
-- `SOCIAL_AUTOMATION_LLM_THINK=false` remains available only as an explicit diagnostic/speed mode.
+- Context defaults to **4096 tokens** and is configurable with `SOCIAL_AUTOMATION_LLM_CONTEXT`.
 
 ### Changes now committed on `llm-local-qwen`
 - `core/ollama_client.py`
   - quality-first `qwen3:30b` default
   - default timeout 1800s
-  - configurable timeout and thinking mode
-  - Qwen thinking explicitly passed to Ollama
+  - explicit thinking control, default off for semantic extraction
+  - explicit 4096-token context default
   - timeout errors report the configured duration
 - `core/generation_planner.py`
   - shadow mode is observation-only: LLM semantics cannot mutate production media prompts
@@ -36,9 +38,9 @@ Scene 2 generation completed, but the actual LLM semantic result was rejected be
   - `--output` writes planner JSON directly as UTF-8, avoiding PowerShell UTF-16 redirection
 - `core/dod.py`
   - computes scene total and enables automatic progress reporting
-  - supports LLM timeout configuration
+  - supports LLM timeout and thinking controls
 - `tests/test_llm_runtime_hardening.py`
-  - timeout, thinking-mode, validation, and source-fragment regressions
+  - timeout, thinking-mode, context, validation, and source-fragment regressions
 - `requirements.txt`
   - aligns the tracked Windows dependency versions with the validated local environment and includes `ollama==0.6.2`
 
@@ -46,10 +48,11 @@ Scene 2 generation completed, but the actual LLM semantic result was rejected be
 1. Pull the latest `llm-local-qwen` branch.
 2. Run `pip check` and the full pytest suite.
 3. Run the Ollama health/model check.
-4. Run **Scene 2 only** using the explicit UTF-8 `--output` option.
-5. Review the returned semantic result.
-6. Only if Scene 2 returns `status=ready`, `llm_used=true`, and `source_validated=true`, run a controlled `enhance` test on Scene 2.
-7. Only after the controlled enhance output is accepted should the full 191-scene enhance run begin.
+4. Run **Scene 2 only** with `SOCIAL_AUTOMATION_LLM_THINK=false` using the explicit UTF-8 `--output` option.
+5. Review the returned semantic result and runtime.
+6. If Scene 2 is still too weak, repeat Scene 2 with `SOCIAL_AUTOMATION_LLM_THINK=true` as the quality comparison.
+7. Only if Scene 2 returns `status=ready`, `llm_used=true`, and `source_validated=true`, run a controlled `enhance` test on Scene 2.
+8. Only after the controlled enhance output is accepted should the full 191-scene enhance run begin.
 
 ### Recommended local commands
 ```powershell
@@ -62,7 +65,8 @@ python -m tools.check_ollama --model qwen3:30b
 $env:SOCIAL_AUTOMATION_LLM_MODE="shadow"
 $env:SOCIAL_AUTOMATION_LLM_MODEL="qwen3:30b"
 $env:SOCIAL_AUTOMATION_LLM_TIMEOUT="1800"
-$env:SOCIAL_AUTOMATION_LLM_THINK="true"
+$env:SOCIAL_AUTOMATION_LLM_THINK="false"
+$env:SOCIAL_AUTOMATION_LLM_CONTEXT="4096"
 python -m core.generation_planner "data\Asura\Asura - Tale Of The Vanquished_structure.db" 1 2 --output scene2_after_hardening.json
 python -c "import json; d=json.load(open('scene2_after_hardening.json',encoding='utf-8')); print(json.dumps(d.get('llm_scene_semantics',{}),indent=2,ensure_ascii=False))"
 ```
