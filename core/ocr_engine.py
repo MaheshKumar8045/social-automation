@@ -1,9 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
 from PIL import Image
-from paddleocr import PaddleOCR
 
 
 @dataclass
@@ -26,6 +24,12 @@ class OCREngine:
         language: str = "en",
         device: str = "gpu:0",
     ):
+        try:
+            from paddleocr import PaddleOCR
+        except ImportError as exc:
+            raise RuntimeError(
+                "PaddleOCR is required to run OCR. Install runtime dependencies from requirements.txt."
+            ) from exc
         self.ocr = PaddleOCR(
             lang=language,
             device=device,
@@ -40,6 +44,7 @@ class OCREngine:
         page_number: int,
     ) -> OCRResult:
         """Run OCR on one page image."""
+        import numpy as np
 
         image_array = np.asarray(image)
         results = list(self.ocr.predict(image_array))
@@ -55,11 +60,9 @@ class OCREngine:
             )
 
         result = results[0]
-
         lines = list(result["rec_texts"])
         scores = [float(score) for score in result["rec_scores"]]
         boxes = result["rec_boxes"]
-
         text = "\n".join(lines)
 
         return OCRResult(
