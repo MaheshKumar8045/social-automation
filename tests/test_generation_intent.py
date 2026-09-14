@@ -1,0 +1,58 @@
+from core.generation_intent import build_generation_intent
+
+
+def _intent(text, *, events=None, characters=None, dialogue=None):
+    return build_generation_intent(
+        scene={"scene_order": 2, "title": "The End", "text": text},
+        characters=characters or [],
+        objects=[],
+        events=events or [],
+        continuity={"available": True},
+        dialogue=dialogue or [],
+        genre="mythology",
+    )
+
+
+def test_event_fragment_is_completed_to_source_sentence():
+    text = "The city burned. The enemy celebrated his victory when the gates fell."
+    result = _intent(text, events=[{"text": "The enemy celebrated his victory when"}])
+    assert result["primary_visual_moment"] == "The enemy celebrated his victory when the gates fell."
+    assert all(moment in text for moment in result["visual_moment_candidates"])
+    assert all(not moment.lower().endswith(" when") for moment in result["visual_moment_candidates"])
+
+
+def test_no_source_sentence_falls_back_to_complete_sentence_not_truncated_fragment():
+    text = "The temples were looted. Smoke covered the streets."
+    result = _intent(text)
+    assert result["visual_moment_candidates"] == ["The temples were looted.", "Smoke covered the streets."]
+
+
+def test_referenced_character_is_not_visible():
+    chars = [{"canonical_name": "Rama", "scene_mentions": [{"context": "I remembered Rama after the battle."}]}]
+    result = _intent("I remembered Rama after the battle.", characters=chars)
+    assert result["visible_characters"] == []
+    assert result["referenced_characters"] == ["Rama"]
+
+
+def test_physical_character_event_is_visible():
+    chars = [{"canonical_name": "Kumbha", "scene_mentions": [{"context": "Kumbha fought at the gate."}]}]
+    events = [{"text": "Kumbha fought at the gate."}]
+    result = _intent("Kumbha fought at the gate.", characters=chars, events=events)
+    assert result["visible_characters"] == [{"name": "Kumbha", "evidence": "Kumbha fought at the gate."}]
+
+
+def test_cinematic_arc_matches_destruction():
+    result = _intent("The city burned and the temples were destroyed.")
+    assert result["emotional_signal"] == "destruction"
+    assert result["cinematic_arc"] == ["establish", "consequence", "detail"]
+
+
+def test_cinematic_arc_matches_travel():
+    result = _intent("The warriors crossed the river and reached the city.")
+    assert result["emotional_signal"] == "travel"
+    assert result["cinematic_arc"] == ["establish", "movement", "destination"]
+
+
+def test_first_person_dialogue_is_marked_as_narration():
+    result = _intent("I watched the ruined city from afar.", dialogue=["I watched the ruined city from afar."])
+    assert result["dialogue_kind"] == "first_person_narration"
