@@ -5,6 +5,7 @@ from typing import Any
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 _ACTION_RE = re.compile(r"\b(?:approach\w*|arriv\w*|attack\w*|battle\w*|capture\w*|climb\w*|come|cross\w*|cry\w*|die\w*|enter\w*|fall\w*|flee\w*|follow\w*|fight\w*|fought|grab\w*|hold\w*|kill\w*|look\w*|move\w*|open\w*|reach\w*|return\w*|run\w*|save\w*|sit\w*|stand\w*|take\w*|turn\w*|walk\w*|watch\w*|travel\w*|strike\w*|destroy\w*|burn\w*|collapse\w*|kneel\w*|rise\w*|speak\w*)\b", re.I)
+_CHARACTER_PHYSICAL_RE = re.compile(r"\b(?:approach\w*|arriv\w*|attack\w*|capture\w*|climb\w*|come|cross\w*|cry\w*|die\w*|enter\w*|fall\w*|flee\w*|follow\w*|fight\w*|fought|grab\w*|hold\w*|kill\w*|look\w*|move\w*|open\w*|reach\w*|return\w*|run\w*|save\w*|sit\w*|stand\w*|take\w*|turn\w*|walk\w*|watch\w*|travel\w*|strike\w*|destroy\w*|burn\w*|collapse\w*|kneel\w*|rise\w*|speak\w*|was|were|is|are|stood|sat|lay|remained|waited|rested|entered|arrived|appeared|left|returned|looked|watched|faced|knelt|rose|walked|ran|fled|followed|held|carried|spoke|sang|wept|cried)\b", re.I)
 _PRESENCE_RE = re.compile(r"\b(?:was|were|is|are|stood|sat|lay|remained|waited|rested|entered|arrived|appeared|left|returned|looked|watched|faced|knelt|rose|walked|ran|fled|followed|held|carried|spoke|sang|wept|cried)\b", re.I)
 _DESTRUCTION_RE = re.compile(r"\b(?:ruin\w*|destroy\w*|destruction|ashes|embers|burnt|burned|fire|smoke|collapse\w*|wreck\w*|dead|dying|death)\b", re.I)
 _COMBAT_RE = re.compile(r"\b(?:battle|fight\w*|fought|attack\w*|strike\w*|weapon|sword|kill\w*|capture\w*)\b", re.I)
@@ -45,26 +46,22 @@ def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], char
         score = 50 + (30 if _ACTION_RE.search(text) else 0) + (15 if _DESTRUCTION_RE.search(text) else 0) + (10 if _COMBAT_RE.search(text) else 0) + (7 if _REACTION_RE.search(text) else 0)
         score += sum(12 for name in names if name and name in text.casefold())
         event_candidates.append((score, order, text))
-
     sentences = _sentences(source)
     if not event_candidates:
         return sentences[:6] if sentences else ([source.strip()] if source.strip() else [])
-
     sentence_candidates: list[tuple[int, int, str]] = []
     base_order = len(event_candidates)
     for offset, sentence in enumerate(sentences):
         score = 12 + (45 if _ACTION_RE.search(sentence) else 0) + (15 if _DESTRUCTION_RE.search(sentence) else 0) + (10 if _COMBAT_RE.search(sentence) else 0) + (8 if _TRAVEL_RE.search(sentence) else 0) + (7 if _REACTION_RE.search(sentence) else 0)
         score += sum(10 for name in names if name and name in sentence.casefold())
         sentence_candidates.append((score, base_order + offset, sentence))
-
     candidates = event_candidates + sentence_candidates
     result: list[str] = []
     seen: set[str] = set()
     for _, _, text in sorted(candidates, key=lambda x: (-x[0], x[1])):
         key = text.casefold()
         if key not in seen and text in source:
-            seen.add(key)
-            result.append(text)
+            seen.add(key); result.append(text)
     return result[:6]
 
 
@@ -78,7 +75,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
         if not name:
             continue
         matching_events = [e for e in event_texts if re.search(rf"\b{re.escape(name)}\b", e, re.I) and e in scene_text]
-        physical = next((e for e in matching_events if _ACTION_RE.search(e) or _PRESENCE_RE.search(e)), None)
+        physical = next((e for e in matching_events if _CHARACTER_PHYSICAL_RE.search(e)), None)
         if physical:
             visible.append({"name": name, "evidence": physical})
             continue
@@ -87,7 +84,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
             context = _clean(mention.get("context"), 320)
             if context and context in scene_text and re.search(rf"\b{re.escape(name)}\b", context, re.I):
                 source_contexts.append(context)
-        physical_context = next((c for c in source_contexts if _ACTION_RE.search(c) or _PRESENCE_RE.search(c)), None)
+        physical_context = next((c for c in source_contexts if _CHARACTER_PHYSICAL_RE.search(c)), None)
         if physical_context:
             visible.append({"name": name, "evidence": physical_context})
         elif matching_events or source_contexts:
@@ -98,8 +95,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
 
 
 def _dialogue_kind(source: str, dialogue: list[str]) -> str:
-    if not dialogue:
-        return "none"
+    if not dialogue: return "none"
     speech = re.search(r"\b(?:said|asked|replied|answered|exclaimed|cried|shouted|whispered|remarked|called|murmured|told)\b", source, re.I)
     return "spoken" if speech else "first_person_narration"
 
@@ -122,28 +118,11 @@ def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str,
     visible, referenced = _presence(source, characters, events)
     signal = "combat" if _COMBAT_RE.search(source) else "destruction" if _DESTRUCTION_RE.search(source) else "travel" if _TRAVEL_RE.search(source) else "reaction" if _REACTION_RE.search(source) else "neutral"
     return {
-        "schema_version": 1,
-        "source_grounded": True,
-        "story_purpose": "source-derived scene depiction",
-        "primary_visual_moment": moments[0],
-        "secondary_visual_moments": moments[1:4],
-        "visual_moment_candidates": moments,
-        "visible_characters": visible,
-        "referenced_characters": referenced,
-        "unknown_characters": [],
+        "schema_version": 1, "source_grounded": True, "story_purpose": "source-derived scene depiction",
+        "primary_visual_moment": moments[0], "secondary_visual_moments": moments[1:4], "visual_moment_candidates": moments,
+        "visible_characters": visible, "referenced_characters": referenced, "unknown_characters": [],
         "environment": [_clean(o.get("canonical_name"), 100) for o in objects if o.get("canonical_name")][:10],
-        "action": moments[0],
-        "emotional_signal": signal,
-        "dialogue": dialogue[:3],
-        "dialogue_kind": _dialogue_kind(source, dialogue),
-        "cinematic_arc": _select_arc(signal, bool(visible), bool(dialogue)),
-        "continuity": continuity if isinstance(continuity, dict) else {},
-        "genre": genre,
-        "constraints": [
-            "Source evidence controls what exists.",
-            "Referenced names do not become visible characters without physical evidence.",
-            "Unknown source attributes remain unknown.",
-            "Cinematic choices control how established content is photographed, staged, paced, and heard; they do not create new story events.",
-            "Every visual focus must be a complete source-grounded sentence or exact source fragment that can be traced to the scene text.",
-        ],
+        "action": moments[0], "emotional_signal": signal, "dialogue": dialogue[:3], "dialogue_kind": _dialogue_kind(source, dialogue),
+        "cinematic_arc": _select_arc(signal, bool(visible), bool(dialogue)), "continuity": continuity if isinstance(continuity, dict) else {}, "genre": genre,
+        "constraints": ["Source evidence controls what exists.", "Referenced names do not become visible characters without physical evidence.", "Unknown source attributes remain unknown.", "Cinematic choices control how established content is photographed, staged, paced, and heard; they do not create new story events.", "Every visual focus must be a complete source-grounded sentence or exact source fragment that can be traced to the scene text."],
     }
