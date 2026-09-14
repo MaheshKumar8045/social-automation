@@ -1,55 +1,46 @@
 ## Social Automation Project Checkpoint — 2026-09-14
 
-### Current milestone: Production media-generation intelligence hardened
+### Current milestone: Production media-generation intelligence regression fix
 
 All work remains isolated on `llm-local-qwen`; original `main` is untouched.
 
-### Implemented
-- Local Qwen3 30B runtime integration remains available in shadow/enhance modes.
-- Strict source-grounding validation remains unchanged.
-- Added `core/generation_intent.py` as the shared source of truth for Image, Short Video, and Long Video.
-- Visual moments are selected from complete source sentences or exact source fragments; event fragments are extended to sentence boundaries when possible and discarded when they cannot be completed from source.
-- When no validated event candidates exist, source sentences retain source order instead of being arbitrarily reordered.
-- Visible character blocking now requires scene-local physical evidence using character-presence verbs/actions, not generic scene words such as `battle`; story/world references and stale mention contexts cannot silently create on-screen characters.
-- First-person narration is separated from spoken dialogue and is not automatically staged as on-screen speech.
-- Image planning selects a scene-signal-aware dominant composition: action for combat, consequence for destruction, movement for travel, reaction only when a visible character is actually established, otherwise environmental establishment.
-- Short Video uses three progressive beats from the shared cinematic arc with distinct camera grammar, source focus, transitions, and synchronized dialogue/narration metadata.
-- Long Video uses a dynamic 4–8 shot plan with purpose-aware camera grammar, source-moment allocation, continuity instructions, and per-shot timing. It no longer forces a character composition when no character is source-confirmed.
-- Audio distinguishes spoken dialogue, first-person narration/voice-over, and no-source-dialogue cases; `dialogue_source` is aligned with actual rendered voice text.
-- Every cinematic prompt explicitly labels `SOURCE VISUAL MOMENT` in addition to `SOURCE-ANCHORED SCENE INTERPRETATION`.
-- Camera schema handling is tolerant of the internal `camera_height`/`height` representation so prompt generation cannot fail on a key mismatch.
-- `core/ocr_engine.py` now lazy-loads PaddleOCR/NumPy so lightweight test imports do not require the GPU OCR stack; production OCR behavior is unchanged when `OCREngine` is instantiated.
-- CI test dependencies include the lightweight runtime packages required by the test import graph (`pydantic`, `ollama`, `pypdf`, `pillow`).
-- Added production regression tests, including sentence completeness, source-local character presence, cinematic progression, camera diversity, audio alignment, and intent propagation.
-- Added GitHub Actions compile/test workflow with retained pytest logs for deterministic diagnosis.
+### Final fixes just applied
+- Fixed the actual `camera_height` regression: `_camera_for()` uses the stable `height` field while `_prompt()` accepts both `camera_height` and `height`, so both current and legacy camera dictionaries are safe.
+- Fixed generation-intent fallback ordering: when no trustworthy event candidates exist, source sentences are returned in source order, never keyword-reordered.
+- Fixed character-presence semantics: only character-specific physical evidence can make a canonical character visible; a generic scene word such as `battle`, `destroyed`, or a memory/reference sentence cannot do so.
+- Preserved strict source grounding and did not weaken the validator.
+- Kept first-person narration separate from spoken dialogue.
+- Kept referenced-only story/world characters available as context without silently rendering them.
 
-### Validator decision
-The strict validator was **not** weakened. Scene-local evidence and broader story/world knowledge remain separate layers.
+### Why the previous run failed
+The user's local run was on commit `7fca1c3` and reported **15 failed, 75 passed**. Twelve failures shared one root cause: `_prompt()` required `camera['camera_height']` while the generated camera dictionary exposed `height`. The other three were generation-intent regressions: fallback sentence order and character-presence classification. The failure log is preserved in the user's uploaded terminal output.
 
-### Current branch
-- `llm-local-qwen` contains the complete implementation.
-- `main` remains untouched.
+### Required verification — do not claim green until the user's machine confirms it
+```powershell
+cd M:\social-automation
+git switch llm-local-qwen
+git pull --ff-only origin llm-local-qwen
+python -m compileall -q core tests
+python -m pytest -q
+python -m pytest tests\test_generation_intent.py tests\test_cinematic_generation.py tests\test_prompt_export.py tests\test_llm_runtime_hardening.py tests\test_scene_semantic_llm.py -q
+python -m tools.check_ollama --model qwen3:30b
+```
 
-### Verification history
-- The previously failing hardening suite reached **89 passed, 1 failed** in CI; the remaining failure was only the expected `SOURCE VISUAL MOMENT` prompt label.
-- That final prompt-contract failure has now been corrected in the latest branch commit. The newest GitHub Actions run is the final verification gate.
-- Earlier local verification also established Ollama `qwen3:30b` availability and the prior baseline of 79 passing tests.
-
-### Final quality gate
-1. Pull the final branch.
-2. Compile all Python sources.
-3. Confirm the full pytest suite is green.
-4. Run focused generation/cinematic/LLM tests.
-5. Run the Qwen3 30B Ollama health check.
-6. Generate and inspect one production scene's Image, Short Video, and Long Video `.txt` files.
-7. Run the full 191-scene shadow pipeline.
-8. Only after shadow output is accepted, run enhance.
-
-### Runtime settings
+Only if the suite is green:
 ```powershell
 $env:SOCIAL_AUTOMATION_LLM_MODE="shadow"
 $env:SOCIAL_AUTOMATION_LLM_MODEL="qwen3:30b"
 $env:SOCIAL_AUTOMATION_LLM_TIMEOUT="1800"
 $env:SOCIAL_AUTOMATION_LLM_THINK="false"
 $env:SOCIAL_AUTOMATION_LLM_CONTEXT="4096"
+
+python -m core.generation_planner `
+  "data\Asura\Asura - Tale Of The Vanquished_structure.db" `
+  1 2 `
+  --output scene2_final.json
 ```
+
+Inspect the three exported media prompt files for Scene 2 before running all 191 scenes. Do not run `enhance` until the shadow output passes both automated QA and manual review.
+
+### Production invariant
+`SOURCE -> Generation Intent -> Media Planner -> Image/Short/Long` is the single flow. Source evidence controls what exists; world knowledge supplies context only; cinematic intelligence controls presentation only. No layer may fabricate a story event or promote a reference into a visible character without source-local physical evidence.
