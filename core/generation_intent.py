@@ -3,16 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
-_ACTION_RE = re.compile(
-    r"\b(?:approach\w*|arriv\w*|attack\w*|battle\w*|capture\w*|climb\w*|"
-    r"come|cross\w*|cry\w*|die\w*|enter\w*|fall\w*|flee\w*|follow\w*|"
-    r"fight\w*|grab\w*|hold\w*|kill\w*|look\w*|move\w*|open\w*|"
-    r"reach\w*|return\w*|run\w*|save\w*|sit\w*|stand\w*|take\w*|"
-    r"turn\w*|walk\w*|watch\w*|travel\w*|strike\w*|destroy\w*|"
-    r"burn\w*|collapse\w*|kneel\w*|rise\w*|speak\w*)\b", re.I
-)
+_ACTION_RE = re.compile(r"\b(?:approach\w*|arriv\w*|attack\w*|battle\w*|capture\w*|climb\w*|come|cross\w*|cry\w*|die\w*|enter\w*|fall\w*|flee\w*|follow\w*|fight\w*|grab\w*|hold\w*|kill\w*|look\w*|move\w*|open\w*|reach\w*|return\w*|run\w*|save\w*|sit\w*|stand\w*|take\w*|turn\w*|walk\w*|watch\w*|travel\w*|strike\w*|destroy\w*|burn\w*|collapse\w*|kneel\w*|rise\w*|speak\w*)\b", re.I)
 _DESTRUCTION_RE = re.compile(r"\b(?:ruin\w*|destroy\w*|destruction|ashes|embers|burnt|burned|fire|smoke|collapse\w*|wreck\w*|dead|dying|death)\b", re.I)
 _COMBAT_RE = re.compile(r"\b(?:battle|fight\w*|attack\w*|strike\w*|weapon|sword|kill\w*|capture\w*)\b", re.I)
 _TRAVEL_RE = re.compile(r"\b(?:walk\w*|run\w*|travel\w*|arriv\w*|leave\w*|cross\w*|journey)\b", re.I)
@@ -30,7 +22,6 @@ def _sentences(source: str) -> list[str]:
 
 
 def _complete_source_fragment(text: str, source: str) -> str:
-    """Return a complete source sentence containing an event fragment, if possible."""
     value = _clean(text)
     if not value or value[-1:] in ".!?":
         return value
@@ -54,21 +45,12 @@ def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], char
         text = _complete_source_fragment(str(event.get("text") or ""), source)
         if not text or text not in source:
             continue
-        score = 50
-        if _ACTION_RE.search(text): score += 30
-        if _DESTRUCTION_RE.search(text): score += 15
-        if _COMBAT_RE.search(text): score += 10
-        if _REACTION_RE.search(text): score += 7
+        score = 50 + (30 if _ACTION_RE.search(text) else 0) + (15 if _DESTRUCTION_RE.search(text) else 0) + (10 if _COMBAT_RE.search(text) else 0) + (7 if _REACTION_RE.search(text) else 0)
         score += sum(12 for name in names if name and name in text.casefold())
         candidates.append((score, order, text))
     for sentence in _sentences(source):
         order += 1
-        score = 12
-        if _ACTION_RE.search(sentence): score += 45
-        if _DESTRUCTION_RE.search(sentence): score += 15
-        if _COMBAT_RE.search(sentence): score += 10
-        if _TRAVEL_RE.search(sentence): score += 8
-        if _REACTION_RE.search(sentence): score += 7
+        score = 12 + (45 if _ACTION_RE.search(sentence) else 0) + (15 if _DESTRUCTION_RE.search(sentence) else 0) + (10 if _COMBAT_RE.search(sentence) else 0) + (8 if _TRAVEL_RE.search(sentence) else 0) + (7 if _REACTION_RE.search(sentence) else 0)
         score += sum(10 for name in names if name and name in sentence.casefold())
         candidates.append((score, order, sentence))
     result: list[str] = []
@@ -112,14 +94,14 @@ def _dialogue_kind(source: str, dialogue: list[str]) -> str:
     return "spoken" if speech else "first_person_narration"
 
 
-def _select_arc(source: str, intent_signal: str, has_visible: bool, has_dialogue: bool) -> list[str]:
-    if intent_signal == "combat":
+def _select_arc(signal: str, has_visible: bool, has_dialogue: bool) -> list[str]:
+    if signal == "combat":
         return ["establish", "action", "reaction"]
-    if intent_signal == "destruction":
+    if signal == "destruction":
         return ["establish", "consequence", "detail"]
-    if intent_signal == "travel":
+    if signal == "travel":
         return ["establish", "movement", "destination"]
-    if intent_signal == "reaction":
+    if signal == "reaction":
         return ["establish", "reaction", "close"]
     if has_dialogue and has_visible:
         return ["establish", "develop", "reaction"]
@@ -131,16 +113,16 @@ def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str,
     moments = _candidate_moments(scene, events, characters)
     if not moments:
         sentences = _sentences(source)
-        moments = sentences[:6] or ([source[:360]] if source.strip() else ["Preserve the established source scene state without adding an event."])
+        if sentences:
+            moments = sentences[:6]
+        elif source.strip():
+            moments = [source.strip()]
+        else:
+            moments = ["Preserve the established source scene state without adding an event."]
     visible, referenced = _presence(characters, events)
-    destruction = bool(_DESTRUCTION_RE.search(source))
-    combat = bool(_COMBAT_RE.search(source))
-    travel = bool(_TRAVEL_RE.search(source))
-    reaction = bool(_REACTION_RE.search(source))
-    signal = "combat" if combat else "destruction" if destruction else "travel" if travel else "reaction" if reaction else "neutral"
-    source_kind = _dialogue_kind(source, dialogue)
+    signal = "combat" if _COMBAT_RE.search(source) else "destruction" if _DESTRUCTION_RE.search(source) else "travel" if _TRAVEL_RE.search(source) else "reaction" if _REACTION_RE.search(source) else "neutral"
     return {
-        "schema_version": 2,
+        "schema_version": 1,
         "source_grounded": True,
         "story_purpose": "source-derived scene depiction",
         "primary_visual_moment": moments[0],
@@ -153,8 +135,8 @@ def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str,
         "action": moments[0],
         "emotional_signal": signal,
         "dialogue": dialogue[:3],
-        "dialogue_kind": source_kind,
-        "cinematic_arc": _select_arc(source, signal, bool(visible), bool(dialogue)),
+        "dialogue_kind": _dialogue_kind(source, dialogue),
+        "cinematic_arc": _select_arc(signal, bool(visible), bool(dialogue)),
         "continuity": continuity if isinstance(continuity, dict) else {},
         "genre": genre,
         "constraints": [
