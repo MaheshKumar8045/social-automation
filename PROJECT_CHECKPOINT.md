@@ -1,142 +1,45 @@
-## Social Automation Project Checkpoint — 2026-09-11
+## Social Automation Project Checkpoint — 2026-09-14
 
-### Current milestone: Cinematic Generation Intelligence QA
+### Current milestone: Source-grounded cinematic participant handling
 
-### Completed
-- Added `core/cinematic_generation.py` as the dedicated scene-level cinematic composition layer between generation context/media compilation and final generation-plan output.
-- Integrated it into `core/generation_planner.py`; image, short-video, and long-video generation plans receive the cinematic enhancement.
-- Scene interpretation separates source-anchored visual moments from controlled production inference.
-- Added source-text dialogue extraction with quote-first behavior and conservative first-person/speech-cue fallback.
-- Hardened dialogue extraction against OCR contamination, including chapter/section prefixes and likely speaker-name prefixes.
-- Character presence is split into `visible` versus `referenced`.
-- A name-only character reference is never automatically rendered as a visible character.
-- Visible character blocking requires physical/presence evidence tied to the character, from a matching scene event or scene mention.
-- Matching scene-event text is preferred over abbreviated mention snippets for blocking, preserving canonical source wording.
-- Added deterministic cinematic direction: framing, lens/perspective, camera height, lighting, and movement style selected from source signals.
-- Added scene-specific visual hierarchy and environment-first guidance.
-- Added cinematic direction to short-video clips and long-video shots while preserving source events, identity anchors, continuity, and unknown attributes.
-- Image overlays prefer supportable source dialogue; when unavailable, they use a source visual moment rather than blindly using the scene title.
-- Strengthened prompt-export QA to require scene interpretation and cinematic direction.
-- Added regression coverage for OCR contamination, first-person dialogue, name-only references, physical presence, and event-vs-mention blocking.
+All work remains isolated on `llm-local-qwen`; original `main` is untouched.
 
-### Latest QA result
-Local full test suite is now GREEN:
-```text
-63 passed
-```
-The focused cinematic-generation suite is also GREEN:
-```text
-8 passed in 0.09s
-```
-The final remaining cinematic regression was caused by `_HEADING_PREFIX_RE` interpreting the first-person pronoun `I` as a Roman-numeral section heading. The regex was corrected in commit `db68b47dc161a8bd2763d7a14fce56c6388f2bbe`.
+### Final hardening applied
+- Fixed generation-intent fallback ordering: when no trustworthy event candidates exist, source sentences are returned in source order, never keyword-reordered.
+- Fixed character-presence semantics: only character-specific physical evidence can make a canonical character visible; generic scene words, memories, references, or unrelated speech/action cannot do so.
+- Preserved strict source grounding and did not weaken the semantic validator.
+- Kept first-person narration separate from spoken dialogue.
+- Kept referenced-only story/world characters available as context without silently rendering them.
+- Added a separate `source_participants` channel for anonymous groups/participants explicitly named by the scene (for example `the enemy` or `the monkey-men`). These are not canonical identities and cannot acquire unsupported identity attributes.
+- Propagated source-established anonymous participants into image, short-video, and long-video prompts with an explicit instruction to depict only the action/visual level supported by the scene text.
+- This solves the key Scene 2 quality gap without weakening canonical-character identity rules.
 
-### Git commits for this milestone
-- `da70d87877462046e92b9030e15b780b5e4f1c33` — semantic cinematic generation changes
-- `f2c4772e04713481e9e7d1750df6cf71126e6e6e` — initial semantic regression tests
-- `28212b49064f60e4003fc78d6964ccc1f10f615f` — fixes event-vs-mention blocking and dialogue cleanup regressions
-- `961061cbde5ca0c8ffc877c7c41c34183b679dae` — follow-up cleanup regression attempt
-- `db68b47dc161a8bd2763d7a14fce56c6388f2bbe` — final Roman-numeral heading regex fix; verified by the 8-test cinematic suite and then the full 63-test suite
+### Production invariant
+`SOURCE -> Generation Intent -> Media Planner -> Image/Short/Long` is the single flow. Source evidence controls what exists; world knowledge supplies context only; cinematic intelligence controls presentation only. Canonical character visibility requires source-local physical evidence. Anonymous source-established participants may be depicted only when explicitly named by the scene and only at the level supported by that source evidence.
 
-### Current validation stage
-The user is currently running the real Asura DOD locally after the 63/63 pytest pass.
-Command:
+### Required verification — do not claim green until the user's machine confirms it
 ```powershell
-python -m core.dod "data\Asura\Asura - Tale Of The Vanquished.pdf"
+cd M:\social-automation
+git switch llm-local-qwen
+git pull --ff-only origin llm-local-qwen
+python -m compileall -q core tests
+python -m pytest -q
+python -m pytest tests\test_generation_intent.py tests\test_cinematic_generation.py tests\test_prompt_export.py tests\test_llm_runtime_hardening.py tests\test_scene_semantic_llm.py -q
+python -m tools.check_ollama --model qwen3:30b
 ```
 
-After DOD completes, the next immediate review is **Scene 2 output quality**. Compare the generated Scene 2 against the earlier Scene 1 problems, especially:
-- OCR heading/speaker text contaminating dialogue overlays
-- referenced characters incorrectly rendered as visible characters
-- visible character blocking tied to the wrong mention snippet
-- noisy scene title presentation
-- whether source-anchored visual moments remain faithful
-- whether cinematic inference is clearly separated from source truth
-- whether environment-led composition is preserved when the environment is the actual source moment
-- whether identity anchors/continuity remain intact
+Only if the suite is green, regenerate Scene 2 in shadow mode:
+```powershell
+$env:SOCIAL_AUTOMATION_LLM_MODE="shadow"
+$env:SOCIAL_AUTOMATION_LLM_MODEL="qwen3:30b"
+$env:SOCIAL_AUTOMATION_LLM_TIMEOUT="1800"
+$env:SOCIAL_AUTOMATION_LLM_THINK="false"
+$env:SOCIAL_AUTOMATION_LLM_CONTEXT="4096"
 
-The user will provide Scene 2 output for direct quality review after DOD.
+python -m core.generation_planner `
+  "data\Asura\Asura - Tale Of The Vanquished_structure.db" `
+  1 2 `
+  --output scene2_final.json
+```
 
-### Expected Asura pipeline counts
-The real Asura DOD historically produces:
-- 442 pages
-- 63 reconciled sections
-- 63 stories
-- 191 scenes
-- 2078 entities
-- 6463 mentions
-- 2109 aliases
-- 191 events
-- 5140 continuity entity states
-- 18 confirmed canonical characters + 7 singleton characters before identity-tightening work
-- 25 visual knowledge-bible profiles
-- 3 visual knowledge-bible facts
-- 17 objects
-- 192 object mentions
-- 191 scene contexts
-- 25 canonical visual-bible profiles
-- 0 contradictions
-- 191 image prompt files
-- 191 short-video prompt files
-- 191 long-video prompt files
-
-These are expected/reference counts, not a claim about the current DOD run until its output is supplied.
-
-### World & Knowledge Intelligence v1
-- `core/world_context.py` provides a dependency-free deterministic world classifier.
-- Weighted signals cover narrative type, religious context, culture, region, and period.
-- Candidate labels/confidence/evidence are retained.
-- Unknown dimensions remain unknown.
-- `llm_used=False`.
-- Results are cached per database/document.
-- Specific mythology markers are weighted above generic historical terms.
-- Evidence precedence is defined as: book explicit → book-derived → verified external (future) → controlled inference.
-- External knowledge providers are not yet integrated.
-
-### Visual generation policy
-- `core/visual_generation_policy.py`
-- `config/visual_generation_policy.json`
-- `core/generation_context.py`
-- `core/generation_planner.py`
-- `core/media_prompt_compiler.py`
-- `core/prompt_builder.py`
-- `core/prompt_export.py`
-
-Policy essentials:
-- fallback genre `general_narrative`
-- genre priors include mythology, historical, biography, patriotic, fantasy, crime_thriller, science_fiction
-- never infer exact eye color, hair color, height, exact age, or facial measurements
-- inferred attributes are locked for continuity
-- primary image is mobile-first 9:16
-- safe outer margin 7%
-- critical safe area 86%
-- background visible 35–55%
-- main subject 45–65%
-- secondary subject 25–50%
-- group subject 30–55%
-- dialogue max width 68%, max height 15%
-- dialogue occupies protected negative space and avoids faces, hands, important objects, and primary action
-- source dialogue is exact when supportable
-- no source dialogue → narrative box from a source visual moment / scene context
-- text is treated as a deterministic overlay concept
-- same visual policy feeds image, short video, and long video
-
-### Character identity / candidate gate QA
-Known prior issues:
-- split identity variants such as `Lord Shiva`, `Lord Shiva Pasupathi`, and `Lord Shiva Pasupathi Literally`
-- false-positive `Mithila` character in a location collision
-- candidate-gate cross-type collision logic previously allowed unrelated speech/action context to validate a colliding location name
-
-Current gate rule:
-- character/location or character/environment collision is rejected when the candidate name itself has no direct person evidence
-- direct person evidence still allows a legitimate character to survive a collision
-- tests cover direct evidence surviving a collision, location-only rejection, and unrelated speech/action not validating the colliding name
-
-### Known separate quality item
-Docling still reports noisy OCR/recovered headings and 63 final sections despite numbered headings reaching 65. Section reconciliation remains a separate quality item and should not be treated as final ground truth yet.
-
-### Current resume point
-1. Wait for the user's local Asura DOD output.
-2. Review Scene 2 prompt package against the Scene 1 baseline.
-3. Decide whether semantic/cinematic output is materially better before making another code change.
-4. Do not refactor or expand scope based only on assumptions; use the generated Scene 2 evidence.
-5. After Scene 2 review, record the next quality milestone and continue incrementally.
+Inspect the three exported media prompt files for Scene 2. Confirm that source-established groups such as the enemy/monkey-men can be depicted while canonical names remain governed by strict source-local presence rules. Do not run the 191-scene Qwen job or `enhance` until this scene passes automated QA and manual review.
