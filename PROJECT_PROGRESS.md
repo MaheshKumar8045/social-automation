@@ -1,47 +1,38 @@
-# Project Progress — 2026-09-13
+# Project Progress — Production Media Generation Intelligence
 
-## Where we are
-The local-LLM branch is `llm-local-qwen`. The original `main` branch is untouched.
+## Completed
+- Local Qwen3 30B runtime integration in `shadow`/`enhance` modes.
+- Strict source-grounding validation retained.
+- Character identity/candidate gating and visual-bible continuity retained.
+- Added shared `GenerationIntent` (`core/generation_intent.py`).
+- Reworked cinematic generation so Image, Short Video, and Long Video share the same source-derived scene intent.
+- Source visual moments are complete source sentences and are rejected from planning when they are not present in scene text.
+- Character presence is explicitly split into visible vs referenced-only.
+- First-person narration is not automatically treated as on-screen speech.
+- Image planning now prioritizes a single dominant source moment and environment when character presence is not established.
+- Short Video now follows a three-beat cinematic progression with distinct camera movement and transitions.
+- Long Video now uses a dynamic 4–8 shot plan with distinct purposes, camera grammar, continuity instructions, and per-shot timing.
+- Audio metadata is aligned with actual clip/shot voice text and distinguishes dialogue from narration.
+- Added production-focused regression tests and GitHub Actions compile/test workflow.
 
-### Latest verified state
-- Full tests: **79 passed in 7.48s**
-- Focused LLM/cinematic tests: **24 passed in 0.13s**
-- Ollama health/model check for `qwen3:30b`: **PASS**
-- Qwen3 30B inference: **completed for Scene 2 with thinking disabled**
-- Scene 2 LLM result: `llm_used=true`, but `source_validated=false` because the strict validator rejected unsupported exact scene evidence.
+## Verification status
+Previously verified locally by the user: 79 tests passed, focused LLM/cinematic tests passed, and Ollama Qwen3 30B health check passed.
 
-## Important decision
-**Do not change or weaken the validator.**
+The production-intelligence commits were made remotely because the Windows local repository is not executable from this session. Therefore, the new code must be locally compiled/tested before production generation.
 
-Global story/world knowledge and scene-local source evidence are different layers. Valid story entities may be absent from a particular scene's extracted PDF text. Improve knowledge/context handling rather than relaxing source validation.
-
-## Immediate next task
-Stop runtime investigation. Generate the three prompts for one scene and manually test them in an AI generator:
-
-1. Image prompt
-2. Short-video prompt package
-3. Long-video prompt package
-
-Audio is supporting video generation, not a fourth primary prompt.
-
-## After the manual test
-Collect visual/video feedback and then make targeted prompt-composition improvements. Do not start the full 191-scene `enhance` run until the one-scene output is visually reviewed.
-
-## Local LLM configuration used for the latest successful inference
+## Next commands
 ```powershell
-$env:SOCIAL_AUTOMATION_LLM_MODE="shadow"
-$env:SOCIAL_AUTOMATION_LLM_MODEL="qwen3:30b"
-$env:SOCIAL_AUTOMATION_LLM_TIMEOUT="1800"
-$env:SOCIAL_AUTOMATION_LLM_THINK="false"
-$env:SOCIAL_AUTOMATION_LLM_CONTEXT="4096"
+git switch llm-local-qwen
+git pull --ff-only origin llm-local-qwen
+python -m compileall -q core tests
+python -m pytest -q
+python -m pytest tests\test_generation_intent.py tests\test_cinematic_generation.py tests\test_prompt_export.py tests\test_llm_runtime_hardening.py tests\test_scene_semantic_llm.py -q
+python -m tools.check_ollama --model qwen3:30b
 ```
 
-## Key architecture
-```text
-PDF → Docling → SQLite → sections/stories/scenes
-→ entities/characters/events → identity + visual bible + continuity
-→ world/knowledge context → Qwen3 30B semantic interpretation
-→ strict source validation → generation planner
-→ unified media prompt compiler
-→ IMAGE + SHORT VIDEO + LONG VIDEO
-```
+Then generate one scene in shadow mode and inspect:
+- `image\scene_XXX.txt`
+- `short_video\scene_XXX.txt`
+- `long_video\scene_XXX.txt`
+
+Only after the one-scene manual visual check passes should the full 191-scene run be started.
