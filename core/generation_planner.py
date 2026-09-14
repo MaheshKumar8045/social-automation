@@ -86,6 +86,49 @@ def _repair_truncated_visual_moments(media: dict[str, Any], source: str) -> dict
     return rewrite(media)
 
 
+def _source_participant_line(intent: dict[str, Any]) -> str:
+    participants = intent.get("source_participants") or []
+    if not participants:
+        return "SOURCE-ESTABLISHED ANONYMOUS PARTICIPANTS: none."
+    labels = []
+    for item in participants:
+        if isinstance(item, dict):
+            label = str(item.get("label") or "").strip()
+        else:
+            label = str(item or "").strip()
+        if label and label.casefold() not in {x.casefold() for x in labels}:
+            labels.append(label)
+    return (
+        "SOURCE-ESTABLISHED ANONYMOUS PARTICIPANTS: "
+        + ", ".join(labels[:12])
+        + ". These are source-established groups/participants, not canonical identities; "
+          "they may be depicted only at the action and visual level explicitly supported by the scene text."
+    )
+
+
+def _propagate_source_participants(media: dict[str, Any], intent: dict[str, Any]) -> dict[str, Any]:
+    """Make explicit source-established groups visible to media prompting without weakening character identity rules."""
+    line = _source_participant_line(intent)
+    output = dict(media)
+    image = dict(output.get("image") or {})
+    image["prompt"] = f"{image.get('prompt', '')} {line}"
+    image["source_participants"] = intent.get("source_participants") or []
+    output["image"] = image
+
+    short = dict(output.get("short_video") or {})
+    short["source_participants"] = intent.get("source_participants") or []
+    for clip in short.get("clips") or []:
+        clip["prompt"] = f"{clip.get('prompt', '')} {line}"
+    output["short_video"] = short
+
+    long = dict(output.get("long_video") or {})
+    long["source_participants"] = intent.get("source_participants") or []
+    for shot in long.get("shots") or []:
+        shot["prompt"] = f"{shot.get('prompt', '')} {line}"
+    output["long_video"] = long
+    return output
+
+
 class GenerationPlanner:
     """Convert generation context into a deterministic generation plan."""
 
@@ -174,6 +217,13 @@ class GenerationPlanner:
         if llm_mode() == "enhance":
             media = GenerationPlanner._apply_llm_semantics(media, context.get("llm_scene_semantics_result"))
 
+        # Build the same deterministic intent used by the cinematic package so
+        # source-established anonymous groups can be depicted without becoming
+        # canonical character identities.
+        intent = (media.get("cinematic_scene_intelligence") or {}).get("intent") or {}
+        if intent:
+            media = _propagate_source_participants(media, intent)
+
         image = dict(media.get("image") or {})
         prompt = str(image.get("prompt") or "")
         if not any(token in prompt.lower() for token in ("dialogue", "narrative box", "dialogue-or-narrative")):
@@ -248,23 +298,3 @@ class GenerationPlanner:
 
 def build_generation_plan(database_path: str | Path, document_id: int, scene_id: int) -> dict[str, Any]:
     return GenerationPlanner(database_path).build(document_id, scene_id)
-
-
-def main() -> None:
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("database")
-    parser.add_argument("document_id", type=int)
-    parser.add_argument("scene_id", type=int)
-    parser.add_argument("--summary", action="store_true")
-    parser.add_argument("--output", help="Write JSON directly as UTF-8 to this file")
-    args = parser.parse_args()
-    payload = json.dumps(build_generation_plan(args.database, args.document_id, args.scene_id), indent=2, ensure_ascii=False)
-    if args.output:
-        Path(args.output).write_text(payload + "\n", encoding="utf-8")
-    else:
-        print(payload)
-
-
-if __name__ == "__main__":
-    main()
