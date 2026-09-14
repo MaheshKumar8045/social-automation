@@ -30,9 +30,7 @@ def _complete_source_fragment(text: str, source: str) -> str:
         return ""
     tail = source[start + len(value):]
     match = re.search(r"[.!?]", tail)
-    if not match:
-        return ""
-    return _clean(source[start:start + len(value) + match.end()])
+    return _clean(source[start:start + len(value) + match.end()]) if match else ""
 
 
 def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], characters: list[dict[str, Any]]) -> list[str]:
@@ -63,7 +61,8 @@ def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], char
     return result[:6]
 
 
-def _presence(characters: list[dict[str, Any]], events: list[dict[str, Any]]) -> tuple[list[dict[str, str]], list[str]]:
+def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[dict[str, Any]]) -> tuple[list[dict[str, str]], list[str]]:
+    """Only scene-local source text can establish visible character presence."""
     visible: list[dict[str, str]] = []
     referenced: list[str] = []
     event_texts = [_clean(e.get("text")) for e in events if _clean(e.get("text"))]
@@ -71,18 +70,22 @@ def _presence(characters: list[dict[str, Any]], events: list[dict[str, Any]]) ->
         name = _clean(character.get("canonical_name"), 100)
         if not name:
             continue
-        contexts = []
-        for mention in character.get("scene_mentions") or []:
-            context = _clean(mention.get("context"), 320)
-            if re.search(rf"\b{re.escape(name)}\b", context, re.I):
-                contexts.append(context)
-        matching = [e for e in event_texts if re.search(rf"\b{re.escape(name)}\b", e, re.I)]
-        physical = next((e for e in matching if _ACTION_RE.search(e)), None)
-        if physical is None:
-            physical = next((c for c in contexts if _ACTION_RE.search(c)), None)
+        matching_events = [e for e in event_texts if re.search(rf"\b{re.escape(name)}\b", e, re.I) and e in scene_text]
+        physical = next((e for e in matching_events if _ACTION_RE.search(e)), None)
         if physical:
             visible.append({"name": name, "evidence": physical})
-        elif contexts or matching:
+            continue
+        source_contexts = []
+        for mention in character.get("scene_mentions") or []:
+            context = _clean(mention.get("context"), 320)
+            if context and context in scene_text and re.search(rf"\b{re.escape(name)}\b", context, re.I):
+                source_contexts.append(context)
+        physical_context = next((c for c in source_contexts if _ACTION_RE.search(c)), None)
+        if physical_context:
+            visible.append({"name": name, "evidence": physical_context})
+        elif matching_events or source_contexts:
+            referenced.append(name)
+        elif re.search(rf"\b{re.escape(name)}\b", scene_text, re.I):
             referenced.append(name)
     return visible[:8], list(dict.fromkeys(referenced))[:10]
 
@@ -95,16 +98,11 @@ def _dialogue_kind(source: str, dialogue: list[str]) -> str:
 
 
 def _select_arc(signal: str, has_visible: bool, has_dialogue: bool) -> list[str]:
-    if signal == "combat":
-        return ["establish", "action", "reaction"]
-    if signal == "destruction":
-        return ["establish", "consequence", "detail"]
-    if signal == "travel":
-        return ["establish", "movement", "destination"]
-    if signal == "reaction":
-        return ["establish", "reaction", "close"]
-    if has_dialogue and has_visible:
-        return ["establish", "develop", "reaction"]
+    if signal == "combat": return ["establish", "action", "reaction"]
+    if signal == "destruction": return ["establish", "consequence", "detail"]
+    if signal == "travel": return ["establish", "movement", "destination"]
+    if signal == "reaction": return ["establish", "reaction", "close"]
+    if has_dialogue and has_visible: return ["establish", "develop", "reaction"]
     return ["establish", "develop", "close"]
 
 
@@ -113,13 +111,8 @@ def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str,
     moments = _candidate_moments(scene, events, characters)
     if not moments:
         sentences = _sentences(source)
-        if sentences:
-            moments = sentences[:6]
-        elif source.strip():
-            moments = [source.strip()]
-        else:
-            moments = ["Preserve the established source scene state without adding an event."]
-    visible, referenced = _presence(characters, events)
+        moments = sentences[:6] if sentences else ([source.strip()] if source.strip() else ["Preserve the established source scene state without adding an event."])
+    visible, referenced = _presence(source, characters, events)
     signal = "combat" if _COMBAT_RE.search(source) else "destruction" if _DESTRUCTION_RE.search(source) else "travel" if _TRAVEL_RE.search(source) else "reaction" if _REACTION_RE.search(source) else "neutral"
     return {
         "schema_version": 1,
