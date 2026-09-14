@@ -12,6 +12,9 @@ _DESTRUCTION_RE = re.compile(r"\b(?:ruin\w*|destroy\w*|destruction|ashes|embers|
 _COMBAT_RE = re.compile(r"\b(?:battle|fight\w*|fought|attack\w*|strike\w*|weapon|sword|kill\w*|capture\w*)\b", re.I)
 _TRAVEL_RE = re.compile(r"\b(?:walk\w*|run\w*|travel\w*|arriv\w*|leave\w*|cross\w*|journey)\b", re.I)
 _REACTION_RE = re.compile(r"\b(?:fear|afraid|frightened|angry|furious|grief|sad|wept|cried|shocked|astonished|surprised|regret\w*)\b", re.I)
+# Anonymous participants/groups are source-established visual subjects, not canonical identities.
+# Keep this allowlist conservative so ordinary nouns do not become invented characters.
+_SOURCE_PARTICIPANT_RE = re.compile(r"\b(?:the enemy|the monkey-men|monkey-men|the jackals?|jackals?|the rats?|rats?|the soldiers?|soldiers?|the warriors?|warriors?|the people|my people|the men|the women|the gods|the gods' chosen men|the chosen men)\b", re.I)
 
 
 def _clean(value: Any, limit: int = 360) -> str:
@@ -70,6 +73,21 @@ def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], char
     return result[:6]
 
 
+def _source_participants(scene_text: str) -> list[dict[str, str]]:
+    """Return only anonymous groups/participants explicitly named by the scene text."""
+    results: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for sentence in _sentences(scene_text):
+        for match in _SOURCE_PARTICIPANT_RE.finditer(sentence):
+            label = _clean(match.group(0), 80)
+            key = label.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append({"label": label, "evidence": sentence})
+    return results[:12]
+
+
 def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[dict[str, Any]]) -> tuple[list[dict[str, str]], list[str]]:
     """Only scene-local, character-specific physical evidence can establish visibility."""
     visible: list[dict[str, str]] = []
@@ -79,7 +97,6 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
         name = _clean(character.get("canonical_name"), 100)
         if not name:
             continue
-        # An event is usable only when the exact event text occurs in this scene.
         matching_events = [e for e in event_texts if e in scene_text and re.search(rf"\b{re.escape(name)}\b", e, re.I)]
         physical = next((e for e in matching_events if _CHARACTER_PHYSICAL_RE.search(e)), None)
         if physical:
@@ -127,7 +144,7 @@ def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str,
     visible, referenced = _presence(source, characters, events)
     signal = "combat" if _COMBAT_RE.search(source) else "destruction" if _DESTRUCTION_RE.search(source) else "travel" if _TRAVEL_RE.search(source) else "reaction" if _REACTION_RE.search(source) else "neutral"
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "source_grounded": True,
         "story_purpose": "source-derived scene depiction",
         "primary_visual_moment": moments[0],
@@ -135,6 +152,7 @@ def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str,
         "visual_moment_candidates": moments,
         "visible_characters": visible,
         "referenced_characters": referenced,
+        "source_participants": _source_participants(source),
         "unknown_characters": [],
         "environment": [_clean(o.get("canonical_name"), 100) for o in objects if o.get("canonical_name")][:10],
         "action": moments[0],
@@ -146,7 +164,8 @@ def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str,
         "genre": genre,
         "constraints": [
             "Source evidence controls what exists.",
-            "Referenced names do not become visible characters without physical evidence.",
+            "Referenced names do not become visible canonical characters without physical evidence.",
+            "Source-established anonymous participants may be depicted only at the level explicitly supported by the scene text.",
             "Unknown source attributes remain unknown.",
             "Cinematic choices control how established content is photographed, staged, paced, and heard; they do not create new story events.",
             "Every visual focus must be a complete source-grounded sentence or exact source fragment that can be traced to the scene text.",
