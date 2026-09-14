@@ -1,0 +1,22 @@
+name: Python Tests
+
+on:
+  push:
+    branches: [main, llm-local-qwen]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip && python -m pip install pytest pydantic
+      - name: Compile Python sources
+        run: python -m compileall -q core tests
+      - name: Run test suite
+        run: python -m pytest -q
