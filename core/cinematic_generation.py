@@ -206,7 +206,7 @@ def enhance_generation_package(*, scene: dict[str, Any], characters: list[dict[s
     image_camera=_camera_for(image_role,intent["emotional_signal"],bool(intent["visible_characters"]))
     image_prompt=_prompt(scene,intent,world_profile,genre,intent["primary_visual_moment"],image_camera,"Compose one dominant source-derived visual moment for mobile-first 9:16. Reserve protected negative space for deterministic text. Do not force a character portrait when the source moment is environmental.")
     overlays=_overlays(dialogue,intent,layout)
-    short_roles=["establish","action" if intent["emotional_signal"]=="combat" else "consequence" if intent["emotional_signal"]=="destruction" else "movement" if intent["emotional_signal"]=="travel" else "develop","reaction" if intent["visible_characters"] or intent["dialogue"] else "close"]
+    short_roles=intent["cinematic_arc"][:3]
     clips=[]
     for i,role in enumerate(short_roles):
         focus=intent["visual_moment_candidates"][min(i,len(intent["visual_moment_candidates"])-1)]; camera=_camera_for(role,intent["emotional_signal"],bool(intent["visible_characters"]))
