@@ -1,19 +1,21 @@
 ## Social Automation Project Checkpoint — 2026-09-14
 
-### Current milestone: Production media-generation intelligence regression fix
+### Current milestone: Source-grounded cinematic participant handling
 
 All work remains isolated on `llm-local-qwen`; original `main` is untouched.
 
-### Final fixes just applied
-- Fixed the actual `camera_height` regression: `_camera_for()` uses the stable `height` field while `_prompt()` accepts both `camera_height` and `height`, so both current and legacy camera dictionaries are safe.
+### Final hardening applied
 - Fixed generation-intent fallback ordering: when no trustworthy event candidates exist, source sentences are returned in source order, never keyword-reordered.
-- Fixed character-presence semantics: only character-specific physical evidence can make a canonical character visible; a generic scene word such as `battle`, `destroyed`, or a memory/reference sentence cannot do so.
-- Preserved strict source grounding and did not weaken the validator.
+- Fixed character-presence semantics: only character-specific physical evidence can make a canonical character visible; generic scene words, memories, references, or unrelated speech/action cannot do so.
+- Preserved strict source grounding and did not weaken the semantic validator.
 - Kept first-person narration separate from spoken dialogue.
 - Kept referenced-only story/world characters available as context without silently rendering them.
+- Added a separate `source_participants` channel for anonymous groups/participants explicitly named by the scene (for example `the enemy` or `the monkey-men`). These are not canonical identities and cannot acquire unsupported identity attributes.
+- Propagated source-established anonymous participants into image, short-video, and long-video prompts with an explicit instruction to depict only the action/visual level supported by the scene text.
+- This solves the key Scene 2 quality gap without weakening canonical-character identity rules.
 
-### Why the previous run failed
-The user's local run was on commit `7fca1c3` and reported **15 failed, 75 passed**. Twelve failures shared one root cause: `_prompt()` required `camera['camera_height']` while the generated camera dictionary exposed `height`. The other three were generation-intent regressions: fallback sentence order and character-presence classification. The failure log is preserved in the user's uploaded terminal output.
+### Production invariant
+`SOURCE -> Generation Intent -> Media Planner -> Image/Short/Long` is the single flow. Source evidence controls what exists; world knowledge supplies context only; cinematic intelligence controls presentation only. Canonical character visibility requires source-local physical evidence. Anonymous source-established participants may be depicted only when explicitly named by the scene and only at the level supported by that source evidence.
 
 ### Required verification — do not claim green until the user's machine confirms it
 ```powershell
@@ -26,7 +28,7 @@ python -m pytest tests\test_generation_intent.py tests\test_cinematic_generation
 python -m tools.check_ollama --model qwen3:30b
 ```
 
-Only if the suite is green:
+Only if the suite is green, regenerate Scene 2 in shadow mode:
 ```powershell
 $env:SOCIAL_AUTOMATION_LLM_MODE="shadow"
 $env:SOCIAL_AUTOMATION_LLM_MODEL="qwen3:30b"
@@ -40,7 +42,4 @@ python -m core.generation_planner `
   --output scene2_final.json
 ```
 
-Inspect the three exported media prompt files for Scene 2 before running all 191 scenes. Do not run `enhance` until the shadow output passes both automated QA and manual review.
-
-### Production invariant
-`SOURCE -> Generation Intent -> Media Planner -> Image/Short/Long` is the single flow. Source evidence controls what exists; world knowledge supplies context only; cinematic intelligence controls presentation only. No layer may fabricate a story event or promote a reference into a visible character without source-local physical evidence.
+Inspect the three exported media prompt files for Scene 2. Confirm that source-established groups such as the enemy/monkey-men can be depicted while canonical names remain governed by strict source-local presence rules. Do not run the 191-scene Qwen job or `enhance` until this scene passes automated QA and manual review.
