@@ -41,6 +41,22 @@ def test_physical_character_event_is_visible():
     assert result["visible_characters"] == [{"name": "Kumbha", "evidence": "Kumbha fought at the gate."}]
 
 
+def test_source_established_anonymous_participants_are_separate_from_canonical_characters():
+    text = "The enemy is celebrating his victory. The monkey-men will be busy plundering Trikota."
+    result = _intent(text)
+    assert result["visible_characters"] == []
+    assert [item["label"] for item in result["source_participants"]] == ["The enemy", "The monkey-men"]
+    assert all(item["evidence"] in text for item in result["source_participants"])
+
+
+def test_named_character_is_not_reclassified_as_anonymous_participant():
+    text = "Rama stood over me after I had fallen."
+    chars = [{"canonical_name": "Rama", "scene_mentions": [{"context": text}]}]
+    result = _intent(text, characters=chars)
+    assert result["visible_characters"] == [{"name": "Rama", "evidence": text}]
+    assert result["source_participants"] == []
+
+
 def test_cinematic_arc_matches_destruction():
     result = _intent("The city burned and the temples were destroyed.")
     assert result["emotional_signal"] == "destruction"
