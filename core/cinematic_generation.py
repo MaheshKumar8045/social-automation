@@ -182,7 +182,7 @@ def _prompt(scene: dict[str, Any], intent: dict[str, Any], world_profile: dict[s
         if top.get("label"): world.append(f"{key.replace('_',' ')}={top['label']}")
     return (f"Source-grounded {genre} cinematic generation for scene {scene.get('scene_order','')}: {_clean(scene.get('title'),140)}. SOURCE-ANCHORED SCENE INTERPRETATION: {focus} "
             f"VISIBLE SOURCE-CONFIRMED CHARACTERS: {visible}. REFERENCED-ONLY CHARACTERS: {referenced}; do not render referenced-only names. "
-            f"DETECTED STORY WORLD (context only): {', '.join(world) if world else 'unknown'}. CINEMATIC DIRECTION: {camera['framing']}; {camera['movement']}; {camera['lens']}; {camera['camera_height']}; {camera['lighting']}. "
+            f"DETECTED STORY WORLD (context only): {', '.join(world) if world else 'unknown'}. CINEMATIC DIRECTION: {camera['framing']}; {camera['movement']}; {camera['lens']}; {camera.get('camera_height', camera.get('height', 'eye-level unless source evidence or shot purpose clearly supports a different height'))}; {camera.get('lighting', 'motivated naturalistic lighting')}. "
             "Preserve canonical identity anchors, continuity state, source-supported objects and geography. Unknown attributes remain unknown. "
             "Do not invent costumes, anatomy, props, architecture, weather, supernatural effects, actions, or story events. Maintain clear foreground/midground/background hierarchy and readable subject separation. " + extra)
 
