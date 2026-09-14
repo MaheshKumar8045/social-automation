@@ -4,9 +4,10 @@ import re
 from typing import Any
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
-_ACTION_RE = re.compile(r"\b(?:approach\w*|arriv\w*|attack\w*|battle\w*|capture\w*|climb\w*|come|cross\w*|cry\w*|die\w*|enter\w*|fall\w*|flee\w*|follow\w*|fight\w*|grab\w*|hold\w*|kill\w*|look\w*|move\w*|open\w*|reach\w*|return\w*|run\w*|save\w*|sit\w*|stand\w*|take\w*|turn\w*|walk\w*|watch\w*|travel\w*|strike\w*|destroy\w*|burn\w*|collapse\w*|kneel\w*|rise\w*|speak\w*)\b", re.I)
+_ACTION_RE = re.compile(r"\b(?:approach\w*|arriv\w*|attack\w*|battle\w*|capture\w*|climb\w*|come|cross\w*|cry\w*|die\w*|enter\w*|fall\w*|flee\w*|follow\w*|fight\w*|fought|grab\w*|hold\w*|kill\w*|look\w*|move\w*|open\w*|reach\w*|return\w*|run\w*|save\w*|sit\w*|stand\w*|take\w*|turn\w*|walk\w*|watch\w*|travel\w*|strike\w*|destroy\w*|burn\w*|collapse\w*|kneel\w*|rise\w*|speak\w*)\b", re.I)
+_PRESENCE_RE = re.compile(r"\b(?:was|were|is|are|stood|sat|lay|remained|waited|rested|entered|arrived|appeared|left|returned|looked|watched|faced|knelt|rose|walked|ran|fled|followed|held|carried|spoke|sang|wept|cried)\b", re.I)
 _DESTRUCTION_RE = re.compile(r"\b(?:ruin\w*|destroy\w*|destruction|ashes|embers|burnt|burned|fire|smoke|collapse\w*|wreck\w*|dead|dying|death)\b", re.I)
-_COMBAT_RE = re.compile(r"\b(?:battle|fight\w*|attack\w*|strike\w*|weapon|sword|kill\w*|capture\w*)\b", re.I)
+_COMBAT_RE = re.compile(r"\b(?:battle|fight\w*|fought|attack\w*|strike\w*|weapon|sword|kill\w*|capture\w*)\b", re.I)
 _TRAVEL_RE = re.compile(r"\b(?:walk\w*|run\w*|travel\w*|arriv\w*|leave\w*|cross\w*|journey)\b", re.I)
 _REACTION_RE = re.compile(r"\b(?:fear|afraid|frightened|angry|furious|grief|sad|wept|cried|shocked|astonished|surprised|regret\w*)\b", re.I)
 
@@ -36,21 +37,27 @@ def _complete_source_fragment(text: str, source: str) -> str:
 def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], characters: list[dict[str, Any]]) -> list[str]:
     source = str(scene.get("text") or "")
     names = [str(c.get("canonical_name") or "").casefold() for c in characters]
-    candidates: list[tuple[int, int, str]] = []
-    order = 0
-    for event in events:
-        order += 1
+    event_candidates: list[tuple[int, int, str]] = []
+    for order, event in enumerate(events):
         text = _complete_source_fragment(str(event.get("text") or ""), source)
         if not text or text not in source:
             continue
         score = 50 + (30 if _ACTION_RE.search(text) else 0) + (15 if _DESTRUCTION_RE.search(text) else 0) + (10 if _COMBAT_RE.search(text) else 0) + (7 if _REACTION_RE.search(text) else 0)
         score += sum(12 for name in names if name and name in text.casefold())
-        candidates.append((score, order, text))
-    for sentence in _sentences(source):
-        order += 1
+        event_candidates.append((score, order, text))
+
+    sentences = _sentences(source)
+    if not event_candidates:
+        return sentences[:6] if sentences else ([source.strip()] if source.strip() else [])
+
+    sentence_candidates: list[tuple[int, int, str]] = []
+    base_order = len(event_candidates)
+    for offset, sentence in enumerate(sentences):
         score = 12 + (45 if _ACTION_RE.search(sentence) else 0) + (15 if _DESTRUCTION_RE.search(sentence) else 0) + (10 if _COMBAT_RE.search(sentence) else 0) + (8 if _TRAVEL_RE.search(sentence) else 0) + (7 if _REACTION_RE.search(sentence) else 0)
         score += sum(10 for name in names if name and name in sentence.casefold())
-        candidates.append((score, order, sentence))
+        sentence_candidates.append((score, base_order + offset, sentence))
+
+    candidates = event_candidates + sentence_candidates
     result: list[str] = []
     seen: set[str] = set()
     for _, _, text in sorted(candidates, key=lambda x: (-x[0], x[1])):
@@ -71,7 +78,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
         if not name:
             continue
         matching_events = [e for e in event_texts if re.search(rf"\b{re.escape(name)}\b", e, re.I) and e in scene_text]
-        physical = next((e for e in matching_events if _ACTION_RE.search(e)), None)
+        physical = next((e for e in matching_events if _ACTION_RE.search(e) or _PRESENCE_RE.search(e)), None)
         if physical:
             visible.append({"name": name, "evidence": physical})
             continue
@@ -80,7 +87,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
             context = _clean(mention.get("context"), 320)
             if context and context in scene_text and re.search(rf"\b{re.escape(name)}\b", context, re.I):
                 source_contexts.append(context)
-        physical_context = next((c for c in source_contexts if _ACTION_RE.search(c)), None)
+        physical_context = next((c for c in source_contexts if _ACTION_RE.search(c) or _PRESENCE_RE.search(c)), None)
         if physical_context:
             visible.append({"name": name, "evidence": physical_context})
         elif matching_events or source_contexts:
