@@ -29,27 +29,29 @@ def _sentences(source: str) -> list[str]:
     return [_clean(s) for s in _SENTENCE_RE.split(normalized) if len(s.split()) >= 4]
 
 
-def _complete(text: str, source: str) -> str:
+def _complete_source_fragment(text: str, source: str) -> str:
+    """Return a complete source sentence containing an event fragment, if possible."""
     value = _clean(text)
-    if not value:
-        return ""
-    if value[-1:] in ".!?":
+    if not value or value[-1:] in ".!?":
         return value
-    if value in source:
-        start = source.find(value)
-        tail = source[start + len(value):]
-        match = re.search(r"[.!?]", tail)
-        if match:
-            return _clean(source[start:start + len(value) + match.end()])
-    return value
+    start = source.find(value)
+    if start < 0:
+        return ""
+    tail = source[start + len(value):]
+    match = re.search(r"[.!?]", tail)
+    if not match:
+        return ""
+    return _clean(source[start:start + len(value) + match.end()])
 
 
 def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], characters: list[dict[str, Any]]) -> list[str]:
     source = str(scene.get("text") or "")
     names = [str(c.get("canonical_name") or "").casefold() for c in characters]
-    candidates: list[tuple[int, str]] = []
+    candidates: list[tuple[int, int, str]] = []
+    order = 0
     for event in events:
-        text = _complete(str(event.get("text") or ""), source)
+        order += 1
+        text = _complete_source_fragment(str(event.get("text") or ""), source)
         if not text or text not in source:
             continue
         score = 50
@@ -58,8 +60,9 @@ def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], char
         if _COMBAT_RE.search(text): score += 10
         if _REACTION_RE.search(text): score += 7
         score += sum(12 for name in names if name and name in text.casefold())
-        candidates.append((score, text))
+        candidates.append((score, order, text))
     for sentence in _sentences(source):
+        order += 1
         score = 12
         if _ACTION_RE.search(sentence): score += 45
         if _DESTRUCTION_RE.search(sentence): score += 15
@@ -67,10 +70,10 @@ def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], char
         if _TRAVEL_RE.search(sentence): score += 8
         if _REACTION_RE.search(sentence): score += 7
         score += sum(10 for name in names if name and name in sentence.casefold())
-        candidates.append((score, sentence))
+        candidates.append((score, order, sentence))
     result: list[str] = []
     seen: set[str] = set()
-    for _, text in sorted(candidates, key=lambda x: (-x[0], x[1].casefold())):
+    for _, _, text in sorted(candidates, key=lambda x: (-x[0], x[1])):
         key = text.casefold()
         if key not in seen and text in source:
             seen.add(key)
@@ -109,29 +112,35 @@ def _dialogue_kind(source: str, dialogue: list[str]) -> str:
     return "spoken" if speech else "first_person_narration"
 
 
+def _select_arc(source: str, intent_signal: str, has_visible: bool, has_dialogue: bool) -> list[str]:
+    if intent_signal == "combat":
+        return ["establish", "action", "reaction"]
+    if intent_signal == "destruction":
+        return ["establish", "consequence", "detail"]
+    if intent_signal == "travel":
+        return ["establish", "movement", "destination"]
+    if intent_signal == "reaction":
+        return ["establish", "reaction", "close"]
+    if has_dialogue and has_visible:
+        return ["establish", "develop", "reaction"]
+    return ["establish", "develop", "close"]
+
+
 def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str, Any]], objects: list[dict[str, Any]], events: list[dict[str, Any]], continuity: dict[str, Any], dialogue: list[str], genre: str) -> dict[str, Any]:
     source = str(scene.get("text") or "")
     moments = _candidate_moments(scene, events, characters)
     if not moments:
-        moments = [_clean(source, 360)] if _clean(source) else ["Preserve the established source scene state without adding an event."]
+        sentences = _sentences(source)
+        moments = sentences[:6] or ([source[:360]] if source.strip() else ["Preserve the established source scene state without adding an event."])
     visible, referenced = _presence(characters, events)
     destruction = bool(_DESTRUCTION_RE.search(source))
     combat = bool(_COMBAT_RE.search(source))
     travel = bool(_TRAVEL_RE.search(source))
     reaction = bool(_REACTION_RE.search(source))
-    if combat:
-        arc = ["establish", "action", "reaction"]
-    elif destruction:
-        arc = ["establish", "consequence", "detail"]
-    elif travel:
-        arc = ["establish", "movement", "destination"]
-    elif reaction:
-        arc = ["establish", "reaction", "close"]
-    else:
-        arc = ["establish", "develop", "close"]
+    signal = "combat" if combat else "destruction" if destruction else "travel" if travel else "reaction" if reaction else "neutral"
     source_kind = _dialogue_kind(source, dialogue)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "source_grounded": True,
         "story_purpose": "source-derived scene depiction",
         "primary_visual_moment": moments[0],
@@ -142,10 +151,10 @@ def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str,
         "unknown_characters": [],
         "environment": [_clean(o.get("canonical_name"), 100) for o in objects if o.get("canonical_name")][:10],
         "action": moments[0],
-        "emotional_signal": "combat" if combat else "destruction" if destruction else "travel" if travel else "reaction" if reaction else "neutral",
+        "emotional_signal": signal,
         "dialogue": dialogue[:3],
         "dialogue_kind": source_kind,
-        "cinematic_arc": arc,
+        "cinematic_arc": _select_arc(source, signal, bool(visible), bool(dialogue)),
         "continuity": continuity if isinstance(continuity, dict) else {},
         "genre": genre,
         "constraints": [
@@ -153,5 +162,6 @@ def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str,
             "Referenced names do not become visible characters without physical evidence.",
             "Unknown source attributes remain unknown.",
             "Cinematic choices control how established content is photographed, staged, paced, and heard; they do not create new story events.",
+            "Every visual focus must be a complete source-grounded sentence or exact source fragment that can be traced to the scene text.",
         ],
     }
