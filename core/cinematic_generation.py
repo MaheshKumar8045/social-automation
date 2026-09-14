@@ -39,8 +39,7 @@ def _strip_scene_heading(text: str, scene: dict[str, Any] | None = None) -> str:
 
 
 def _sentences(text: str) -> list[str]:
-    normalized = re.sub(r"\s+", " ", text or "").strip()
-    return [_clean(x) for x in _SENTENCE_RE.split(normalized) if len(x.split()) >= 4]
+    return [_clean(x) for x in _SENTENCE_RE.split(re.sub(r"\s+", " ", text or "").strip()) if len(x.split()) >= 4]
 
 
 def _clean_dialogue_candidate(sentence: str, scene: dict[str, Any] | None = None) -> str:
@@ -94,13 +93,10 @@ def _visual_moments(scene_text: str, events: list[dict[str, Any]], characters: l
         order += 1
         score = 10 + (45 if _ACTION_RE.search(sentence) else 0) + (15 if _DESTRUCTION_RE.search(sentence) else 0) + (10 if _COMBAT_RE.search(sentence) else 0) + (7 if _REACTION_RE.search(sentence) else 0) + sum(10 for name in names if name and name in sentence.casefold())
         candidates.append((score, order, sentence))
-    result: list[str] = []
-    seen: set[str] = set()
-    for _, _, text in sorted(candidates, key=lambda x: (-x[0], x[1])):
-        key = text.casefold()
-        if key not in seen and text in scene_text:
-            seen.add(key)
-            result.append(text)
+    result=[]; seen=set()
+    for _,_,text in sorted(candidates,key=lambda x:(-x[0],x[1])):
+        key=text.casefold()
+        if key not in seen and text in scene_text: seen.add(key); result.append(text)
     return result[:6]
 
 
@@ -111,14 +107,18 @@ def _character_blocking(scene_text: str, characters: list[dict[str, Any]], event
         name = _clean(character.get("canonical_name"), 100)
         if not name:
             continue
-        contexts = [_clean(m.get("context"), 320) for m in character.get("scene_mentions") or [] if re.search(rf"\b{re.escape(name)}\b", _clean(m.get("context"), 320), re.I)]
-        matching = [e for e in event_texts if re.search(rf"\b{re.escape(name)}\b", e, re.I)]
+        matching = [e for e in event_texts if e in scene_text and re.search(rf"\b{re.escape(name)}\b", e, re.I)]
         physical = next((e for e in matching if _ACTION_RE.search(e) or _PRESENCE_RE.search(e)), None)
+        source_contexts = []
+        for mention in character.get("scene_mentions") or []:
+            context = _clean(mention.get("context"), 320)
+            if context and context in scene_text and re.search(rf"\b{re.escape(name)}\b", context, re.I):
+                source_contexts.append(context)
         if physical is None:
-            physical = next((c for c in contexts if _ACTION_RE.search(c) or _PRESENCE_RE.search(c)), None)
+            physical = next((c for c in source_contexts if _ACTION_RE.search(c) or _PRESENCE_RE.search(c)), None)
         if physical:
             visible.append(f"{name}: {physical}")
-        elif contexts or matching:
+        elif matching or source_contexts or re.search(rf"\b{re.escape(name)}\b", scene_text, re.I):
             referenced.append(name)
     return visible[:8], list(dict.fromkeys(referenced))[:10]
 
@@ -149,108 +149,76 @@ def _shot_plan(intent: dict[str, Any], count: int, long_form: bool = False) -> l
     available = intent["visual_moment_candidates"]
     if long_form:
         base = ["establish"]
-        if signal == "travel":
-            base.append("movement")
-        if signal == "combat":
-            base.append("action")
-        if signal == "destruction":
-            base.append("consequence")
+        if signal == "travel": base.append("movement")
+        if signal == "combat": base.append("action")
+        if signal == "destruction": base.append("consequence")
         base += ["reaction", "detail", "close"]
         if count > len(base):
-            optional = ["develop", "action" if signal == "combat" else "detail", "reaction", "close"]
+            optional = ["develop", "action" if signal == "combat" else "consequence", "detail", "reaction", "close"]
             for role in optional:
-                if len(base) >= count:
-                    break
-                if role not in base or role == "detail":
-                    base.append(role)
+                if len(base) >= count: break
+                if role not in base or role == "detail": base.append(role)
         roles = base[:count]
     else:
         roles = intent["cinematic_arc"][:count]
     moments = [available[i % len(available)] for i in range(count)]
-    result = []
-    for i, role in enumerate(roles):
-        camera = _camera_for(role, signal, bool(intent["visible_characters"]))
-        result.append({"role": role, "purpose": role, "source_visual_focus": moments[i], "camera_framing": camera["framing"], "camera_movement": camera["movement"], "lens": camera["lens"], "camera_height": camera["camera_height"], "lighting": camera["lighting"]})
-    return result
+    return [{"role": role, "purpose": role, "source_visual_focus": moments[i], **{f"camera_{k}": v for k, v in _camera_for(role, signal, bool(intent["visible_characters"])).items()}} for i, role in enumerate(roles)]
 
 
 def _audio_direction(intent: dict[str, Any]) -> dict[str, Any]:
     dialogue = intent["dialogue"]
-    if intent["dialogue_kind"] == "spoken":
-        mode = "spoken dialogue; use exact source wording and only source-established speaker identity"
-    elif intent["dialogue_kind"] == "first_person_narration":
-        mode = "first-person narration/voice-over; do not stage the narration as on-screen speech unless physical speech is source-established"
-    else:
-        mode = "no source dialogue; use environmental sound and restrained music only"
+    if intent["dialogue_kind"] == "spoken": mode = "spoken dialogue; use exact source wording and only source-established speaker identity"
+    elif intent["dialogue_kind"] == "first_person_narration": mode = "first-person narration/voice-over; do not stage the narration as on-screen speech unless physical speech is source-established"
+    else: mode = "no source dialogue; use environmental sound and restrained music only"
     return {"music_direction": ["Restrained cinematic score supporting the source-derived emotional arc; intensity may evolve with shot purpose."], "dialogue_source": dialogue, "dialogue_mode": mode, "sound_design": "Use only source-compatible environmental/action sounds; never imply an unsupported event.", "mixing": "Prioritize source dialogue or narration when present; duck music beneath voice; preserve environmental depth without masking the source voice.", "silence_points": "Allow deliberate quiet before or after major source-derived emotional beats when appropriate."}
 
 
 def _prompt(scene: dict[str, Any], intent: dict[str, Any], world_profile: dict[str, Any], genre: str, focus: str, camera: dict[str, str], extra: str = "") -> str:
     visible = ", ".join(x["name"] for x in intent["visible_characters"]) or "none"
     referenced = ", ".join(intent["referenced_characters"]) or "none"
-    dims = (world_profile or {}).get("dimensions") or {}
-    world = []
+    dims = (world_profile or {}).get("dimensions") or {}; world=[]
     for key in ("culture", "religious_context", "region", "period"):
         top = (dims.get(key) or {}).get("top") or {}
-        if top.get("label"):
-            world.append(f"{key.replace('_',' ')}={top['label']}")
-    return (f"Source-grounded {genre} cinematic generation for scene {scene.get('scene_order','')}: {_clean(scene.get('title'),140)}. "
-            f"SOURCE-ANCHORED SCENE INTERPRETATION: {focus} "
+        if top.get("label"): world.append(f"{key.replace('_',' ')}={top['label']}")
+    return (f"Source-grounded {genre} cinematic generation for scene {scene.get('scene_order','')}: {_clean(scene.get('title'),140)}. SOURCE-ANCHORED SCENE INTERPRETATION: {focus} "
             f"VISIBLE SOURCE-CONFIRMED CHARACTERS: {visible}. REFERENCED-ONLY CHARACTERS: {referenced}; do not render referenced-only names. "
-            f"DETECTED STORY WORLD (context only): {', '.join(world) if world else 'unknown'}. "
-            f"CINEMATIC DIRECTION: {camera['framing']}; {camera['movement']}; {camera['lens']}; {camera['camera_height']}; {camera['lighting']}. "
+            f"DETECTED STORY WORLD (context only): {', '.join(world) if world else 'unknown'}. CINEMATIC DIRECTION: {camera['framing']}; {camera['movement']}; {camera['lens']}; {camera['camera_height']}; {camera['lighting']}. "
             "Preserve canonical identity anchors, continuity state, source-supported objects and geography. Unknown attributes remain unknown. "
-            "Do not invent costumes, anatomy, props, architecture, weather, supernatural effects, actions, or story events. "
-            "Maintain clear foreground/midground/background hierarchy and readable subject separation. " + extra)
+            "Do not invent costumes, anatomy, props, architecture, weather, supernatural effects, actions, or story events. Maintain clear foreground/midground/background hierarchy and readable subject separation. " + extra)
 
 
 def _overlays(dialogue: list[str], intent: dict[str, Any], layout: dict[str, Any]) -> list[dict[str, Any]]:
-    boxes = []
+    boxes=[]
     if dialogue:
         box_type = "dialogue_box" if intent["dialogue_kind"] == "spoken" else "narrative_box"
         source = "source_dialogue" if box_type == "dialogue_box" else "source_first_person_narration"
-        for i, text in enumerate(dialogue[:2], 1):
-            boxes.append({"box_number": i, "box_type": box_type, "text": text, "text_source": source, "required": True, "placement": "largest protected negative-space region opposite subject/action", "max_width_percent": layout.get("dialogue_box_max_width_percent", 68), "max_height_percent": layout.get("dialogue_box_max_height_percent", 15), "avoid": ["faces", "hands", "important_objects", "primary_action"]})
+        for i,text in enumerate(dialogue[:2],1): boxes.append({"box_number":i,"box_type":box_type,"text":text,"text_source":source,"required":True,"placement":"largest protected negative-space region opposite subject/action","max_width_percent":layout.get("dialogue_box_max_width_percent",68),"max_height_percent":layout.get("dialogue_box_max_height_percent",15),"avoid":["faces","hands","important_objects","primary_action"]})
     else:
-        boxes.append({"box_number": 1, "box_type": "narrative_box", "text": intent["primary_visual_moment"], "text_source": "source_visual_moment", "required": True, "placement": "largest protected negative-space region opposite subject/action", "max_width_percent": layout.get("dialogue_box_max_width_percent", 68), "max_height_percent": layout.get("dialogue_box_max_height_percent", 15), "avoid": ["faces", "hands", "important_objects", "primary_action"]})
+        boxes.append({"box_number":1,"box_type":"narrative_box","text":intent["primary_visual_moment"],"text_source":"source_visual_moment","required":True,"placement":"largest protected negative-space region opposite subject/action","max_width_percent":layout.get("dialogue_box_max_width_percent",68),"max_height_percent":layout.get("dialogue_box_max_height_percent",15),"avoid":["faces","hands","important_objects","primary_action"]})
     return boxes
 
 
 def enhance_generation_package(*, scene: dict[str, Any], characters: list[dict[str, Any]], objects: list[dict[str, Any]], events: list[dict[str, Any]], continuity: dict[str, Any], world_profile: dict[str, Any], genre: str, media: dict[str, Any]) -> dict[str, Any]:
-    text = str(scene.get("text") or "")
-    dialogue = _source_dialogue(text, scene)
-    intent = build_generation_intent(scene=scene, characters=characters, objects=objects, events=events, continuity=continuity, dialogue=dialogue, genre=genre)
-    existing_layout = ((media.get("image") or {}).get("layout") or {})
-    layout = {"aspect_ratio": existing_layout.get("aspect_ratio", "9:16"), "safe_margin_percent": existing_layout.get("safe_margin_percent", 7), "critical_subject_safe_area_percent": existing_layout.get("critical_subject_safe_area_percent", 86), "background_visible_percent": existing_layout.get("background_visible_percent", [35, 55]), "main_subject_height_percent": existing_layout.get("main_subject_height_percent", [45, 65]), "secondary_subject_height_percent": existing_layout.get("secondary_subject_height_percent", [25, 50]), "group_subject_height_percent": existing_layout.get("group_subject_height_percent", [30, 55]), "dialogue_box_max_width_percent": existing_layout.get("dialogue_box_max_width_percent", 68), "dialogue_box_max_height_percent": existing_layout.get("dialogue_box_max_height_percent", 15)}
-    image_role = "action" if intent["emotional_signal"] == "combat" else "consequence" if intent["emotional_signal"] == "destruction" else "movement" if intent["emotional_signal"] == "travel" else "reaction" if intent["emotional_signal"] == "reaction" and intent["visible_characters"] else "establish"
-    image_camera = _camera_for(image_role, intent["emotional_signal"], bool(intent["visible_characters"]))
-    image_prompt = _prompt(scene, intent, world_profile, genre, intent["primary_visual_moment"], image_camera, "Compose one dominant source-derived visual moment for mobile-first 9:16. Reserve protected negative space for deterministic text. Do not force a character portrait when the source moment is environmental.")
-    overlays = _overlays(dialogue, intent, layout)
-
-    short_roles = ["establish", "action" if intent["emotional_signal"] == "combat" else "consequence" if intent["emotional_signal"] == "destruction" else "movement" if intent["emotional_signal"] == "travel" else "develop", "reaction" if intent["visible_characters"] or intent["dialogue"] else "close"]
-    clips = []
-    for i, role in enumerate(short_roles):
-        focus = intent["visual_moment_candidates"][min(i, len(intent["visual_moment_candidates"]) - 1)]
-        camera = _camera_for(role, intent["emotional_signal"], bool(intent["visible_characters"]))
-        prompt = _prompt(scene, intent, world_profile, genre, focus, camera, f"This is clip {i+1} of 3. Sequence purpose: {role}. Use one primary source-established visual beat and progress from the preceding clip without creating a new event. Preserve vertical mobile readability.")
-        line = dialogue[i] if i < len(dialogue) else None
-        if line:
-            prompt += f' Use exact source voice text: "{line}".'
-        clips.append({"clip_number": i + 1, "duration_seconds": 5, "role": role, "prompt": prompt, "source_visual_focus": focus, "camera": camera, "transition_to_next": "hard cut" if i < 2 else "clean hold/fade", "dialogue": line})
-
-    richness = len(intent["visual_moment_candidates"]) + len(intent["visible_characters"]) + len(intent["dialogue"])
-    long_count = max(4, min(8, richness + 2))
-    shots = []
-    for i, spec in enumerate(_shot_plan(intent, long_count, True)):
-        focus = spec["source_visual_focus"]
-        camera = {k: spec[k] for k in ("framing", "movement", "lens", "camera_height", "lighting")}
-        prompt = _prompt(scene, intent, world_profile, genre, focus, camera, f"Long-form shot {i+1} of {long_count}; purpose: {spec['purpose']}. Maintain 180-degree spatial logic and exact continuity from the previous shot. Do not fabricate unsupported progression.")
-        line = dialogue[i] if i < len(dialogue) else None
-        if line:
-            prompt += f' If this shot carries voice, use exact source text: "{line}".'
-        shots.append({"shot_number": i + 1, **spec, "prompt": prompt, "duration_seconds": 4 if spec["purpose"] in {"detail", "reaction"} else 5, "dialogue": line})
-
-    audio = _audio_direction(intent)
-    inference = dict(media.get("visual_inference") or {})
-    inference["cinematic_scene_intelligence"] = {"enabled": True, "intent_schema_version": intent["schema_version"], "intent": intent, "rule": "Source evidence controls what exists; world context informs production consistency; cinematic choices control presentation only."}
-    return {**media, "schema_version": 6, "visual_inference": inference, "generation_intent": intent, "image": {**(media.get("image") or {}), "prompt": image_prompt, "dialogue_overlays": overlays, "layout": {**existing_layout, **layout, "dialogue_box_count_minimum": 1, "text_rendering": "deterministic overlay", "placement_algorithm": "largest protected negative-space region opposite subject/action; never overlap faces, hands, important objects, or primary action"}, "cinematic_direction": image_camera, "source_visual_moments": intent["visual_moment_candidates"], "character_blocking": [f"{x['name']}: {x['evidence']}" for x in intent["visible_characters"]], "referenced_characters": intent["referenced_characters"]}, "short_video": {"aspect_ratio": layout["aspect_ratio"], "orientation": "portrait", "clip_count": 3, "clips": clips, "audio": audio, "cinematic_direction": image_camera, "source_visual_moments": intent["visual_moment_candidates"]}, "long_video": {"aspect_ratio": layout["aspect_ratio"], "orientation": "portrait", "shots": shots, "audio": audio, "cinematic_direction": image_camera, "source_visual_moments": intent["visual_moment_candidates"]}}
+    text=str(scene.get("text") or ""); dialogue=_source_dialogue(text,scene); intent=build_generation_intent(scene=scene,characters=characters,objects=objects,events=events,continuity=continuity,dialogue=dialogue,genre=genre)
+    existing_layout=((media.get("image") or {}).get("layout") or {})
+    layout={"aspect_ratio":existing_layout.get("aspect_ratio","9:16"),"safe_margin_percent":existing_layout.get("safe_margin_percent",7),"critical_subject_safe_area_percent":existing_layout.get("critical_subject_safe_area_percent",86),"background_visible_percent":existing_layout.get("background_visible_percent",[35,55]),"main_subject_height_percent":existing_layout.get("main_subject_height_percent",[45,65]),"secondary_subject_height_percent":existing_layout.get("secondary_subject_height_percent",[25,50]),"group_subject_height_percent":existing_layout.get("group_subject_height_percent",[30,55]),"dialogue_box_max_width_percent":existing_layout.get("dialogue_box_max_width_percent",68),"dialogue_box_max_height_percent":existing_layout.get("dialogue_box_max_height_percent",15)}
+    image_role="action" if intent["emotional_signal"]=="combat" else "consequence" if intent["emotional_signal"]=="destruction" else "movement" if intent["emotional_signal"]=="travel" else "reaction" if intent["emotional_signal"]=="reaction" and intent["visible_characters"] else "establish"
+    image_camera=_camera_for(image_role,intent["emotional_signal"],bool(intent["visible_characters"]))
+    image_prompt=_prompt(scene,intent,world_profile,genre,intent["primary_visual_moment"],image_camera,"Compose one dominant source-derived visual moment for mobile-first 9:16. Reserve protected negative space for deterministic text. Do not force a character portrait when the source moment is environmental.")
+    overlays=_overlays(dialogue,intent,layout)
+    short_roles=["establish","action" if intent["emotional_signal"]=="combat" else "consequence" if intent["emotional_signal"]=="destruction" else "movement" if intent["emotional_signal"]=="travel" else "develop","reaction" if intent["visible_characters"] or intent["dialogue"] else "close"]
+    clips=[]
+    for i,role in enumerate(short_roles):
+        focus=intent["visual_moment_candidates"][min(i,len(intent["visual_moment_candidates"])-1)]; camera=_camera_for(role,intent["emotional_signal"],bool(intent["visible_characters"]))
+        prompt=_prompt(scene,intent,world_profile,genre,focus,camera,f"This is clip {i+1} of 3. Sequence purpose: {role}. Use one primary source-established visual beat and progress from the preceding clip without creating a new event. Preserve vertical mobile readability.")
+        line=dialogue[i] if i<len(dialogue) else None
+        if line: prompt+=f' Use exact source voice text: "{line}".'
+        clips.append({"clip_number":i+1,"duration_seconds":5,"role":role,"prompt":prompt,"source_visual_focus":focus,"camera":camera,"transition_to_next":"hard cut" if i<2 else "clean hold/fade","dialogue":line})
+    richness=len(intent["visual_moment_candidates"])+len(intent["visible_characters"])+len(intent["dialogue"]); long_count=max(4,min(8,richness+2)); shots=[]
+    for i,spec in enumerate(_shot_plan(intent,long_count,True)):
+        focus=spec["source_visual_focus"]; camera={k.replace("camera_",""):v for k,v in spec.items() if k.startswith("camera_")}; prompt=_prompt(scene,intent,world_profile,genre,focus,camera,f"Long-form shot {i+1} of {long_count}; purpose: {spec['purpose']}. Maintain 180-degree spatial logic and exact continuity from the previous shot. Do not fabricate unsupported progression.")
+        line=dialogue[i] if i<len(dialogue) else None
+        if line: prompt+=f' If this shot carries voice, use exact source text: "{line}".'
+        shots.append({"shot_number":i+1,**spec,"prompt":prompt,"duration_seconds":4 if spec["purpose"] in {"detail","reaction"} else 5,"dialogue":line})
+    audio=_audio_direction(intent); inference=dict(media.get("visual_inference") or {}); inference["cinematic_scene_intelligence"]={"enabled":True,"intent_schema_version":intent["schema_version"],"intent":intent,"rule":"Source evidence controls what exists; world context informs production consistency; cinematic choices control presentation only."}
+    return {**media,"schema_version":6,"visual_inference":inference,"generation_intent":intent,"image":{**(media.get("image") or {}),"prompt":image_prompt,"dialogue_overlays":overlays,"layout":{**existing_layout,**layout,"dialogue_box_count_minimum":1,"text_rendering":"deterministic overlay","placement_algorithm":"largest protected negative-space region opposite subject/action; never overlap faces, hands, important objects, or primary action"},"cinematic_direction":image_camera,"source_visual_moments":intent["visual_moment_candidates"],"character_blocking":[f"{x['name']}: {x['evidence']}" for x in intent["visible_characters"]],"referenced_characters":intent["referenced_characters"]},"short_video":{"aspect_ratio":layout["aspect_ratio"],"orientation":"portrait","clip_count":3,"clips":clips,"audio":audio,"cinematic_direction":image_camera,"source_visual_moments":intent["visual_moment_candidates"]},"long_video":{"aspect_ratio":layout["aspect_ratio"],"orientation":"portrait","shots":shots,"audio":audio,"cinematic_direction":image_camera,"source_visual_moments":intent["visual_moment_candidates"]}}
