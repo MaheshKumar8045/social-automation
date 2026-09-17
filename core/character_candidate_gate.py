@@ -44,6 +44,10 @@ ACTION_CUE = re.compile(
     r"\b(?:he|she|his|her)\s+(?:said|replied|asked|cried|shouted|looked|turned|stood|sat|walked|ran|came|went|took|gave|held|put|made)\b",
     re.I,
 )
+PHYSICAL_PERSON_CUE = re.compile(
+    r"\b(?:approach\w*|arriv\w*|attack\w*|capture\w*|climb\w*|come|cross\w*|cry\w*|die\w*|enter\w*|fall\w*|flee\w*|follow\w*|fight\w*|fought|grab\w*|hold\w*|kill\w*|look\w*|move\w*|open\w*|reach\w*|return\w*|run\w*|save\w*|sit\w*|stand\w*|take\w*|turn\w*|walk\w*|watch\w*|travel\w*|strike\w*|destroy\w*|burn\w*|collapse\w*|kneel\w*|rise\w*|speak\w*|was|were|is|are|stood|sat|lay|remained|waited|rested|entered|arrived|appeared|left|returned|looked|watched|faced|knelt|rose|walked|ran|fled|followed|held|carried|spoke|sang|wept|cried)\b",
+    re.I,
+)
 DIRECT_PERSON_CUE = re.compile(
     r"(?:\b(?:said|replied|asked|cried|shouted|exclaimed|answered|whispered|remarked|observed|rejoined|called)\s+{name}\b|\b{name}\s+(?:said|replied|asked|cried|shouted|exclaimed|answered|whispered|remarked|observed|rejoined|called)\b|\b(?:Mr\.?|Mrs\.?|Ms\.?|Miss|Dr\.?|Professor|Prof\.?|Captain|Capt\.?|Sir|Colonel|Major|Lieutenant)\s+{name}\b)",
     re.I,
@@ -104,13 +108,22 @@ def gate(
     speech = sum(1 for x in contexts if SPEECH_CUE.search(x))
     action = sum(1 for x in contexts if ACTION_CUE.search(x))
     direct = sum(1 for x in contexts if re.search(DIRECT_PERSON_CUE.pattern.format(name=re.escape(n)), x, re.I))
+    physical = sum(
+        1
+        for x in contexts
+        if re.search(
+            rf"(?:\b{re.escape(n)}\b[^.!?]{{0,100}}{PHYSICAL_PERSON_CUE.pattern}|{PHYSICAL_PERSON_CUE.pattern}[^.!?]{{0,100}}\b{re.escape(n)}\b)",
+            x,
+            re.I,
+        )
+    )
 
     if conflicting_entity_types and conflicting_entity_types & {"location", "environment"}:
-        if direct == 0:
+        if direct == 0 and physical == 0:
             return "non_character", 1.0, ["ambiguous_name_without_person_evidence"]
         reasons.append("name_also_classified_as_location_or_environment")
 
-    if title and len(bare) == 1 and bare[0].lower() in STOPWORDS and direct == 0:
+    if title and len(bare) == 1 and bare[0].lower() in STOPWORDS and direct == 0 and physical == 0:
         return "review", 0.35, ["title_with_stopword_name_without_direct_person_reference"]
     score = 0.25
     if title:
@@ -125,15 +138,17 @@ def gate(
         score += 0.10; reasons.append("multi_scene_presence")
     if direct:
         score += 0.25; reasons.append("direct_person_reference")
+    if physical:
+        score += min(0.30, physical * 0.15); reasons.append("source_physical_presence")
     if speech:
         score += 0.05; reasons.append("speech_context")
     if action:
         score += 0.05; reasons.append("character_action_context")
     if any(w.lower() in STOPWORDS for w in bare):
         score -= 0.45; reasons.append("stopword_name_component")
-    if len(bare) == 1 and not title and direct == 0:
+    if len(bare) == 1 and not title and direct == 0 and physical == 0:
         score = min(score, 0.44); reasons.append("single_word_without_direct_person_reference")
-    if len(bare) >= 2 and not title and direct == 0 and exact < 3:
+    if len(bare) >= 2 and not title and direct == 0 and physical == 0 and exact < 3:
         score = min(score, 0.47); reasons.append("untitled_name_without_repeated_direct_evidence")
     score = max(0, min(1, score))
     decision = "validated" if score >= 0.75 else "probable" if score >= 0.48 else "review"
