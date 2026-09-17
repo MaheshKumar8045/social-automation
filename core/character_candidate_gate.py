@@ -44,8 +44,12 @@ ACTION_CUE = re.compile(
     r"\b(?:he|she|his|her)\s+(?:said|replied|asked|cried|shouted|looked|turned|stood|sat|walked|ran|came|went|took|gave|held|put|made)\b",
     re.I,
 )
-PHYSICAL_PERSON_CUE = re.compile(
-    r"\b(?:approach\w*|arriv\w*|attack\w*|capture\w*|climb\w*|come|cross\w*|cry\w*|die\w*|enter\w*|fall\w*|flee\w*|follow\w*|fight\w*|fought|grab\w*|hold\w*|kill\w*|look\w*|move\w*|open\w*|reach\w*|return\w*|run\w*|save\w*|sit\w*|stand\w*|take\w*|turn\w*|walk\w*|watch\w*|travel\w*|strike\w*|destroy\w*|burn\w*|collapse\w*|kneel\w*|rise\w*|speak\w*|was|were|is|are|stood|sat|lay|remained|waited|rested|entered|arrived|appeared|left|returned|looked|watched|faced|knelt|rose|walked|ran|fled|followed|held|carried|spoke|sang|wept|cried)\b",
+PHYSICAL_SUBJECT_CUE = re.compile(
+    r"\b(?:approach\w*|arriv\w*|attack\w*|capture\w*|climb\w*|come|cross\w*|cry\w*|die\w*|enter\w*|fall\w*|flee\w*|follow\w*|fight\w*|fought|grab\w*|hold\w*|kill\w*|look\w*|move\w*|open\w*|reach\w*|return\w*|run\w*|save\w*|sit\w*|stand\w*|take\w*|turn\w*|walk\w*|watch\w*|travel\w*|strike\w*|destroy\w*|burn\w*|collapse\w*|kneel\w*|rise\w*|speak\w*|stood|sat|lay|remained|waited|rested|entered|arrived|appeared|left|returned|looked|watched|faced|knelt|rose|walked|ran|fled|followed|held|carried|spoke|sang|wept|cried)\b",
+    re.I,
+)
+COPULA_PHYSICAL = re.compile(
+    r"\b(?:was|were|is|are)\s+(?:standing|stood|sitting|sat|lying|lay|walking|walked|running|ran|fighting|fought|moving|moved|waiting|waited|resting|rested|kneeling|knelt|looking|looked|watching|watched|facing|carrying|holding|held|entering|entered|leaving|left|returning|returned|speaking|spoke|crying|weeping|wept|falling|fell|captured|killed|wounded|burning|climbing|climbed|approaching|approached|arriving|arrived|riding|rode|seated)\b",
     re.I,
 )
 DIRECT_PERSON_CUE = re.compile(
@@ -67,6 +71,30 @@ def norm(name: str) -> str:
     s = re.sub(r"\s+", " ", name.replace("‐", "-").replace("‑", "-").replace("‒", "-").replace("–", "-").replace("—", "-")).strip(" ,.;:\"'")
     s = re.sub(r"\s+([,.;:])", r"\1", s)
     return s[:-1] if s.endswith("-") and len(s) > 3 else s
+
+
+def _physical_presence(name: str, contexts: list[str]) -> int:
+    """Count contexts where the named candidate is explicitly physically present."""
+    name_re = re.escape(name)
+    count = 0
+    for context in contexts:
+        sentences = re.split(r"(?<=[.!?])\s+", context)
+        matched = False
+        for sentence in sentences:
+            if not re.search(rf"\b{name_re}\b", sentence, re.I):
+                continue
+            if re.search(rf"\b{name_re}\b\s+{PHYSICAL_SUBJECT_CUE.pattern}", sentence, re.I):
+                matched = True
+                break
+            if re.search(rf"\b{name_re}\b\s+{COPULA_PHYSICAL.pattern}", sentence, re.I):
+                matched = True
+                break
+            if re.search(rf"\b{name_re}\b\s+(?:was|were|is|are)\s+(?:captured|wounded|killed|carried|held|seen|found)\b", sentence, re.I):
+                matched = True
+                break
+        if matched:
+            count += 1
+    return count
 
 
 def gate(
@@ -108,15 +136,7 @@ def gate(
     speech = sum(1 for x in contexts if SPEECH_CUE.search(x))
     action = sum(1 for x in contexts if ACTION_CUE.search(x))
     direct = sum(1 for x in contexts if re.search(DIRECT_PERSON_CUE.pattern.format(name=re.escape(n)), x, re.I))
-    physical = sum(
-        1
-        for x in contexts
-        if re.search(
-            rf"(?:\b{re.escape(n)}\b[^.!?]{{0,100}}{PHYSICAL_PERSON_CUE.pattern}|{PHYSICAL_PERSON_CUE.pattern}[^.!?]{{0,100}}\b{re.escape(n)}\b)",
-            x,
-            re.I,
-        )
-    )
+    physical = _physical_presence(n, contexts)
 
     if conflicting_entity_types and conflicting_entity_types & {"location", "environment"}:
         if direct == 0 and physical == 0:
