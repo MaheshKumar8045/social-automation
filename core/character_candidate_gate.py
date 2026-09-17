@@ -92,14 +92,19 @@ def _physical_presence(name: str, contexts: list[str]) -> int:
             if re.search(rf"\b{name_re}\b\s+(?:was|were|is|are)\s+(?:captured|wounded|killed|carried|held|seen|found)\b", sentence, re.I):
                 matched = True
                 break
-            # Narrative identification can introduce a character by name and
-            # immediately describe the identified figure's physical presence
-            # in the following sentence, e.g. "It was none other than X. The
-            # tall Asura stood there ...". This is explicit source grounding,
-            # not generic proximity to a physical verb.
+            # Explicit narrative identification may introduce the character by
+            # name and then describe that identified figure in the next sentence.
+            # Keep this narrowly anchored to identity language plus a person
+            # descriptor and physical predicate; do not infer presence from
+            # arbitrary verbs merely occurring near a name.
             if re.search(rf"\bnone\s+other\s+than\s+{name_re}\b", sentence, re.I):
                 for following in sentences[index + 1:index + 2]:
-                    if re.search(r"\b(?:a|an|the)\s+(?:tall|short|young|old|fair|dark|great|wounded|injured|armed)?\s*(?:man|woman|boy|girl|asura|rakshasa|warrior|soldier|king|prince|queen|figure|person)\b.*" + PHYSICAL_SUBJECT_CUE.pattern, following, re.I):
+                    if re.search(
+                        r"\b(?:a|an|the)\b[^.!?]{0,80}\b(?:man|woman|boy|girl|asura|rakshasa|warrior|soldier|king|prince|queen|figure|person)\b[^.!?]{0,80}"
+                        + PHYSICAL_SUBJECT_CUE.pattern,
+                        following,
+                        re.I,
+                    ):
                         matched = True
                         break
                 if matched:
