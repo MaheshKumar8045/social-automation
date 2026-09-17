@@ -139,7 +139,7 @@ def gate(
     if direct:
         score += 0.25; reasons.append("direct_person_reference")
     if physical:
-        score += min(0.30, physical * 0.15); reasons.append("source_physical_presence")
+        score += min(0.30, physical * 0.30); reasons.append("source_physical_presence")
     if speech:
         score += 0.05; reasons.append("speech_context")
     if action:
