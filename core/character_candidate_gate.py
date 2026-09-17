@@ -80,7 +80,7 @@ def _physical_presence(name: str, contexts: list[str]) -> int:
     for context in contexts:
         sentences = re.split(r"(?<=[.!?])\s+", context)
         matched = False
-        for sentence in sentences:
+        for index, sentence in enumerate(sentences):
             if not re.search(rf"\b{name_re}\b", sentence, re.I):
                 continue
             if re.search(rf"\b{name_re}\b\s+{PHYSICAL_SUBJECT_CUE.pattern}", sentence, re.I):
@@ -92,6 +92,18 @@ def _physical_presence(name: str, contexts: list[str]) -> int:
             if re.search(rf"\b{name_re}\b\s+(?:was|were|is|are)\s+(?:captured|wounded|killed|carried|held|seen|found)\b", sentence, re.I):
                 matched = True
                 break
+            # Narrative identification can introduce a character by name and
+            # immediately describe the identified figure's physical presence
+            # in the following sentence, e.g. "It was none other than X. The
+            # tall Asura stood there ...". This is explicit source grounding,
+            # not generic proximity to a physical verb.
+            if re.search(rf"\bnone\s+other\s+than\s+{name_re}\b", sentence, re.I):
+                for following in sentences[index + 1:index + 2]:
+                    if re.search(r"\b(?:a|an|the)\s+(?:tall|short|young|old|fair|dark|great|wounded|injured|armed)?\s*(?:man|woman|boy|girl|asura|rakshasa|warrior|soldier|king|prince|queen|figure|person)\b.*" + PHYSICAL_SUBJECT_CUE.pattern, following, re.I):
+                        matched = True
+                        break
+                if matched:
+                    break
         if matched:
             count += 1
     return count
