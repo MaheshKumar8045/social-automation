@@ -91,6 +91,17 @@ def _valid_plan():
             "long_video": {},
         },
         "source_evidence": [],
+        "llm_scene_semantics": {
+            "status": "ready",
+            "analysis": {
+                "characters": [{
+                    "name": "Lord Shiva",
+                    "scene_role": "visible",
+                    "physical_presence": True,
+                    "evidence": "Lord Shiva stood before them.",
+                }],
+            },
+        },
     }
 
 
@@ -114,6 +125,37 @@ def test_validate_plan_rejects_character_loss_between_plan_and_image_prompt():
     plan["image_prompt"] = "Source-grounded cinematic image of the established scene with no invented visual facts or continuity changes."
     errors = validate_plan(plan)
     assert "image prompt does not contain any canonical character from the generation plan" in errors
+
+
+def test_validate_plan_allows_referenced_only_canonical_character_without_render_name():
+    plan = _valid_plan()
+    plan["characters"].append({
+        "canonical_name": "Professor Mayan",
+        "visual_profile": {
+            "identity_anchor": "vib-test-mayan",
+            "source_facts": [],
+            "inferred_facts": [],
+        },
+    })
+    plan["llm_scene_semantics"]["analysis"]["characters"].append({
+        "name": "Professor Mayan",
+        "scene_role": "referenced",
+        "physical_presence": False,
+        "evidence": "Professor Mayan was mentioned in the report.",
+    })
+    assert validate_plan(plan) == []
+
+
+def test_validate_plan_does_not_require_character_when_validated_scene_has_no_visible_canonical_character():
+    plan = _valid_plan()
+    plan["image_prompt"] = (
+        "Source-grounded cinematic image of the established environment, mobile-first vertical 9:16 composition, "
+        "with clear subject separation and no invented story details. Include one required narrative box in protected "
+        "negative space. SOURCE-ANCHORED SCENE INTERPRETATION: stage the supplied environmental moment. "
+        "CINEMATIC DIRECTION: use intentional camera position, framing, depth and lighting appropriate to the source."
+    )
+    plan["llm_scene_semantics"]["analysis"]["characters"] = []
+    assert validate_plan(plan) == []
 
 
 def test_write_scene_media_files_creates_one_file_per_media_type(tmp_path: Path):
