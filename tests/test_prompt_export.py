@@ -158,6 +158,53 @@ def test_validate_plan_does_not_require_character_when_validated_scene_has_no_vi
     assert validate_plan(plan) == []
 
 
+def test_validate_plan_uses_source_presence_when_llm_semantics_are_rejected():
+    plan = _valid_plan()
+    plan["characters"].append({
+        "canonical_name": "Professor Mayan",
+        "source_presence": {
+            "physical_presence": False,
+            "physical_presence_evidence_count": 0,
+            "classification": "reference_only",
+        },
+        "visual_profile": {
+            "identity_anchor": "vib-test-mayan",
+            "source_facts": [],
+            "inferred_facts": [],
+        },
+    })
+    plan["llm_scene_semantics"] = {
+        "status": "rejected",
+        "analysis": None,
+        "rejected_reasons": ["visible_character_evidence_not_in_source:Professor Mayan"],
+    }
+    assert validate_plan(plan) == []
+
+
+def test_validate_plan_requires_source_physically_present_character_even_when_llm_is_rejected():
+    plan = _valid_plan()
+    plan["characters"] = [{
+        "canonical_name": "Professor Mayan",
+        "source_presence": {
+            "physical_presence": True,
+            "physical_presence_evidence_count": 1,
+            "classification": "physical",
+        },
+        "visual_profile": {
+            "identity_anchor": "vib-test-mayan",
+            "source_facts": [],
+            "inferred_facts": [],
+        },
+    }]
+    plan["llm_scene_semantics"] = {
+        "status": "rejected",
+        "analysis": None,
+        "rejected_reasons": ["model_validation_failed"],
+    }
+    errors = validate_plan(plan)
+    assert "image prompt does not contain any canonical character from the generation plan" in errors
+
+
 def test_write_scene_media_files_creates_one_file_per_media_type(tmp_path: Path):
     plan = _valid_plan()
     record = {
