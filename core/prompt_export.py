@@ -108,6 +108,39 @@ def _write_scene_media_files(output_dir: Path, record: dict[str, Any]) -> None:
     (long_dir / f"{scene_stem}.txt").write_text("\n".join(long_parts) + "\n", encoding="utf-8")
 
 
+def _visible_canonical_names(plan: dict[str, Any], characters: list[Any]) -> list[str]:
+    """Return only canonical identities that the validated scene semantics says are visible.
+
+    The generation context intentionally contains canonical characters for all source mentions,
+    including characters who are merely referenced. When validated LLM scene semantics are present,
+    only characters explicitly classified as physically present may be required in the render prompt.
+    Without validated semantics, retain the conservative legacy requirement.
+    """
+    semantics = _mapping(plan.get("llm_scene_semantics"))
+    analysis = _mapping(semantics.get("analysis"))
+    semantic_characters = analysis.get("characters")
+    if not isinstance(semantic_characters, list):
+        return [
+            str(c.get("canonical_name") or "").strip().lower()
+            for c in characters
+            if isinstance(c, dict) and c.get("canonical_name")
+        ]
+
+    visible: list[str] = []
+    for item in semantic_characters:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip().lower()
+        if (
+            name
+            and item.get("scene_role") == "visible"
+            and item.get("physical_presence") is True
+            and name not in visible
+        ):
+            visible.append(name)
+    return visible
+
+
 def validate_plan(plan: dict[str, Any]) -> list[str]:
     """Validate the canonical generation-plan/media-package contract."""
     errors: list[str] = []
@@ -236,7 +269,7 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
 
     if characters and _nonempty_text(image_prompt):
         lowered_prompt = image_prompt.lower()
-        names = [str(c.get("canonical_name") or "").strip().lower() for c in characters if isinstance(c, dict) and c.get("canonical_name")]
+        names = _visible_canonical_names(plan, characters)
         if names and not any(name in lowered_prompt for name in names):
             errors.append("image prompt does not contain any canonical character from the generation plan")
     return errors
