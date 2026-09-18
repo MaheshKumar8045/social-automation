@@ -7,6 +7,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .character_candidate_gate import physical_presence_count
 from .world_context import build_world_profile
 
 
@@ -118,6 +119,8 @@ class GenerationContext:
                    ORDER BY em.page_start, em.id""",
                 (document_id, scene_id, cid),
             ).fetchall()]
+            presence_contexts = [str(mention.get("context") or "") for mention in mentions if mention.get("context")]
+            physical_count = physical_presence_count(str(row["canonical_name"]), presence_contexts)
             result.append({
                 "canonical_character_id": cid,
                 "canonical_name": row["canonical_name"],
@@ -126,6 +129,11 @@ class GenerationContext:
                 "aliases": aliases,
                 "visual_facts": facts,
                 "scene_mentions": mentions,
+                "source_presence": {
+                    "physical_presence": physical_count > 0,
+                    "physical_presence_evidence_count": physical_count,
+                    "classification": "physical" if physical_count > 0 else "reference_only",
+                },
                 "unknown_visual_attributes": True,
             })
         return result
