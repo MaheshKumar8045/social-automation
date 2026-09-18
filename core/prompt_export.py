@@ -109,36 +109,55 @@ def _write_scene_media_files(output_dir: Path, record: dict[str, Any]) -> None:
 
 
 def _visible_canonical_names(plan: dict[str, Any], characters: list[Any]) -> list[str]:
-    """Return only canonical identities that the validated scene semantics says are visible.
+    """Return canonical identities that source evidence requires in the visual frame.
 
-    The generation context intentionally contains canonical characters for all source mentions,
-    including characters who are merely referenced. When validated LLM scene semantics are present,
-    only characters explicitly classified as physically present may be required in the render prompt.
-    Without validated semantics, retain the conservative legacy requirement.
+    Canonical characters are collected from scene mentions, so mention membership alone
+    is never sufficient to require a render name. Deterministic source physical-presence
+    evidence is the authority when validated LLM semantics are unavailable or rejected.
+    Validated LLM semantics may further identify visible characters, but they cannot create
+    physical presence that source evidence does not establish.
     """
+    deterministic: list[str] = []
+    by_name: dict[str, str] = {}
+    for character in characters:
+        if not isinstance(character, dict):
+            continue
+        canonical = str(character.get("canonical_name") or "").strip()
+        if not canonical:
+            continue
+        key = canonical.casefold()
+        by_name[key] = canonical
+        presence = _mapping(character.get("source_presence"))
+        if presence.get("physical_presence") is True and key not in {x.casefold() for x in deterministic}:
+            deterministic.append(canonical)
+
     semantics = _mapping(plan.get("llm_scene_semantics"))
     analysis = _mapping(semantics.get("analysis"))
     semantic_characters = analysis.get("characters")
     if not isinstance(semantic_characters, list):
-        return [
-            str(c.get("canonical_name") or "").strip().lower()
-            for c in characters
-            if isinstance(c, dict) and c.get("canonical_name")
-        ]
+        return [x.casefold() for x in deterministic]
 
     visible: list[str] = []
     for item in semantic_characters:
         if not isinstance(item, dict):
             continue
-        name = str(item.get("name") or "").strip().lower()
+        name = str(item.get("name") or "").strip()
+        key = name.casefold()
         if (
             name
             and item.get("scene_role") == "visible"
             and item.get("physical_presence") is True
-            and name not in visible
+            and key in by_name
+            and key not in {x.casefold() for x in visible}
         ):
-            visible.append(name)
-    return visible
+            visible.append(by_name[key])
+
+    # LLM semantics are advisory. Source-confirmed physical presence remains
+    # required even if the model omits a physically present canonical identity.
+    for canonical in deterministic:
+        if canonical.casefold() not in {x.casefold() for x in visible}:
+            visible.append(canonical)
+    return [x.casefold() for x in visible]
 
 
 def validate_plan(plan: dict[str, Any]) -> list[str]:
