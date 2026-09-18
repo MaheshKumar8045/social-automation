@@ -73,7 +73,7 @@ def norm(name: str) -> str:
     return s[:-1] if s.endswith("-") and len(s) > 3 else s
 
 
-def _physical_presence(name: str, contexts: list[str]) -> int:
+def physical_presence_count(name: str, contexts: list[str]) -> int:
     """Count contexts where the named candidate is explicitly physically present."""
     name_re = re.escape(name)
     count = 0
@@ -153,7 +153,7 @@ def gate(
     speech = sum(1 for x in contexts if SPEECH_CUE.search(x))
     action = sum(1 for x in contexts if ACTION_CUE.search(x))
     direct = sum(1 for x in contexts if re.search(DIRECT_PERSON_CUE.pattern.format(name=re.escape(n)), x, re.I))
-    physical = _physical_presence(n, contexts)
+    physical = physical_presence_count(n, contexts)
 
     if conflicting_entity_types and conflicting_entity_types & {"location", "environment"}:
         if direct == 0 and physical == 0:
@@ -238,3 +238,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# Backward-compatible alias for internal callers/tests that used the former private helper.
+_physical_presence = physical_presence_count
