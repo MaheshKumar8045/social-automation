@@ -5,6 +5,8 @@ import json
 import re
 from typing import Any
 
+from .character_candidate_gate import physical_presence_count
+from .visual_continuity import fixed_style_block, subject_policy, overlay_contract
 from .visual_generation_policy import composition_policy, enrich_character, load_visual_policy
 
 
@@ -69,6 +71,7 @@ def _visual_moments(scene: dict[str, Any], events: list[dict[str, Any]], charact
         _clean(c.get("canonical_name"), 100).lower()
         for c in characters
         if c.get("canonical_name")
+        and (c.get("source_presence") or {}).get("physical_presence") is True
     ]
     candidates: list[tuple[int, str]] = []
     for event in events:
@@ -113,7 +116,7 @@ def _character_lines(characters: list[dict[str, Any]]) -> list[str]:
     for raw in characters:
         character = raw
         name = _clean(character.get("canonical_name"), 100)
-        if not name:
+        if not name or (character.get("source_presence") or {}).get("physical_presence") is not True:
             continue
         profile = character.get("visual_profile") or {}
         source_facts = profile.get("source_facts") or []
@@ -213,6 +216,7 @@ def _base_prompt(
         f"Source-grounded {inference_genre} media depiction.",
         f"Scene {scene.get('scene_order', '')}: {_clean(scene.get('title'), 160)}.",
         _layout_prompt(layout),
+        fixed_style_block(None, inference_genre),
         "Preserve canonical identity anchors across every scene. "
         "Source-supported visual facts have priority; controlled visual inference is allowed only "
         "for missing production details and must never contradict source evidence.",
@@ -234,6 +238,17 @@ def _base_prompt(
     if env:
         parts.append("SOURCE-IDENTIFIED OBJECTS / ENVIRONMENT STATE: " + ", ".join(env) + ".")
     parts.append(
+        subject_policy({
+            "visible_characters": [
+                {"name": c.get("canonical_name")}
+                for c in characters
+                if (c.get("source_presence") or {}).get("physical_presence") is True
+            ],
+            "source_participants": [],
+        })
+    )
+    parts.append(overlay_contract({}))
+    parts.append(
         "Ultra-realistic cinematic live-action presentation, physically credible anatomy and materials, "
         "cinematic depth, readable subject separation, natural lighting consistent with the scene, "
         "no modern elements unless source-supported."
@@ -247,10 +262,28 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
     policy = context.get("visual_generation_policy") or load_visual_policy()
     world_profile = context.get("world_profile") or {}
     genre = context.get("visual_genre") or policy.get("default_genre", "general_narrative")
+    prepared_characters = []
+    for raw in raw_characters:
+        if not raw.get("canonical_name"):
+            continue
+        character = dict(raw)
+        presence = character.get("source_presence")
+        if not isinstance(presence, dict):
+            contexts = [
+                str(m.get("context") or "")
+                for m in character.get("scene_mentions") or []
+                if isinstance(m, dict) and m.get("context")
+            ]
+            count = physical_presence_count(str(character.get("canonical_name")), contexts)
+            character["source_presence"] = {
+                "physical_presence": count > 0,
+                "physical_presence_evidence_count": count,
+                "classification": "physical" if count > 0 else "reference_only",
+            }
+        prepared_characters.append(character)
     characters = [
         enrich_character(c, genre=genre, policy=policy, world_context=world_profile)
-        for c in raw_characters
-        if c.get("canonical_name")
+        for c in prepared_characters
     ]
     objects = context.get("objects") or []
     events = context.get("events") or []
@@ -354,12 +387,13 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
         "unknowns_must_remain_unknown": True,
         "visual_inference": inference_summary,
         "image": {
-            "prompt": base + " Include one required dialogue-or-narrative box in a protected safe region.",
+            "prompt": base + " Reserve protected negative space for the required deterministic dialogue/narrative overlay. Generate clean artwork only; do not render the text or box inside the image.",
             "dialogue_overlays": overlays,
             "layout": {
                 **layout,
                 "dialogue_box_count_minimum": layout["dialogue_box_min_count"],
-                "text_rendering": "Render readable text as a separate deterministic overlay whenever the production system supports it.",
+                "text_rendering": "deterministic overlay",
+                "overlay_style": "fixed project style: near-black translucent panel, warm-white Georgia regular serif, left aligned, consistent padding",
                 "placement_algorithm": "Choose the largest safe negative-space region opposite the main subject/action; never overlap faces, hands, important objects, or the primary action.",
             },
         },
