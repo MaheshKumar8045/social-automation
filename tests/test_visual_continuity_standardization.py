@@ -134,3 +134,37 @@ def test_enrichment_preserves_existing_identity_anchor():
     result = enrich_character(character, genre="mythology", world_context={})
     assert result["visual_profile"]["identity_anchor"] == "vib-approved-anchor"
     assert result["visual_profile"]["source_facts"][0]["value"] == "approved robe"
+
+
+def test_overlay_renderer_missing_input_directory_is_actionable(tmp_path):
+    from core.render_text_overlays import process_directory
+    result = process_directory(
+        tmp_path / "does-not-exist",
+        tmp_path / "final",
+        tmp_path / "all_prompts.json",
+    )
+    assert result["processed"] == 0
+    assert any("input image directory not found" in item for item in result["failures"])
+
+
+def test_overlay_renderer_does_not_publish_partial_output(tmp_path):
+    from core.render_text_overlays import process_directory
+    import json
+    from PIL import Image
+
+    package = tmp_path / "all_prompts.json"
+    package.write_text(json.dumps({"scenes": [{"scene_id": 1, "scene_order": 1, "plan": {"image_dialogue_overlays": [{"text": "Hello"}]}}]}), encoding="utf-8")
+    images = tmp_path / "images"
+    images.mkdir()
+    Image.new("RGB", (100, 100), (90, 90, 90)).save(images / "scene_001.png")
+    result = process_directory(
+        images,
+        tmp_path / "final",
+        package,
+        expected_count=2,
+        require_complete=True,
+    )
+    assert result["processed"] == 1
+    assert result["failures"]
+    assert not (tmp_path / "final").exists()
+    assert (tmp_path / "final.staging").exists()
