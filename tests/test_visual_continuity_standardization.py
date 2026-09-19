@@ -117,3 +117,20 @@ def test_deterministic_overlay_produces_consistent_panel_and_legible_text():
     assert first.size == second.size == image.size
     assert first.tobytes() == second.tobytes()
     assert first.tobytes() != image.convert("RGBA").tobytes()
+
+
+def test_enrichment_preserves_existing_identity_anchor():
+    from core.visual_generation_policy import enrich_character
+    character = {
+        "canonical_character_id": 99,
+        "canonical_name": "Test Character",
+        "visual_profile": {
+            "identity_anchor": "vib-approved-anchor",
+            "source_facts": [{"attribute": "costume", "value": "approved robe"}],
+            "inferred_facts": [],
+            "visual_role": "ruler",
+        },
+    }
+    result = enrich_character(character, genre="mythology", world_context={})
+    assert result["visual_profile"]["identity_anchor"] == "vib-approved-anchor"
+    assert result["visual_profile"]["source_facts"][0]["value"] == "approved robe"
