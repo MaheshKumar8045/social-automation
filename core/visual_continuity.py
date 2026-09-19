@@ -116,7 +116,9 @@ def character_identity_block(character: dict[str, Any]) -> str:
         )
     parts.append(
         "Scene variables may change only when source evidence requires them: pose, expression, action, "
-        "temporary condition, camera, and source-motivated lighting."
+        "temporary condition, camera, and source-motivated lighting. Crowns, jewelry, armor, weapons, "
+        "headgear, makeup, or other accessories are not implied by rank, title, mythology, or genre alone; "
+        "they require source evidence or an approved character reference."
     )
     return " ".join(parts)
 
