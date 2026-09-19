@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import os
+import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -87,17 +89,16 @@ def refresh_plan(plan: dict[str, Any]) -> dict[str, Any]:
     return plan
 
 
-def refresh_package(package_path: Path, output_dir: Path | None = None) -> dict[str, Any]:
+def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply: bool = False) -> dict[str, Any]:
+    if not package_path.is_file():
+        raise FileNotFoundError(f"Generation package not found: {package_path}")
     package = json.loads(package_path.read_text(encoding="utf-8"))
-    backup_path = package_path.with_name(package_path.stem + ".pre_visual_continuity.json")
-    if not backup_path.exists():
-        shutil.copy2(package_path, backup_path)
     scenes = package.get("scenes")
     if not isinstance(scenes, list):
         raise ValueError("all_prompts.json has no scenes list")
 
     if output_dir is None:
-        output_dir = package_path.parent
+        output_dir = package_path.parent / "_visual_continuity_refresh"
     output_dir.mkdir(parents=True, exist_ok=True)
     failures: list[dict[str, Any]] = []
     refreshed: list[dict[str, Any]] = []
@@ -157,7 +158,23 @@ def refresh_package(package_path: Path, output_dir: Path | None = None) -> dict[
     }
     new_package["stages"] = stages
 
-    package_path.write_text(json.dumps(new_package, ensure_ascii=False, indent=2), encoding="utf-8")
+    if apply and not failures:
+        backup_path = package_path.with_name(package_path.stem + ".pre_visual_continuity.json")
+        if not backup_path.exists():
+            shutil.copy2(package_path, backup_path)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=str(package_path.parent),
+            prefix=package_path.stem + ".",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            json.dump(new_package, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temp_name = handle.name
+        os.replace(temp_name, package_path)
     summary = {
         "scene_count": len(refreshed),
         "qa_passed": not failures,
@@ -165,6 +182,8 @@ def refresh_package(package_path: Path, output_dir: Path | None = None) -> dict[
         "qa_failure_counts": new_package["qa_failure_counts"],
         "output_dir": str(output_dir),
         "model_calls": 0,
+        "applied": bool(apply and not failures),
+        "source_package_modified": bool(apply and not failures),
     }
     (output_dir / "character_reference_manifest.json").write_text(
         json.dumps(
@@ -187,11 +206,17 @@ def main() -> None:
         description="Deterministically refresh media prompts from an existing all_prompts.json without rerunning LLM scene semantics."
     )
     parser.add_argument("package", help="Path to existing all_prompts.json")
-    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--output-dir", default=None, help="Directory for refreshed media files and QA report. Defaults to a sibling refresh directory.")
+    parser.add_argument("--apply", action="store_true", help="Replace the source package only when every scene passes QA. Without this flag the source package is never modified.")
     args = parser.parse_args()
-    summary = refresh_package(Path(args.package), Path(args.output_dir) if args.output_dir else None)
+    summary = refresh_package(
+        Path(args.package),
+        Path(args.output_dir) if args.output_dir else None,
+        apply=args.apply,
+    )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     if not summary["qa_passed"]:
+        print("QA failed; source package was not modified.", flush=True)
         raise SystemExit(1)
 
 
