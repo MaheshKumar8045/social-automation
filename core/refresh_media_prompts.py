@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -88,6 +89,9 @@ def refresh_plan(plan: dict[str, Any]) -> dict[str, Any]:
 
 def refresh_package(package_path: Path, output_dir: Path | None = None) -> dict[str, Any]:
     package = json.loads(package_path.read_text(encoding="utf-8"))
+    backup_path = package_path.with_name(package_path.stem + ".pre_visual_continuity.json")
+    if not backup_path.exists():
+        shutil.copy2(package_path, backup_path)
     scenes = package.get("scenes")
     if not isinstance(scenes, list):
         raise ValueError("all_prompts.json has no scenes list")
