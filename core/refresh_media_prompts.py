@@ -9,6 +9,7 @@ from typing import Any
 from .character_candidate_gate import physical_presence_count
 from .cinematic_generation import enhance_generation_package
 from .media_prompt_compiler import compile_media_prompts
+from .visual_generation_policy import enrich_character, load_visual_policy
 from .prompt_export import _write_scene_media_files, validate_plan
 
 
@@ -50,9 +51,19 @@ def refresh_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "generation_constraints": plan.get("generation_constraints") or [],
     }
     media = compile_media_prompts(context, clip_count=3)
+    policy = context.get("visual_generation_policy") or load_visual_policy()
+    enriched_characters = [
+        enrich_character(
+            c,
+            genre=context["visual_genre"],
+            policy=policy,
+            world_context=context["world_profile"],
+        )
+        for c in characters
+    ]
     media = enhance_generation_package(
         scene=scene,
-        characters=media.get("_characters") or characters,
+        characters=enriched_characters,
         objects=context["objects"],
         events=context["events"],
         continuity=context["continuity"],
