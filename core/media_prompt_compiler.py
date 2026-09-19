@@ -262,31 +262,39 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
     policy = context.get("visual_generation_policy") or load_visual_policy()
     world_profile = context.get("world_profile") or {}
     genre = context.get("visual_genre") or policy.get("default_genre", "general_narrative")
+    events = context.get("events") or []
+    event_contexts = [
+        str(event.get("text") or "")
+        for event in events
+        if isinstance(event, dict) and event.get("text")
+    ]
     prepared_characters = []
     for raw in raw_characters:
         if not raw.get("canonical_name"):
             continue
         character = dict(raw)
-        presence = character.get("source_presence")
-        if not isinstance(presence, dict):
-            contexts = [
-                str(m.get("context") or "")
-                for m in character.get("scene_mentions") or []
-                if isinstance(m, dict) and m.get("context")
-            ]
-            count = physical_presence_count(str(character.get("canonical_name")), contexts)
-            character["source_presence"] = {
-                "physical_presence": count > 0,
-                "physical_presence_evidence_count": count,
-                "classification": "physical" if count > 0 else "reference_only",
-            }
+        contexts = [
+            str(m.get("context") or "")
+            for m in character.get("scene_mentions") or []
+            if isinstance(m, dict) and m.get("context")
+        ]
+        count = physical_presence_count(
+            str(character.get("canonical_name")),
+            contexts + event_contexts,
+        )
+        # Always recompute scene-local presence from current source evidence.
+        # A stale derived flag must never override the current scene.
+        character["source_presence"] = {
+            "physical_presence": count > 0,
+            "physical_presence_evidence_count": count,
+            "classification": "physical" if count > 0 else "reference_only",
+        }
         prepared_characters.append(character)
     characters = [
         enrich_character(c, genre=genre, policy=policy, world_context=world_profile)
         for c in prepared_characters
     ]
     objects = context.get("objects") or []
-    events = context.get("events") or []
     continuity = context.get("continuity") or {}
     layout = composition_policy(policy)
 
