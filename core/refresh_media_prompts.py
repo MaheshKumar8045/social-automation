@@ -17,8 +17,13 @@ from .visual_generation_policy import enrich_character, load_visual_policy
 from .prompt_export import _write_scene_media_files, validate_plan
 
 
-def _prepare_characters(characters: list[Any]) -> list[dict[str, Any]]:
+def _prepare_characters(characters: list[Any], events: list[Any] | None = None) -> list[dict[str, Any]]:
     prepared: list[dict[str, Any]] = []
+    event_contexts = [
+        str(event.get("text") or "")
+        for event in (events or [])
+        if isinstance(event, dict) and event.get("text")
+    ]
     for raw in characters:
         if not isinstance(raw, dict) or not raw.get("canonical_name"):
             continue
@@ -28,7 +33,10 @@ def _prepare_characters(characters: list[Any]) -> list[dict[str, Any]]:
             for m in character.get("scene_mentions") or []
             if isinstance(m, dict) and m.get("context")
         ]
-        count = physical_presence_count(str(character.get("canonical_name")), contexts)
+        count = physical_presence_count(
+            str(character.get("canonical_name")),
+            contexts + event_contexts,
+        )
         # Recompute this scene-local signal on every refresh. Never trust a stale
         # derived presence flag from an older package revision.
         character["source_presence"] = {
@@ -42,7 +50,10 @@ def _prepare_characters(characters: list[Any]) -> list[dict[str, Any]]:
 
 def refresh_plan(plan: dict[str, Any]) -> dict[str, Any]:
     scene = plan.get("scene") or {}
-    characters = _prepare_characters(plan.get("characters") or [])
+    characters = _prepare_characters(
+        plan.get("characters") or [],
+        plan.get("events") or [],
+    )
     context = {
         "scene": scene,
         "characters": characters,
