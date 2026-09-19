@@ -72,3 +72,49 @@ def test_cinematic_arc_matches_travel():
 def test_first_person_dialogue_is_marked_as_narration():
     result = _intent("I watched the ruined city from afar.", dialogue=["I watched the ruined city from afar."])
     assert result["dialogue_kind"] == "first_person_narration"
+
+
+def test_source_presence_is_authoritative_for_visible_character_intent():
+    character = {
+        "canonical_name": "Professor Mayan",
+        "source_presence": {
+            "physical_presence": True,
+            "physical_presence_evidence_count": 1,
+            "classification": "physical",
+        },
+        "scene_mentions": [
+            {
+                "context": "Professor Mayan was there with twenty of his best technicians."
+            }
+        ],
+    }
+    result = _intent(
+        "One by one, the delegates arrived. Professor Mayan was there with twenty of his best technicians.",
+        characters=[character],
+        events=[],
+    )
+    assert result["visible_characters"]
+    assert result["visible_characters"][0]["name"] == "Professor Mayan"
+
+
+def test_reference_only_presence_does_not_become_visible():
+    character = {
+        "canonical_name": "Professor Mayan",
+        "source_presence": {
+            "physical_presence": False,
+            "physical_presence_evidence_count": 0,
+            "classification": "reference_only",
+        },
+        "scene_mentions": [
+            {
+                "context": "Maricha had brought Professor Mayan with twenty technicians."
+            }
+        ],
+    }
+    result = _intent(
+        "Maricha had brought Professor Mayan with twenty technicians.",
+        characters=[character],
+        events=[],
+    )
+    assert result["visible_characters"] == []
+    assert result["referenced_characters"] == ["Professor Mayan"]
