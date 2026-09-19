@@ -153,7 +153,7 @@ def test_overlay_renderer_does_not_publish_partial_output(tmp_path):
     from PIL import Image
 
     package = tmp_path / "all_prompts.json"
-    package.write_text(json.dumps({"scenes": [{"scene_id": 1, "scene_order": 1, "plan": {"image_dialogue_overlays": [{"text": "Hello"}]}}]}), encoding="utf-8")
+    package.write_text(json.dumps({"scenes": [{"scene_id": 1, "scene_order": 1, "plan": {"scene_id": 1, "scene_order": 1, "image_dialogue_overlays": [{"text": "Hello"}]}}]}), encoding="utf-8")
     images = tmp_path / "images"
     images.mkdir()
     Image.new("RGB", (100, 100), (90, 90, 90)).save(images / "scene_001.png")
