@@ -1,0 +1,1055 @@
+SOCIAL AUTOMATION — BACKLOG SPECIFICATION
+TEXTBOOK / MATHEMATICS CONCEPT UNDERSTANDING + LOGICAL VISUAL PROOF ENGINE
+
+Status: BACKLOG ONLY — DO NOT IMPLEMENT UNTIL THE CURRENT NOVEL/CINEMATIC PIPELINE IS COMPLETED AND VALIDATED.
+Branch: llm-local-qwen
+Purpose: Preserve the complete design discussed for a future domain extension so implementation can resume from this specification without relying on conversational memory.
+
+================================================================================
+1. PRODUCT INTENT
+================================================================================
+
+The current system is primarily designed for narrative/cinematic source material. The future extension must allow a source PDF to be identified as a textbook, especially a Class 10 mathematics textbook, and processed through a domain-specific mathematical understanding pipeline.
+
+The key product principle is:
+
+    DO NOT FORCE TEXTBOOKS INTO THE NOVEL/CINEMATIC SCENE MODEL.
+
+The PDF/document ingestion infrastructure should remain reusable, but semantic interpretation must become document-domain aware.
+
+For mathematics, the system must not merely summarize or paraphrase a concept. For every important concept, theorem, formula, construction, derivation, or problem type, it should build a logically correct interpretation that explains WHY the mathematics is true and then convert that reasoning into an appropriate visual construction or animation plan.
+
+Core target flow:
+
+    PDF
+      -> document type detection
+      -> textbook structure extraction
+      -> mathematical content extraction
+      -> exact mathematical representation
+      -> concept/relationship model
+      -> logical interpretation
+      -> proof/derivation validation
+      -> visual construction plan
+      -> animation/diagram plan
+      -> educational media generation
+      -> automated mathematical QA
+
+The future system should be dynamic and should NOT hard-code individual textbook chapters or examples.
+
+================================================================================
+2. EXAMPLE: PYTHAGOREAN THEOREM
+================================================================================
+
+Example source concept:
+
+    Pythagorean theorem
+    a^2 + b^2 = c^2
+
+The system should understand that the desired output is not simply an image containing the equation.
+
+For a right-angled triangle with:
+
+    a = 2
+    b = 3
+    c = hypotenuse
+
+it should construct a conceptually meaningful visual explanation.
+
+Expected logical sequence:
+
+1. Establish a right-angled triangle.
+2. Identify the two perpendicular sides as a and b.
+3. Construct a square whose side length is a.
+4. Construct a square whose side length is b.
+5. Identify the areas of those squares as a^2 and b^2.
+6. Construct a square whose side is the hypotenuse c.
+7. Establish the geometric relationship between the component areas and the hypotenuse square.
+8. Visually demonstrate that the area represented by a^2 plus the area represented by b^2 equals the area represented by c^2.
+9. Show the numerical instance:
+
+       a = 2
+       b = 3
+       c^2 = 2^2 + 3^2 = 4 + 9 = 13
+       c = sqrt(13)
+
+10. End with the general relationship a^2 + b^2 = c^2.
+
+IMPORTANT: The example above describes the desired conceptual construction, but the implementation must choose a mathematically valid proof/visualization strategy. It must not invent a geometric transformation merely because it looks convincing. If a rearrangement/proof is used, the exact construction, preserved areas, assumptions, and transformation steps must be mathematically valid.
+
+The visual should communicate WHY the relationship is true, not only state the relationship.
+
+================================================================================
+3. DOMAIN SEPARATION
+================================================================================
+
+The architecture should evolve from a single interpretation pipeline into a shared document engine with domain-specific semantic pipelines.
+
+Conceptually:
+
+                       +-> Narrative/Cinematic pipeline
+                       |
+    PDF -> Document -> +-> Mathematics/Education pipeline
+          understanding|
+                       +-> Future Science pipeline
+                       |
+                       +-> Future History/Geography pipelines
+
+Do not duplicate PDF ingestion unnecessarily. Reuse extraction, page handling, document metadata, persistence, OCR/image handling, and common validation infrastructure wherever appropriate.
+
+The mathematical pipeline must not depend on concepts such as:
+
+- canonical story characters
+- physical character presence
+- narrative scene continuity
+- cinematic character blocking
+- fictional world knowledge
+
+Those are narrative-domain concepts and should remain isolated.
+
+================================================================================
+4. DOCUMENT TYPE DETECTION
+================================================================================
+
+Implement dynamic document classification before semantic interpretation.
+
+Candidate document types should include at minimum:
+
+- narrative/novel
+- textbook
+- mathematics textbook
+- worksheet/problem set
+- reference/manual
+- unknown
+
+Classification evidence can include:
+
+- table of contents structure
+- chapter/section headings
+- formula density
+- equation density
+- exercise/question numbering
+- theorem/definition/proposition keywords
+- diagram/graph frequency
+- mathematical symbols
+- repeated worked-example patterns
+- instructional language
+
+Classification must be confidence-scored.
+
+If classification confidence is low, the system should not silently force the document into the wrong domain. It should retain an unknown/mixed classification and use the safest available extraction path.
+
+================================================================================
+5. MATHEMATICS TEXTBOOK STRUCTURE EXTRACTION
+================================================================================
+
+Recognize and persist textbook hierarchy dynamically:
+
+Book
+  -> Part
+  -> Chapter
+  -> Section
+  -> Subsection
+  -> Concept
+  -> Definition/Theorem/Property
+  -> Worked Example
+  -> Derivation/Proof
+  -> Exercise/Question
+  -> Diagram/Graph/Table
+  -> Summary/Key Points
+
+Preserve source page numbers and source locations for every extracted item.
+
+Do not destroy the original ordering.
+
+The source text must remain available alongside normalized semantic data.
+
+================================================================================
+6. EXACT MATHEMATICAL SOURCE PRESERVATION
+================================================================================
+
+This is a critical correctness requirement.
+
+Mathematical expressions must not be treated like ordinary prose where approximate paraphrasing is acceptable.
+
+For each mathematical expression, retain:
+
+- source_text
+- source_formula
+- normalized_formula
+- mathematical notation representation where possible
+- source page
+- source bounding box/region where available
+- extraction confidence
+- surrounding explanation
+- related concept ID
+
+Example:
+
+    source_formula: "a² + b² = c²"
+    normalized_formula: "a^2 + b^2 = c^2"
+
+The system must never silently change mathematical meaning.
+
+Examples of unacceptable transformations:
+
+    2x + 3 = 11  ->  x + 3 = 11
+    x^2          ->  2x
+    >=           ->  >
+    sqrt(13)     ->  13
+
+Any uncertain extraction must be flagged for validation rather than guessed.
+
+================================================================================
+7. MATHEMATICAL SEMANTIC MODEL
+================================================================================
+
+Create a structured mathematical knowledge representation rather than relying entirely on free-form LLM output.
+
+A concept record should be capable of representing:
+
+- concept_id
+- title
+- definition
+- domain/topic
+- prerequisites
+- symbols
+- variables
+- constants
+- assumptions
+- formulas
+- relationships
+- units where relevant
+- examples
+- counterexamples where relevant
+- theorems/properties
+- proof/derivation references
+- source references
+- diagrams
+- logical interpretation
+- visual construction
+- validation status
+- confidence
+
+Relationships should be explicit where possible, for example:
+
+    PERPENDICULAR_TO
+    EQUAL_TO
+    PARALLEL_TO
+    CONGRUENT_TO
+    SIMILAR_TO
+    SUM_OF
+    PRODUCT_OF
+    SQUARE_OF
+    AREA_OF
+    LENGTH_OF
+    DEPENDS_ON
+    DERIVED_FROM
+    IMPLIES
+    CONTRADICTS
+    ASSUMES
+
+Do not rely on names alone when mathematical relationships can be represented structurally.
+
+================================================================================
+8. LOGICAL INTERPRETATION ENGINE
+================================================================================
+
+For every concept where a meaningful explanation is possible, create a structured logical interpretation.
+
+The interpretation should answer:
+
+- What is given?
+- What must be established?
+- What definitions are being used?
+- What assumptions are required?
+- What intermediate relationships connect the given facts to the conclusion?
+- Why does each step follow?
+- What invariant or conserved quantity is being used?
+- What transformation is being performed?
+- What would make the argument invalid?
+- What final equation/property follows?
+
+The result should be represented as structured steps, not only prose.
+
+Example:
+
+    STEP 1: Construct right triangle ABC.
+    STEP 2: Identify AB = a, BC = b, AC = c.
+    STEP 3: Establish angle B = 90 degrees.
+    STEP 4: Construct squares on AB, BC and AC.
+    STEP 5: Associate square areas with a^2, b^2 and c^2.
+    STEP 6: Apply a mathematically valid area argument.
+    STEP 7: Establish a^2 + b^2 = c^2.
+
+Each step should contain evidence/reasoning and, where applicable, a machine-checkable representation.
+
+================================================================================
+9. PROOF / DERIVATION STRATEGY
+================================================================================
+
+Do not use one generic proof method for every concept.
+
+The system should select an appropriate proof/derivation strategy dynamically from available strategies.
+
+Potential strategies include:
+
+- direct algebraic derivation
+- geometric construction
+- area comparison
+- rearrangement
+- similarity
+- congruence
+- coordinate geometry
+- graph-based reasoning
+- proportional reasoning
+- substitution
+- contradiction
+- induction where appropriate
+- numerical demonstration as an example, not as proof
+
+The selected strategy must be appropriate to the theorem/concept and source level.
+
+For a Class 10 audience, visual and intuitive reasoning should be preferred when it accurately communicates the underlying logic, but rigor must not be sacrificed.
+
+A numerical example such as a=2 and b=3 is an illustration of the theorem, NOT by itself a proof of the general theorem.
+
+================================================================================
+10. MATHEMATICAL VALIDATION LAYER
+================================================================================
+
+This layer is mandatory before visual generation.
+
+LLM-generated reasoning must not be considered correct merely because it sounds plausible.
+
+Use deterministic validation wherever possible.
+
+Potential tools/approaches:
+
+- symbolic algebra systems
+- SymPy or equivalent symbolic engine
+- exact arithmetic
+- equation parsers
+- geometric constraint solvers
+- numerical verification
+- dimensional/unit checking
+- graph consistency checks
+- theorem-specific validators
+- custom rule validators
+
+For example:
+
+    c^2 = a^2 + b^2
+    a=2, b=3
+    -> c^2=13
+    -> c=sqrt(13)
+
+The validator should confirm the algebraic chain.
+
+For geometric proofs, validate:
+
+- right-angle constraints
+- side/segment relationships
+- square construction dimensions
+- area calculations
+- transformation/rearrangement invariants
+- non-overlap/coverage assumptions where relevant
+- equality of represented areas
+- orientation constraints
+
+If validation cannot establish correctness, mark the interpretation as unverified and prevent it from being presented as a proven explanation.
+
+================================================================================
+11. VISUAL CONSTRUCTION ENGINE
+================================================================================
+
+The visual system should generate an explicit construction plan from the logical interpretation.
+
+A visual plan should contain:
+
+- canvas/aspect ratio
+- coordinate system
+- objects
+- object types
+- dimensions
+- labels
+- constraints
+- relationships
+- construction order
+- animation order
+- transformations
+- highlights
+- annotations
+- equations shown at each stage
+- narration/explanation associated with each stage
+- final conclusion
+
+Example object types:
+
+- point
+- line
+- segment
+- ray
+- angle
+- triangle
+- rectangle
+- square
+- circle
+- polygon
+- arc
+- coordinate axis
+- graph
+- vector
+- number line
+- region/area
+- text label
+- equation
+- transformation
+
+The system must prefer mathematically generated geometry over an image model's attempt to draw exact mathematical diagrams.
+
+For diagrams requiring exact geometry, use programmatic/vector rendering whenever possible. Generative images may be used for decorative educational illustrations, but they must not be the authoritative source for mathematical geometry.
+
+================================================================================
+12. PYTHAGOREAN THEOREM ANIMATION PLAN — REFERENCE EXAMPLE
+================================================================================
+
+A possible educational sequence:
+
+FRAME/SCENE 1 — Establish the triangle
+
+- Draw a right-angled triangle.
+- Mark the right angle.
+- Label perpendicular sides a and b.
+- Label hypotenuse c.
+- Keep geometry exact.
+
+FRAME/SCENE 2 — Construct square on a
+
+- Extend the side a outward.
+- Construct a square with side a.
+- Display area = a^2.
+
+FRAME/SCENE 3 — Construct square on b
+
+- Construct a square with side b.
+- Display area = b^2.
+
+FRAME/SCENE 4 — Construct square on c
+
+- Construct the square on the hypotenuse.
+- Display area = c^2.
+
+FRAME/SCENE 5 — Explain the relationship
+
+- Highlight the two smaller square areas.
+- Highlight the large square.
+- Use a valid geometric proof/rearrangement or another mathematically justified construction.
+- Preserve area throughout the animation.
+
+FRAME/SCENE 6 — Numerical example
+
+Use:
+
+    a=2
+    b=3
+
+Then calculate:
+
+    a^2 = 4
+    b^2 = 9
+    a^2+b^2 = 13
+    c^2 = 13
+    c=sqrt(13)
+
+Clearly distinguish this example from the general proof.
+
+FRAME/SCENE 7 — General conclusion
+
+Reveal:
+
+    a^2 + b^2 = c^2
+
+Narration should explain that the geometric relationship is what establishes the theorem.
+
+IMPORTANT: The actual proof strategy chosen by implementation must be mathematically valid. This backlog example defines the intended pedagogical structure, not permission to use an invalid construction.
+
+================================================================================
+13. ANIMATION SEMANTICS
+================================================================================
+
+Animation should represent logical operations, not random motion.
+
+Supported semantic actions should eventually include:
+
+- CREATE
+- DRAW
+- EXTEND
+- CONSTRUCT
+- LABEL
+- HIGHLIGHT
+- MEASURE
+- SPLIT
+- TRANSFORM
+- ROTATE
+- TRANSLATE
+- REFLECT
+- REARRANGE
+- SUPERIMPOSE
+- COMPARE
+- SUBSTITUTE
+- CALCULATE
+- SIMPLIFY
+- EQUATE
+- CONCLUDE
+
+Every animation step should map back to a logical/proof step.
+
+No decorative animation should imply a mathematical relationship that does not exist.
+
+================================================================================
+14. VISUAL VS GENERATIVE AI RESPONSIBILITIES
+================================================================================
+
+Use deterministic/programmatic rendering for:
+
+- equations
+- exact diagrams
+- graphs
+- geometric measurements
+- labels
+- coordinates
+- arrows indicating transformations
+- mathematical constructions
+
+Use image/video generation models for:
+
+- contextual educational scenes
+- metaphors where mathematically safe
+- visual atmosphere
+- optional illustrative environments
+- presentation polish
+
+The authoritative mathematical diagram should remain deterministic.
+
+If an image model produces a mathematically incorrect diagram, the deterministic representation must take precedence.
+
+================================================================================
+15. EXPLANATION GENERATION
+================================================================================
+
+For each concept, produce multiple layers where useful:
+
+A. SIMPLE EXPLANATION
+- suitable for a Class 10 student
+
+B. LOGICAL EXPLANATION
+- step-by-step reasoning
+
+C. VISUAL EXPLANATION
+- what is being constructed and why
+
+D. MATHEMATICAL FORM
+- equations and relationships
+
+E. CHECK
+- what was validated and how
+
+The explanation should not claim that an example proves a theorem universally.
+
+Use precise language such as:
+
+- "This example demonstrates..."
+- "The general proof establishes..."
+
+rather than confusing a single numerical case with proof.
+
+================================================================================
+16. SOURCE GROUNDING
+================================================================================
+
+Every concept and proof/derivation should retain source references.
+
+Required traceability:
+
+    generated explanation
+        -> logical step
+        -> mathematical representation
+        -> source concept
+        -> source page/region
+
+When the source textbook provides an official proof, the system should preserve and explain that proof rather than silently replacing it with a different proof.
+
+If the system adds an alternative proof, it must clearly identify it as an alternative and validate it independently.
+
+Do not silently correct or replace textbook content without explicit validation and provenance.
+
+================================================================================
+17. OCR / PDF / IMAGE HANDLING
+================================================================================
+
+Textbooks frequently contain:
+
+- scanned pages
+- equations embedded as images
+- diagrams
+- graphs
+- tables
+- multi-column layouts
+- superscripts/subscripts
+- fractions
+- roots
+- Greek symbols
+- handwritten/printed annotations
+
+The pipeline must detect when normal text extraction is insufficient.
+
+For important mathematical regions:
+
+1. detect region
+2. OCR/vision extract
+3. normalize notation
+4. compare against source image
+5. validate mathematical syntax
+6. preserve source image/region reference
+
+Do not trust OCR blindly for formulas.
+
+================================================================================
+18. DYNAMIC CONCEPT TAXONOMY
+================================================================================
+
+Do not hard-code only Pythagorean theorem.
+
+The engine should dynamically recognize concepts such as:
+
+Arithmetic:
+- real numbers
+- rational/irrational numbers
+- exponents
+
+Algebra:
+- polynomials
+- factorization
+- linear equations
+- quadratic equations
+- arithmetic progressions
+
+Coordinate geometry:
+- distance formula
+- section formula
+- coordinate relationships
+
+Geometry:
+- triangles
+- similarity
+- congruence
+- circles
+- tangents
+- constructions
+
+Trigonometry:
+- trigonometric ratios
+- identities
+- heights and distances
+
+Mensuration:
+- areas
+- surface areas
+- volumes
+
+Statistics/probability:
+- mean/median/mode
+- probability
+- distributions
+
+The taxonomy should be extensible through configuration/schema rather than requiring code changes for every new concept.
+
+================================================================================
+19. PREREQUISITE GRAPH
+================================================================================
+
+Represent dependencies between concepts.
+
+Example:
+
+    Right triangle
+         |
+         v
+    Square / area
+         |
+         v
+    Pythagorean theorem
+         |
+         v
+    Distance formula
+
+The system should be able to explain prerequisites before attempting a difficult concept.
+
+================================================================================
+20. QUALITY GATES
+================================================================================
+
+A mathematics concept should not be marked production-ready until it passes:
+
+1. Source extraction QA
+2. Mathematical syntax QA
+3. Semantic consistency QA
+4. Logical-step QA
+5. Proof/derivation validation
+6. Diagram constraint QA
+7. Numerical example QA
+8. Source traceability QA
+9. Explanation consistency QA
+10. Final media QA
+
+Suggested statuses:
+
+    extracted
+    normalized
+    interpreted
+    validation_pending
+    mathematically_validated
+    visual_plan_validated
+    media_ready
+    rejected
+    needs_review
+
+Never silently convert an uncertain result to validated.
+
+================================================================================
+21. FAILURE HANDLING
+================================================================================
+
+The system must fail safely.
+
+Examples:
+
+- Formula extraction uncertain -> needs_review
+- Contradictory source statements -> preserve both with provenance and flag conflict
+- Proof step cannot be validated -> do not call it proven
+- Diagram geometry inconsistent -> reject visual plan
+- LLM reasoning conflicts with symbolic validator -> validator wins; regenerate reasoning
+- Source proof unavailable -> say that source does not provide enough evidence
+- Mixed/ambiguous document type -> use domain-neutral extraction until confidence improves
+
+No hallucinated proof is acceptable.
+
+================================================================================
+22. TEST STRATEGY
+================================================================================
+
+Create deterministic unit tests for:
+
+- formula parsing
+- normalization
+- equation equivalence
+- algebraic substitution
+- geometric constraints
+- theorem-specific validation
+- concept classification
+- proof-step dependencies
+- diagram construction
+- animation semantic mapping
+- source traceability
+- failure/rejection behavior
+
+Create golden fixtures for well-known examples.
+
+Example fixture:
+
+    Pythagorean theorem
+    a=2
+    b=3
+    expected c^2=13
+    expected c=sqrt(13)
+
+Tests should verify both the mathematical result and the visual-plan semantics.
+
+Do not rely only on LLM-output snapshot tests.
+
+================================================================================
+23. MODEL / LLM RESPONSIBILITIES
+================================================================================
+
+The LLM may be used for:
+
+- identifying concepts
+- explaining source text
+- proposing logical decomposition
+- proposing proof strategies
+- generating student-friendly narration
+- mapping logical steps to visual semantics
+
+The LLM must NOT be the final authority for:
+
+- exact arithmetic
+- symbolic equivalence
+- geometric measurements
+- proof validity when deterministic validation is possible
+- source formula preservation
+
+Architecture principle:
+
+    LLM proposes -> deterministic systems verify -> pipeline accepts/rejects.
+
+================================================================================
+24. DATA MODEL / PERSISTENCE
+================================================================================
+
+Future schema should support entities approximately equivalent to:
+
+DOCUMENT
+TEXTBOOK_STRUCTURE
+CHAPTER
+SECTION
+CONCEPT
+FORMULA
+SYMBOL
+ASSUMPTION
+RELATIONSHIP
+PROOF
+PROOF_STEP
+EXAMPLE
+PROBLEM
+DIAGRAM
+DIAGRAM_OBJECT
+DIAGRAM_CONSTRAINT
+VISUAL_PLAN
+ANIMATION_STEP
+VALIDATION_RESULT
+SOURCE_REFERENCE
+
+The implementation should reuse existing project persistence conventions where possible and introduce only domain-specific tables/models needed for mathematics.
+
+Every generated artifact must be traceable to a source document and source location.
+
+================================================================================
+25. OUTPUT TYPES
+================================================================================
+
+The eventual mathematics pipeline should support several outputs:
+
+1. Student-friendly text explanation
+2. Step-by-step mathematical derivation
+3. Static exact diagram
+4. Interactive diagram
+5. Short educational animation
+6. Long-form lesson/video
+7. Practice question explanation
+8. Worked-example walkthrough
+9. Concept revision card
+10. Teacher-oriented explanation
+
+The same validated semantic model should drive all outputs.
+
+================================================================================
+26. INTERACTIVE LEARNING
+================================================================================
+
+Where useful, concepts should support interactive parameters.
+
+For Pythagorean theorem:
+
+- draggable triangle dimensions
+- changing a/b updates c
+- square areas update dynamically
+- right-angle constraint remains enforced
+- equation updates automatically
+
+The interactive visualization must use exact geometry and formulas.
+
+The user should be able to see that changing the triangle changes the numerical values while preserving the underlying relationship.
+
+================================================================================
+27. VISUAL STYLE
+================================================================================
+
+The educational visual layer can borrow useful characteristics from the strong cinematic prompt pattern discussed separately:
+
+- clear lighting hierarchy
+- controlled highlights
+- readable color relationships
+- distinct material rendering
+- clean illustrated finish
+- restrained gradients
+- avoidance of muddy colors
+- avoidance of excessive blur
+- avoidance of plastic/CGI appearance
+- no unnecessary borders/logos/text artifacts
+
+However, mathematical correctness takes priority over visual style.
+
+Do not apply a fixed palette to every concept. Color should be dynamic and appropriate to the concept, while maintaining consistent educational visual language.
+
+================================================================================
+28. REUSABLE RENDERING LANGUAGE
+================================================================================
+
+The future prompt generator should have a shared educational visual style layer separate from concept-specific content.
+
+Concept-specific layer:
+
+- objects
+- actions
+- geometry
+- labels
+- relationships
+- proof steps
+
+Global visual layer:
+
+- illustration technique
+- lighting
+- color discipline
+- material behavior
+- clarity
+- anti-artifact constraints
+
+This allows visual consistency without hard-coding the same colors or composition into every lesson.
+
+================================================================================
+29. NO HARDCODED TEXTBOOK LOGIC
+================================================================================
+
+Do not implement:
+
+    if concept == "Pythagorean theorem": ...
+
+as the primary architecture.
+
+Instead implement:
+
+    concept -> selected validator -> proof strategy -> visual primitives
+
+with registries/plugins/configuration for specialized validators.
+
+Pythagorean theorem can be the first reference implementation and test fixture, not the architectural limit.
+
+================================================================================
+30. IMPLEMENTATION ORDER WHEN BACKLOG IS STARTED
+================================================================================
+
+Phase 0 — Protect current system
+- Finish current novel/cinematic DOD.
+- Confirm existing tests remain green.
+- Create a clean checkpoint before textbook work.
+- Do not mix textbook changes into the current cinematic milestone.
+
+Phase 1 — Domain abstraction
+- Identify narrative-specific assumptions in document pipeline.
+- Introduce document-domain classification.
+- Keep existing narrative behavior unchanged.
+
+Phase 2 — Mathematical extraction
+- Add mathematical expression detection.
+- Add formula preservation.
+- Add diagram/graph detection.
+- Add textbook hierarchy extraction.
+
+Phase 3 — Mathematical knowledge model
+- Implement concepts, formulas, variables, relationships, assumptions, examples, source references.
+- Add prerequisite graph.
+
+Phase 4 — Logical interpretation
+- Implement structured reasoning steps.
+- Add proof/derivation strategy selection.
+- Keep source proof distinct from generated alternatives.
+
+Phase 5 — Deterministic validation
+- Add symbolic validation.
+- Add arithmetic validation.
+- Add geometric constraints.
+- Add theorem validators beginning with Pythagorean theorem.
+
+Phase 6 — Visual construction
+- Define exact geometry primitives.
+- Generate deterministic diagrams.
+- Map proof steps to construction/animation steps.
+
+Phase 7 — Educational narration
+- Generate student-level explanations from validated steps.
+- Keep narration tied to the validated model.
+
+Phase 8 — Interactive/animated output
+- Implement dynamic parameter changes.
+- Implement animation semantics.
+- Ensure equations/diagrams update consistently.
+
+Phase 9 — Full textbook DOD
+- Run against a real Class 10 mathematics textbook.
+- Verify chapters, concepts, formulas, diagrams, proofs and exercises.
+- Produce QA report with failures categorized.
+
+Phase 10 — Generalization
+- Add more mathematics concepts and validators.
+- Only then consider additional textbook domains such as science.
+
+================================================================================
+31. FIRST IMPLEMENTATION TARGET
+================================================================================
+
+When this backlog is picked up, the first end-to-end golden target should be:
+
+    Pythagorean theorem
+    right triangle
+    a=2
+    b=3
+
+Expected pipeline:
+
+    source concept
+      -> exact formula extraction
+      -> structured theorem model
+      -> valid logical interpretation
+      -> validated proof strategy
+      -> exact geometric construction
+      -> animated area/relationship explanation
+      -> numerical example
+      -> general theorem conclusion
+      -> QA report
+
+Only after this works end-to-end should the implementation expand to the rest of the textbook.
+
+================================================================================
+32. DEFINITION OF DONE FOR THIS BACKLOG
+================================================================================
+
+The mathematics textbook extension is complete only when:
+
+- A textbook PDF can be detected and routed to the mathematics domain.
+- Chapters and sections are extracted dynamically.
+- Mathematical formulas are preserved accurately.
+- Concepts and relationships are structured.
+- Logical interpretations are generated for supported concepts.
+- Proofs/derivations are validated rather than blindly trusted.
+- Exact diagrams are generated programmatically where required.
+- Visual explanations demonstrate the underlying logic, not merely display formulas.
+- Numerical examples are distinguished from general proofs.
+- Every generated explanation/visual has source provenance.
+- Failures are explicit and reviewable.
+- No narrative character/scene logic is incorrectly applied to textbooks.
+- No concept requires hard-coded textbook-specific branching.
+- The same semantic model can drive text, diagrams, interactive visualizations, short videos and longer lessons.
+- Automated tests cover mathematical correctness and visual-plan correctness.
+
+================================================================================
+33. NON-NEGOTIABLE PRINCIPLES
+================================================================================
+
+1. Mathematical correctness before visual beauty.
+2. Source fidelity before model creativity.
+3. Deterministic verification wherever possible.
+4. A numerical example is not a proof of a general theorem.
+5. A generated diagram is not authoritative unless its geometry is validated.
+6. Every proof/derivation step must have a logical reason.
+7. Preserve exact source formulas alongside normalized representations.
+8. Do not force textbook content through narrative/cinematic semantics.
+9. Build dynamically from structured concepts, not chapter-specific hacks.
+10. Keep provenance from final output back to the source page/region.
+11. LLMs propose; validators verify.
+12. If correctness cannot be established, mark the result for review instead of guessing.
+13. Reuse common PDF/document infrastructure but isolate domain-specific semantics.
+14. The system should explain WHY a concept is true whenever a valid logical/visual explanation exists.
+15. The future implementation must be robust enough that this document can serve as the primary handoff specification when development resumes.
+
+END OF BACKLOG SPECIFICATION
