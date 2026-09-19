@@ -31,3 +31,14 @@ def test_single_word_reference_without_physical_presence_stays_reference_candida
     assert decision == "review"
     assert score < 0.48
     assert "source_physical_presence" not in reasons
+
+
+def test_passive_physical_state_is_source_presence_evidence():
+    decision, score, reasons = gate(
+        "Kumbha",
+        "character",
+        _mentions("Kumbha was captured by my son."),
+    )
+    assert decision in {"validated", "probable"}
+    assert score >= 0.48
+    assert "source_physical_presence" in reasons
