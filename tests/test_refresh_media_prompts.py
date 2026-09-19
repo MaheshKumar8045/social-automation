@@ -1,3 +1,4 @@
+from core.prompt_export import validate_plan
 from core.refresh_media_prompts import refresh_plan
 
 
@@ -42,3 +43,4 @@ def test_refresh_plan_is_deterministic_and_zero_llm():
     assert result["audio_prompt"]
     assert result["characters"][0]["source_presence"]["classification"] == "reference_only"
     assert "Rama" not in result["image_prompt"].lower()
+    assert validate_plan(result) == []
