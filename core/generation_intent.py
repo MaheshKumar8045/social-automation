@@ -112,7 +112,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
             continue
         source_presence = character.get("source_presence") or {}
         has_authoritative_presence = isinstance(source_presence, dict) and "physical_presence" in source_presence
-        matching_events = [e for e in event_texts if e in scene_text and re.search(rf"\\b{re.escape(name)}\\b", e, re.I)]
+        matching_events = [e for e in event_texts if e in scene_text and re.search(rf"\b{re.escape(name)}\b", e, re.I)]
 
         if has_authoritative_presence:
             if source_presence.get("physical_presence") is True:
@@ -131,7 +131,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
                             if isinstance(m, dict)
                             and _clean(m.get("context"), 320)
                             and _clean(m.get("context"), 320) in normalized_source
-                            and re.search(rf"\\b{re.escape(name)}\\b", _clean(m.get("context"), 320), re.I)
+                            and re.search(rf"\b{re.escape(name)}\b", _clean(m.get("context"), 320), re.I)
                         ),
                         None,
                     )
@@ -142,16 +142,16 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
                             for m in character.get("scene_mentions") or []
                             if isinstance(m, dict)
                             and _clean(m.get("context"), 320)
-                            and re.search(rf"\\b{re.escape(name)}\\b", _clean(m.get("context"), 320), re.I)
+                            and re.search(rf"\b{re.escape(name)}\b", _clean(m.get("context"), 320), re.I)
                         ),
                         None,
                     )
                 visible.append({"name": name, "evidence": physical or f"Source-confirmed physical presence: {name}."})
             elif matching_events or any(
                 isinstance(m, dict) and _clean(m.get("context"), 320)
-                and re.search(rf"\\b{re.escape(name)}\\b", _clean(m.get("context"), 320), re.I)
+                and re.search(rf"\b{re.escape(name)}\b", _clean(m.get("context"), 320), re.I)
                 for m in character.get("scene_mentions") or []
-            ) or re.search(rf"\\b{re.escape(name)}\\b", scene_text, re.I):
+            ) or re.search(rf"\b{re.escape(name)}\b", scene_text, re.I):
                 referenced.append(name)
             continue
 
@@ -160,13 +160,6 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
             context = _clean(mention.get("context"), 320)
             if context and context in scene_text and re.search(rf"\b{re.escape(name)}\b", context, re.I):
                 source_contexts.append(context)
-        if has_authoritative_presence:
-            # Once the deterministic scene-local gate has supplied a presence
-            # classification, do not re-derive visibility with a second heuristic.
-            # This keeps validator, prompt compiler, and generation intent aligned.
-            if source_contexts or matching_events or re.search(rf"\b{re.escape(name)}\b", scene_text, re.I):
-                referenced.append(name)
-            continue
         physical_context = next((c for c in source_contexts if _CHARACTER_PHYSICAL_RE.search(c)), None)
         if physical_context:
             visible.append({"name": name, "evidence": physical_context})
