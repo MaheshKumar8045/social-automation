@@ -111,6 +111,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
         if not name:
             continue
         source_presence = character.get("source_presence") or {}
+        has_authoritative_presence = isinstance(source_presence, dict) and "physical_presence" in source_presence
         matching_events = [e for e in event_texts if e in scene_text and re.search(rf"\b{re.escape(name)}\b", e, re.I)]
         physical = next((e for e in matching_events if _CHARACTER_PHYSICAL_RE.search(e)), None)
         # Deterministic source physical-presence evidence is authoritative when
@@ -150,6 +151,13 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
             context = _clean(mention.get("context"), 320)
             if context and context in scene_text and re.search(rf"\b{re.escape(name)}\b", context, re.I):
                 source_contexts.append(context)
+        if has_authoritative_presence:
+            # Once the deterministic scene-local gate has supplied a presence
+            # classification, do not re-derive visibility with a second heuristic.
+            # This keeps validator, prompt compiler, and generation intent aligned.
+            if source_contexts or matching_events or re.search(rf"\b{re.escape(name)}\b", scene_text, re.I):
+                referenced.append(name)
+            continue
         physical_context = next((c for c in source_contexts if _CHARACTER_PHYSICAL_RE.search(c)), None)
         if physical_context:
             visible.append({"name": name, "evidence": physical_context})
