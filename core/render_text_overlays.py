@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -166,14 +167,44 @@ def render_overlays(image: Image.Image, boxes: list[dict[str, Any]]) -> Image.Im
     return Image.alpha_composite(output, overlay_layer)
 
 
-def process_directory(input_dir: Path, output_dir: Path, package_path: Path) -> dict[str, Any]:
+def process_directory(
+    input_dir: Path,
+    output_dir: Path,
+    package_path: Path,
+    *,
+    expected_count: int | None = None,
+    require_complete: bool = False,
+) -> dict[str, Any]:
+    if not package_path.is_file():
+        return {"processed": 0, "skipped": 0, "failures": [f"package not found: {package_path}"]}
+    if not input_dir.is_dir():
+        return {
+            "processed": 0,
+            "skipped": 0,
+            "failures": [
+                f"input image directory not found: {input_dir}",
+                "Generate the source images first, then run the overlay renderer.",
+            ],
+        }
+
     package = json.loads(package_path.read_text(encoding="utf-8"))
-    output_dir.mkdir(parents=True, exist_ok=True)
+    image_paths = sorted(p for p in input_dir.iterdir() if p.is_file() and p.suffix.lower() in _IMAGE_EXTS)
+    if not image_paths:
+        return {
+            "processed": 0,
+            "skipped": 0,
+            "failures": [f"no supported images found in: {input_dir}"],
+        }
+
+    staging_dir = output_dir.with_name(output_dir.name + ".staging")
+    shutil.rmtree(staging_dir, ignore_errors=True)
+    staging_dir.mkdir(parents=True, exist_ok=True)
+
     processed = 0
     skipped = 0
     failures: list[str] = []
 
-    for image_path in sorted(p for p in input_dir.iterdir() if p.suffix.lower() in _IMAGE_EXTS):
+    for image_path in image_paths:
         scene_number = _scene_number(image_path)
         if scene_number is None:
             skipped += 1
@@ -191,22 +222,49 @@ def process_directory(input_dir: Path, output_dir: Path, package_path: Path) -> 
         try:
             with Image.open(image_path) as source:
                 rendered = render_overlays(source, boxes)
-                out = output_dir / image_path.name
+                out = staging_dir / image_path.name
                 rendered.convert("RGB").save(out, quality=95)
             processed += 1
         except Exception as exc:
             failures.append(f"{image_path.name}: {exc}")
+
+    if expected_count is not None and processed != expected_count:
+        failures.append(
+            f"expected {expected_count} rendered images but processed {processed}"
+        )
+    if require_complete:
+        scene_count = len(package.get("scenes") or [])
+        if processed != scene_count:
+            failures.append(
+                f"complete render required: package contains {scene_count} scenes but only {processed} images were rendered"
+            )
+
+    if not failures:
+        shutil.rmtree(output_dir, ignore_errors=True)
+        staging_dir.replace(output_dir)
+    else:
+        # Preserve the staging directory for inspection; never publish a partial
+        # final image set when completeness was requested.
+        failures.append(f"partial output retained for inspection at: {staging_dir}")
 
     return {"processed": processed, "skipped": skipped, "failures": failures}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Apply deterministic project-standard dialogue/narrative overlays to generated images.")
-    parser.add_argument("--input-dir", required=True)
-    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--input-dir", required=True, help="Directory containing generated clean images.")
+    parser.add_argument("--output-dir", required=True, help="Directory that receives the final composited images only after a complete successful run.")
     parser.add_argument("--package", required=True, help="Path to all_prompts.json")
+    parser.add_argument("--expected-count", type=int, default=None, help="Require exactly this many rendered images.")
+    parser.add_argument("--require-complete", action="store_true", help="Require one rendered image for every scene in the package.")
     args = parser.parse_args()
-    result = process_directory(Path(args.input_dir), Path(args.output_dir), Path(args.package))
+    result = process_directory(
+        Path(args.input_dir),
+        Path(args.output_dir),
+        Path(args.package),
+        expected_count=args.expected_count,
+        require_complete=args.require_complete,
+    )
     print(json.dumps(result, indent=2, ensure_ascii=False))
     if result["failures"]:
         raise SystemExit(1)
