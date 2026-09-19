@@ -291,6 +291,26 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
         names = _visible_canonical_names(plan, characters)
         if names and not any(name in lowered_prompt for name in names):
             errors.append("image prompt does not contain any canonical character from the generation plan")
+
+        # Schema 6 is the production visual-continuity contract. Older stored
+        # plans remain backward compatible, while newly materialized packages
+        # must carry the locked style, subject, identity, and text-layer rules.
+        if int(media.get("schema_version") or 0) >= 6:
+            required_tokens = (
+                "global cinematic art direction (locked for every scene)",
+                "subject policy:",
+                "text / overlay policy:",
+            )
+            for token in required_tokens:
+                if token not in lowered_prompt:
+                    errors.append(f"image prompt is missing production continuity contract: {token}")
+            if names and "canonical character identity lock:" not in lowered_prompt:
+                errors.append("image prompt is missing canonical character identity lock")
+            if not names and not any(
+                token in lowered_prompt
+                for token in ("keep the frame free of human or humanoid subjects", "anonymous source participants")
+            ):
+                errors.append("environmental image prompt is missing explicit subject exclusion policy")
     return errors
 
 
