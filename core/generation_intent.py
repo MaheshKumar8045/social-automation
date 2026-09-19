@@ -155,14 +155,18 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
                 referenced.append(name)
             continue
 
+        physical_event = next(
+            (e for e in matching_events if _CHARACTER_PHYSICAL_RE.search(e)),
+            None,
+        )
         source_contexts = []
         for mention in character.get("scene_mentions") or []:
             context = _clean(mention.get("context"), 320)
             if context and context in scene_text and re.search(rf"\b{re.escape(name)}\b", context, re.I):
                 source_contexts.append(context)
         physical_context = next((c for c in source_contexts if _CHARACTER_PHYSICAL_RE.search(c)), None)
-        if physical_context:
-            visible.append({"name": name, "evidence": physical_context})
+        if physical_event or physical_context:
+            visible.append({"name": name, "evidence": physical_event or physical_context or name})
         elif matching_events or source_contexts or re.search(rf"\b{re.escape(name)}\b", scene_text, re.I):
             referenced.append(name)
     return visible[:8], list(dict.fromkeys(referenced))[:10]
