@@ -9,6 +9,7 @@ from typing import Any
 from .character_candidate_gate import physical_presence_count
 from .cinematic_generation import enhance_generation_package
 from .media_prompt_compiler import compile_media_prompts
+from .visual_continuity import character_identity_block, fixed_style_block
 from .visual_generation_policy import enrich_character, load_visual_policy
 from .prompt_export import _write_scene_media_files, validate_plan
 
@@ -96,6 +97,7 @@ def refresh_package(package_path: Path, output_dir: Path | None = None) -> dict[
     output_dir.mkdir(parents=True, exist_ok=True)
     failures: list[dict[str, Any]] = []
     refreshed: list[dict[str, Any]] = []
+    character_refs: dict[str, dict[str, Any]] = {}
 
     for record in scenes:
         if not isinstance(record, dict) or not isinstance(record.get("plan"), dict):
@@ -103,6 +105,30 @@ def refresh_package(package_path: Path, output_dir: Path | None = None) -> dict[
             continue
         plan = refresh_plan(record["plan"])
         errors = validate_plan(plan)
+        for character in plan.get("characters") or []:
+            if not isinstance(character, dict):
+                continue
+            presence = character.get("source_presence") or {}
+            if presence.get("physical_presence") is not True:
+                continue
+            key = str(character.get("canonical_character_id") or character.get("canonical_name") or "")
+            if not key:
+                continue
+            if key not in character_refs:
+                profile = character.get("visual_profile") or {}
+                character_refs[key] = {
+                    "canonical_character_id": character.get("canonical_character_id"),
+                    "canonical_name": character.get("canonical_name"),
+                    "identity_anchor": profile.get("identity_anchor"),
+                    "reference_required_for_strong_cross_scene_identity": not bool(profile.get("source_facts")),
+                    "identity_prompt": (
+                        "Create a neutral production character reference sheet for the canonical character. "
+                        "Use the locked identity below, neutral studio lighting, plain uncluttered background, "
+                        "front / three-quarter / side / back views plus a face close-up. Do not add scene props, "
+                        "story action, text, or dramatic lighting. "
+                        + character_identity_block(character)
+                    ),
+                }
         updated_record = dict(record)
         updated_record["plan"] = plan
         updated_record["qa_status"] = "pass" if not errors else "fail"
@@ -136,6 +162,18 @@ def refresh_package(package_path: Path, output_dir: Path | None = None) -> dict[
         "output_dir": str(output_dir),
         "model_calls": 0,
     }
+    (output_dir / "character_reference_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "art_direction": fixed_style_block(load_visual_policy(), "general_narrative"),
+                "characters": list(character_refs.values()),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     (output_dir / "prompt_refresh_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
 
