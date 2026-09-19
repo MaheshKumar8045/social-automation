@@ -5,6 +5,7 @@ from typing import Any
 
 from .generation_intent import build_generation_intent
 from .visual_continuity import character_identity_block, fixed_style_block, overlay_contract, subject_policy
+from .visual_generation_policy import load_visual_policy
 
 _QUOTE_RE = re.compile(r'["“](.*?)[“”"]', re.S)
 _SENTENCE_RE = re.compile(r'(?<=[.!?])\s+')
@@ -161,7 +162,7 @@ def _prompt(
         f"SOURCE-ANCHORED SCENE INTERPRETATION: {focus} SOURCE VISUAL MOMENT: {focus} "
         f"VISIBLE SOURCE-CONFIRMED CHARACTERS: {visible}. REFERENCED-ONLY CHARACTERS: {referenced}; do not render referenced-only names. "
         f"{subject_policy(intent)} "
-        f"{fixed_style_block(None, genre)} "
+        f"{fixed_style_block(load_visual_policy(), genre)} "
         f"DETECTED STORY WORLD (context only): {', '.join(world) if world else 'unknown'}. "
         f"CINEMATIC DIRECTION: {camera.get('framing','balanced cinematic frame')}; {camera.get('movement','restrained movement')}; "
         f"{camera.get('lens','natural perspective')}; {height}; {lighting}. "
