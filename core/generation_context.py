@@ -88,6 +88,14 @@ class GenerationContext:
                ORDER BY cc.id""",
             (document_id, scene_id, document_id),
         ).fetchall()
+        event_contexts = [
+            str(row["text"] or "")
+            for row in con.execute(
+                "SELECT text FROM events WHERE document_id=? AND scene_id=? AND text IS NOT NULL",
+                (document_id, scene_id),
+            ).fetchall()
+            if row["text"]
+        ]
         result = []
         for row in rows:
             cid = int(row["canonical_character_id"])
@@ -124,14 +132,6 @@ class GenerationContext:
             # passive physical states such as "Kumbha was captured" where the
             # canonical mention context may be a short reference but the event
             # explicitly establishes the character's physical involvement.
-            event_contexts = [
-                str(event["text"] or "")
-                for event in con.execute(
-                    "SELECT text FROM events WHERE document_id=? AND scene_id=? AND text IS NOT NULL",
-                    (document_id, scene_id),
-                ).fetchall()
-                if event["text"]
-            ]
             physical_count = physical_presence_count(
                 str(row["canonical_name"]),
                 presence_contexts + event_contexts,
