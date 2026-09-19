@@ -41,7 +41,13 @@ def _complete_source_fragment(text: str, source: str) -> str:
 
 def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], characters: list[dict[str, Any]]) -> list[str]:
     source = str(scene.get("text") or "")
-    names = [str(c.get("canonical_name") or "").casefold() for c in characters]
+    # Mention-only characters must not bias visual-moment selection. Only source-confirmed
+    # visible canonical identities are allowed to raise a moment's character score.
+    names = [
+        str(c.get("canonical_name") or "").casefold()
+        for c in characters
+        if isinstance(c, dict) and (c.get("source_presence") or {}).get("physical_presence") is True
+    ]
     event_candidates: list[tuple[int, int, str]] = []
     for order, event in enumerate(events):
         raw = str(event.get("text") or "")
@@ -97,8 +103,23 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
         name = _clean(character.get("canonical_name"), 100)
         if not name:
             continue
+        source_presence = character.get("source_presence") or {}
         matching_events = [e for e in event_texts if e in scene_text and re.search(rf"\b{re.escape(name)}\b", e, re.I)]
         physical = next((e for e in matching_events if _CHARACTER_PHYSICAL_RE.search(e)), None)
+        # Deterministic source physical-presence evidence is authoritative when
+        # available. It prevents later prompt logic from re-deriving visibility
+        # differently from the canonical generation context.
+        if physical is None and source_presence.get("physical_presence") is True:
+            physical = next(
+                (
+                    _clean(m.get("context"), 320)
+                    for m in character.get("scene_mentions") or []
+                    if isinstance(m, dict)
+                    and _clean(m.get("context"), 320) in scene_text
+                    and re.search(rf"\b{re.escape(name)}\b", _clean(m.get("context"), 320), re.I)
+                ),
+                None,
+            )
         if physical:
             visible.append({"name": name, "evidence": physical})
             continue
@@ -169,5 +190,8 @@ def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str,
             "Unknown source attributes remain unknown.",
             "Cinematic choices control how established content is photographed, staged, paced, and heard; they do not create new story events.",
             "Every visual focus must be a complete source-grounded sentence or exact source fragment that can be traced to the scene text.",
+            "The project visual-language block is immutable; scene lighting may vary only when motivated by source evidence.",
+            "Generated artwork must leave typography to the deterministic overlay layer.",
+            "When no source-confirmed subject exists, the frame must remain environment/object-led rather than inventing a protagonist.",
         ],
     }
