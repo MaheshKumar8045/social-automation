@@ -44,3 +44,21 @@ def test_refresh_plan_is_deterministic_and_zero_llm():
     assert result["characters"][0]["source_presence"]["classification"] == "reference_only"
     assert "Rama" not in result["image_prompt"].lower()
     assert validate_plan(result) == []
+
+
+def test_refresh_plan_recomputes_presence_and_emits_identity_lock():
+    plan = _plan()
+    plan["scene"]["text"] = "Professor Mayan stood at the gate."
+    plan["characters"][0]["canonical_name"] = "Professor Mayan"
+    plan["characters"][0]["scene_mentions"] = [{"context": "Professor Mayan stood at the gate."}]
+    plan["characters"][0]["source_presence"] = {
+        "physical_presence": False,
+        "physical_presence_evidence_count": 0,
+        "classification": "reference_only",
+    }
+    plan["characters"][0]["visual_profile"]["identity_anchor"] = "vib-mayan"
+    plan["events"] = [{"text": "Professor Mayan stood at the gate.", "event_order": 1}]
+    result = refresh_plan(plan)
+    assert result["characters"][0]["source_presence"]["physical_presence"] is True
+    assert "CANONICAL CHARACTER IDENTITY LOCK: Professor Mayan" in result["image_prompt"]
+    assert validate_plan(result) == []
