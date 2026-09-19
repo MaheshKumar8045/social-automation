@@ -112,40 +112,49 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
             continue
         source_presence = character.get("source_presence") or {}
         has_authoritative_presence = isinstance(source_presence, dict) and "physical_presence" in source_presence
-        matching_events = [e for e in event_texts if e in scene_text and re.search(rf"\b{re.escape(name)}\b", e, re.I)]
-        physical = next((e for e in matching_events if _CHARACTER_PHYSICAL_RE.search(e)), None)
-        # Deterministic source physical-presence evidence is authoritative when
-        # available. It prevents later prompt logic from re-deriving visibility
-        # differently from the canonical generation context.
-        if physical is None and source_presence.get("physical_presence") is True:
-            physical = next(
-                (
-                    _clean(m.get("context"), 320)
-                    for m in character.get("scene_mentions") or []
-                    if isinstance(m, dict)
-                    and _clean(m.get("context"), 320)
-                    and _clean(m.get("context"), 320) in normalized_source
-                    and re.search(rf"\b{re.escape(name)}\b", _clean(m.get("context"), 320), re.I)
-                ),
-                None,
-            )
-            if physical is None:
-                # The gate already proved physical presence from this scene's
-                # canonical mention contexts. Preserve the classification even
-                # if OCR/layout whitespace prevents exact substring recovery.
+        matching_events = [e for e in event_texts if e in scene_text and re.search(rf"\\b{re.escape(name)}\\b", e, re.I)]
+
+        if has_authoritative_presence:
+            if source_presence.get("physical_presence") is True:
                 physical = next(
                     (
-                        _clean(m.get("context"), 320)
-                        for m in character.get("scene_mentions") or []
-                        if isinstance(m, dict)
-                        and _clean(m.get("context"), 320)
-                        and re.search(rf"\b{re.escape(name)}\b", _clean(m.get("context"), 320), re.I)
+                        e for e in matching_events
+                        if _CHARACTER_PHYSICAL_RE.search(e)
                     ),
                     None,
                 )
-        if physical:
-            visible.append({"name": name, "evidence": physical})
+                if physical is None:
+                    physical = next(
+                        (
+                            _clean(m.get("context"), 320)
+                            for m in character.get("scene_mentions") or []
+                            if isinstance(m, dict)
+                            and _clean(m.get("context"), 320)
+                            and _clean(m.get("context"), 320) in normalized_source
+                            and re.search(rf"\\b{re.escape(name)}\\b", _clean(m.get("context"), 320), re.I)
+                        ),
+                        None,
+                    )
+                if physical is None:
+                    physical = next(
+                        (
+                            _clean(m.get("context"), 320)
+                            for m in character.get("scene_mentions") or []
+                            if isinstance(m, dict)
+                            and _clean(m.get("context"), 320)
+                            and re.search(rf"\\b{re.escape(name)}\\b", _clean(m.get("context"), 320), re.I)
+                        ),
+                        None,
+                    )
+                visible.append({"name": name, "evidence": physical or f"Source-confirmed physical presence: {name}."})
+            elif matching_events or any(
+                isinstance(m, dict) and _clean(m.get("context"), 320)
+                and re.search(rf"\\b{re.escape(name)}\\b", _clean(m.get("context"), 320), re.I)
+                for m in character.get("scene_mentions") or []
+            ) or re.search(rf"\\b{re.escape(name)}\\b", scene_text, re.I):
+                referenced.append(name)
             continue
+
         source_contexts = []
         for mention in character.get("scene_mentions") or []:
             context = _clean(mention.get("context"), 320)
