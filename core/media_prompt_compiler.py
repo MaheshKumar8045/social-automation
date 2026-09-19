@@ -216,7 +216,7 @@ def _base_prompt(
         f"Source-grounded {inference_genre} media depiction.",
         f"Scene {scene.get('scene_order', '')}: {_clean(scene.get('title'), 160)}.",
         _layout_prompt(layout),
-        fixed_style_block(None, inference_genre),
+        fixed_style_block(load_visual_policy(), inference_genre),
         "Preserve canonical identity anchors across every scene. "
         "Source-supported visual facts have priority; controlled visual inference is allowed only "
         "for missing production details and must never contradict source evidence.",
@@ -247,7 +247,7 @@ def _base_prompt(
             "source_participants": [],
         })
     )
-    parts.append(overlay_contract({}))
+    parts.append(overlay_contract(load_visual_policy()))
     parts.append(
         "Ultra-realistic cinematic live-action presentation, physically credible anatomy and materials, "
         "cinematic depth, readable subject separation, natural lighting consistent with the scene, "
