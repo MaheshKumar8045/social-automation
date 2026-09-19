@@ -138,10 +138,12 @@ def test_enrichment_preserves_existing_identity_anchor():
 
 def test_overlay_renderer_missing_input_directory_is_actionable(tmp_path):
     from core.render_text_overlays import process_directory
+    package = tmp_path / "all_prompts.json"
+    package.write_text('{"scenes": []}', encoding="utf-8")
     result = process_directory(
         tmp_path / "does-not-exist",
         tmp_path / "final",
-        tmp_path / "all_prompts.json",
+        package,
     )
     assert result["processed"] == 0
     assert any("input image directory not found" in item for item in result["failures"])
