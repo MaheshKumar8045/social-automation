@@ -29,13 +29,13 @@ def _prepare_characters(characters: list[Any]) -> list[dict[str, Any]]:
             if isinstance(m, dict) and m.get("context")
         ]
         count = physical_presence_count(str(character.get("canonical_name")), contexts)
-        existing = character.get("source_presence")
-        if not isinstance(existing, dict) or "physical_presence" not in existing:
-            character["source_presence"] = {
-                "physical_presence": count > 0,
-                "physical_presence_evidence_count": count,
-                "classification": "physical" if count > 0 else "reference_only",
-            }
+        # Recompute this scene-local signal on every refresh. Never trust a stale
+        # derived presence flag from an older package revision.
+        character["source_presence"] = {
+            "physical_presence": count > 0,
+            "physical_presence_evidence_count": count,
+            "classification": "physical" if count > 0 else "reference_only",
+        }
         prepared.append(character)
     return prepared
 
