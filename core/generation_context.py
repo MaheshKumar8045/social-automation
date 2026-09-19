@@ -120,7 +120,22 @@ class GenerationContext:
                 (document_id, scene_id, cid),
             ).fetchall()]
             presence_contexts = [str(mention.get("context") or "") for mention in mentions if mention.get("context")]
-            physical_count = physical_presence_count(str(row["canonical_name"]), presence_contexts)
+            # Event evidence is scene-local source evidence too. This matters for
+            # passive physical states such as "Kumbha was captured" where the
+            # canonical mention context may be a short reference but the event
+            # explicitly establishes the character's physical involvement.
+            event_contexts = [
+                str(event["text"] or "")
+                for event in con.execute(
+                    "SELECT text FROM events WHERE document_id=? AND scene_id=? AND text IS NOT NULL",
+                    (document_id, scene_id),
+                ).fetchall()
+                if event["text"]
+            ]
+            physical_count = physical_presence_count(
+                str(row["canonical_name"]),
+                presence_contexts + event_contexts,
+            )
             result.append({
                 "canonical_character_id": cid,
                 "canonical_name": row["canonical_name"],
