@@ -118,3 +118,41 @@ def test_reference_only_presence_does_not_become_visible():
     )
     assert result["visible_characters"] == []
     assert result["referenced_characters"] == ["Professor Mayan"]
+
+
+def test_authoritative_reference_only_overrides_legacy_visibility_heuristic():
+    character = {
+        "canonical_name": "Rama",
+        "source_presence": {
+            "physical_presence": False,
+            "physical_presence_evidence_count": 0,
+            "classification": "reference_only",
+        },
+        "scene_mentions": [{"context": "Rama stood at the gate."}],
+    }
+    result = _intent(
+        "Rama stood at the gate.",
+        characters=[character],
+        events=[{"text": "Rama stood at the gate.", "event_order": 1}],
+    )
+    assert result["visible_characters"] == []
+    assert result["referenced_characters"] == ["Rama"]
+
+
+def test_authoritative_physical_presence_survives_source_whitespace_normalization():
+    character = {
+        "canonical_name": "Professor Mayan",
+        "source_presence": {
+            "physical_presence": True,
+            "physical_presence_evidence_count": 1,
+            "classification": "physical",
+        },
+        "scene_mentions": [{"context": "Professor Mayan was\tthere with technicians."}],
+    }
+    result = _intent(
+        "One by one, the delegates arrived. Professor Mayan was there with technicians.",
+        characters=[character],
+        events=[],
+    )
+    assert result["visible_characters"]
+    assert result["visible_characters"][0]["name"] == "Professor Mayan"
