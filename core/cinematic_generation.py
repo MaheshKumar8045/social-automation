@@ -167,7 +167,7 @@ def _prompt(
         f"CINEMATIC DIRECTION: {camera.get('framing','balanced cinematic frame')}; {camera.get('movement','restrained movement')}; "
         f"{camera.get('lens','natural perspective')}; {height}; {lighting}. "
         f"{identity_text} "
-        f"{overlay_contract({})} "
+        f"{overlay_contract(load_visual_policy())} "
         "Preserve source-supported objects, geography, and continuity state. Unknown attributes remain unknown. "
         "Do not invent costumes, anatomy, props, architecture, weather, supernatural effects, actions, or story events. "
         "Maintain clear foreground/midground/background hierarchy and readable subject separation. "
