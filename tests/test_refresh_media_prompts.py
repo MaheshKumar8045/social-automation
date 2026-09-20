@@ -198,3 +198,92 @@ def test_refresh_package_carries_first_person_focus_to_adjacent_scene(tmp_path):
     second_plan = refreshed[1]["plan"]
     assert second_plan["narrative_focus_character"]["canonical_name"] == "Ravana"
     assert "NARRATIVE FOCAL CHARACTER (CONTROLLED PRODUCTION INFERENCE): Ravana" in second_plan["image_prompt"]
+
+
+def test_refresh_package_resolves_flattened_narrator_from_document_canonical_alias(tmp_path):
+    import json
+    import sqlite3
+    from core.refresh_media_prompts import refresh_package
+
+    db = tmp_path / "source.db"
+    con = sqlite3.connect(db)
+    con.executescript("""
+        CREATE TABLE canonical_characters (
+            id INTEGER PRIMARY KEY,
+            document_id INTEGER,
+            canonical_name TEXT,
+            status TEXT,
+            confidence REAL
+        );
+        CREATE TABLE canonical_character_aliases (
+            id INTEGER PRIMARY KEY,
+            canonical_character_id INTEGER,
+            alias TEXT,
+            relationship TEXT,
+            confidence REAL
+        );
+        CREATE TABLE canonical_visual_profiles (
+            id INTEGER PRIMARY KEY,
+            document_id INTEGER,
+            canonical_character_id INTEGER
+        );
+        CREATE TABLE canonical_visual_facts (
+            id INTEGER PRIMARY KEY,
+            canonical_visual_profile_id INTEGER,
+            category TEXT,
+            attribute TEXT,
+            value TEXT,
+            status TEXT,
+            confidence REAL,
+            scene_id INTEGER,
+            page_start INTEGER,
+            page_end INTEGER,
+            evidence TEXT
+        );
+    """)
+    con.execute(
+        "INSERT INTO canonical_characters VALUES (10, 1, 'King Ravana', 'confirmed', 1.0)"
+    )
+    con.execute(
+        "INSERT INTO canonical_character_aliases VALUES (1, 10, 'Ravana', 'alias', 1.0)"
+    )
+    con.execute(
+        "INSERT INTO canonical_visual_profiles VALUES (1, 1, 10)"
+    )
+    con.commit()
+    con.close()
+
+    plan = _plan()
+    plan["scene"]["scene_order"] = 1
+    plan["scene"]["text"] = "1 The end Ravana Tomorrow is my funeral. I can hear the jackals."
+    plan["characters"] = [{
+        "canonical_character_id": 30,
+        "canonical_name": "Trikota",
+        "scene_mentions": [{"context": "My capital, Trikota, was the greatest city in the world."}],
+        "visual_profile": {"identity_anchor": "vib-trikota", "source_facts": [], "inferred_facts": []},
+    }]
+
+    package = {
+        "schema_version": 2,
+        "document_id": 1,
+        "source_database": str(db),
+        "scene_count": 1,
+        "scenes": [
+            {"scene_id": 1, "story_id": 1, "scene_order": 1, "title": "I. The end — Scene 1", "plan": plan},
+        ],
+    }
+    source = tmp_path / "all_prompts.json"
+    source.write_text(json.dumps(package), encoding="utf-8")
+    output = tmp_path / "refresh"
+
+    summary = refresh_package(source, output)
+    assert summary["qa_passed"] is True
+
+    refreshed = json.loads((output / "all_prompts.json").read_text(encoding="utf-8"))
+    result = refreshed["scenes"][0]["plan"]
+
+    assert result["generation_intent"]["primary_visual_moment"] == "Tomorrow is my funeral."
+    assert result["generation_intent"]["narrative_focus_character"]["canonical_name"] == "King Ravana"
+    assert result["generation_intent"]["visible_characters"] == []
+    assert "CANONICAL CHARACTER IDENTITY LOCK: King Ravana" in result["image_prompt"]
+    assert "NARRATIVE FOCAL CHARACTER (CONTROLLED PRODUCTION INFERENCE): King Ravana" in result["image_prompt"]
