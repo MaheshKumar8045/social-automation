@@ -238,9 +238,9 @@ def _base_prompt(
     if lines:
         parts.append("CHARACTER VISUAL PROFILES: " + " || ".join(lines) + ".")
     if moments:
-        parts.append("PRIMARY SOURCE VISUAL MOMENT: " + moments[0] + ".")
+        parts.append("PRIMARY SOURCE VISUAL MOMENT: " + moments[0].rstrip(".!?") + ".")
         if len(moments) > 1:
-            parts.append("SECONDARY SOURCE CONTEXT: " + moments[1] + ".")
+            parts.append("SECONDARY SOURCE CONTEXT: " + moments[1].rstrip(".!?") + ".")
     env = _objects(objects, continuity)
     if env:
         parts.append("SOURCE-IDENTIFIED OBJECTS / ENVIRONMENT STATE: " + ", ".join(env) + ".")
