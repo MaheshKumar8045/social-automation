@@ -158,6 +158,10 @@ def _prompt(
         character=by_name.get(str(item.get("name") or "").casefold())
         if character:
             identity_blocks.append(character_identity_block(character))
+    if narrative_focus_name:
+        focus_character = by_name.get(narrative_focus_name.casefold())
+        if focus_character:
+            identity_blocks.append(character_identity_block(focus_character))
     identity_text=" ".join(identity_blocks)
     return (
         f"Source-grounded {genre} cinematic generation for scene {scene.get('scene_order','')}: {_clean(scene.get('title'),140)}. "
