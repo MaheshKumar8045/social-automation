@@ -32,7 +32,7 @@ TITLE_ONLY = re.compile(
     re.I,
 )
 PERSON_TITLE = re.compile(
-    r"^(?:mr|mrs|ms|miss|dr|prof|professor|capt|captain|sir|lady|lord|rev|reverend|colonel|major|lieutenant|herr|monsieur|madame)\.?\s+",
+    r"^(?:mr|mrs|ms|miss|dr|prof|professor|capt|captain|sir|lady|lord|rev|reverend|colonel|major|lieutenant|herr|monsieur|madame|king|emperor|maharaja|maharani|prince|princess|queen)\.?\s+",
     re.I,
 )
 NAME_WORD = re.compile(r"^[A-Z][A-Za-z'’-]+$")
@@ -53,7 +53,7 @@ COPULA_PHYSICAL = re.compile(
     re.I,
 )
 DIRECT_PERSON_CUE = re.compile(
-    r"(?:\b(?:said|replied|asked|cried|shouted|exclaimed|answered|whispered|remarked|observed|rejoined|called)\s+{name}\b|\b{name}\s+(?:said|replied|asked|cried|shouted|exclaimed|answered|whispered|remarked|observed|rejoined|called)\b|\b(?:Mr\.?|Mrs\.?|Ms\.?|Miss|Dr\.?|Professor|Prof\.?|Captain|Capt\.?|Sir|Colonel|Major|Lieutenant)\s+{name}\b)",
+    r"(?:\b(?:said|replied|asked|cried|shouted|exclaimed|answered|whispered|remarked|observed|rejoined|called)\s+{name}\b|\b{name}\s+(?:said|replied|asked|cried|shouted|exclaimed|answered|whispered|remarked|observed|rejoined|called)\b|\b(?:Mr\.?|Mrs\.?|Ms\.?|Miss|Dr\.?|Professor|Prof\.?|Captain|Capt\.?|Sir|Colonel|Major|Lieutenant|King|Emperor|Maharaja|Maharani|Prince|Princess|Queen)\s+{name}\b)",
     re.I,
 )
 ROLE_TOKENS = {
@@ -67,6 +67,29 @@ ROLE_TOKENS = {
 }
 
 
+IDENTITY_QUALIFIER_WORDS = {
+    "mr", "mrs", "ms", "miss", "dr", "prof", "professor", "capt", "captain",
+    "sir", "lady", "lord", "rev", "reverend", "colonel", "major", "lieutenant",
+    "herr", "monsieur", "madame", "king", "emperor", "maharaja", "maharani",
+    "prince", "princess", "queen",
+}
+
+
+def character_name_variants(name: str) -> list[str]:
+    """Return only conservative source-name variants implied by an identity title."""
+    canonical = norm(name)
+    if not canonical:
+        return []
+    variants = [canonical]
+    parts = canonical.split()
+    while len(parts) > 1 and parts[0].casefold().rstrip(".") in IDENTITY_QUALIFIER_WORDS:
+        parts = parts[1:]
+        stripped = " ".join(parts).strip()
+        if stripped and stripped.casefold() not in {v.casefold() for v in variants}:
+            variants.append(stripped)
+    return variants
+
+
 def norm(name: str) -> str:
     s = re.sub(r"\s+", " ", name.replace("‐", "-").replace("‑", "-").replace("‒", "-").replace("–", "-").replace("—", "-")).strip(" ,.;:\"'")
     s = re.sub(r"\s+([,.;:])", r"\1", s)
@@ -74,34 +97,35 @@ def norm(name: str) -> str:
 
 
 def physical_presence_count(name: str, contexts: list[str]) -> int:
-    """Count contexts where the named candidate is explicitly physically present."""
-    name_re = re.escape(name)
+    """Count contexts where the named candidate or a safe titled form is physically present."""
+    name_patterns = [re.escape(value) for value in character_name_variants(name)]
+    name_pattern = "(?:" + "|".join(name_patterns) + ")"
     count = 0
     for context in contexts:
         sentences = re.split(r"(?<=[.!?])\s+", context)
         matched = False
         for index, sentence in enumerate(sentences):
-            if not re.search(rf"\b{name_re}\b", sentence, re.I):
+            if not re.search(rf"\b{name_pattern}\b", sentence, re.I):
                 continue
             # A canonical name can be attached to a place/entity description
             # ("my capital, Trikota", "Trikota was ... city"). Such predicates
             # are not evidence that a person is physically present.
             location_context = re.search(
-                rf"(?:\b(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b\s*,\s*\b{name_re}\b|"
-                rf"\b{name_re}\b\s*,\s*(?:the\s+)?(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b|"
-                rf"\b{name_re}\b\s+(?:was|were|is|are)\s+(?:the\s+)?(?:greatest\s+|finest\s+|largest\s+|smallest\s+)?(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b)",
+                rf"(?:\b(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b\s*,\s*\b{name_pattern}\b|"
+                rf"\b{name_pattern}\b\s*,\s*(?:the\s+)?(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b|"
+                rf"\b{name_pattern}\b\s+(?:was|were|is|are)\s+(?:the\s+)?(?:greatest\s+|finest\s+|largest\s+|smallest\s+)?(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b)",
                 sentence,
                 re.I,
             )
             if location_context:
                 continue
-            if re.search(rf"\b{name_re}\b\s+{PHYSICAL_SUBJECT_CUE.pattern}", sentence, re.I):
+            if re.search(rf"\b{name_pattern}\b\s+{PHYSICAL_SUBJECT_CUE.pattern}", sentence, re.I):
                 matched = True
                 break
-            if re.search(rf"\b{name_re}\b\s+{COPULA_PHYSICAL.pattern}", sentence, re.I):
+            if re.search(rf"\b{name_pattern}\b\s+{COPULA_PHYSICAL.pattern}", sentence, re.I):
                 matched = True
                 break
-            if re.search(rf"\b{name_re}\b\s+(?:was|were|is|are)\s+(?:captured|wounded|killed|carried|held|seen|found)\b", sentence, re.I):
+            if re.search(rf"\b{name_pattern}\b\s+(?:was|were|is|are)\s+(?:captured|wounded|killed|carried|held|seen|found)\b", sentence, re.I):
                 matched = True
                 break
             # Explicit narrative identification may introduce the character by
@@ -109,7 +133,7 @@ def physical_presence_count(name: str, contexts: list[str]) -> int:
             # Keep this narrowly anchored to identity language plus a person
             # descriptor and physical predicate; do not infer presence from
             # arbitrary verbs merely occurring near a name.
-            if re.search(rf"\bnone\s+other\s+than\s+{name_re}\b", sentence, re.I):
+            if re.search(rf"\bnone\s+other\s+than\s+{name_pattern}\b", sentence, re.I):
                 for following in sentences[index + 1:index + 2]:
                     if re.search(
                         r"\b(?:a|an|the)\b[^.!?]{0,80}\b(?:man|woman|boy|girl|asura|rakshasa|warrior|soldier|king|prince|queen|figure|person)\b[^.!?]{0,80}"
@@ -152,7 +176,7 @@ def gate(
     bare = [
         w.strip(".")
         for w in words
-        if w.lower() not in {"mr", "mrs", "ms", "miss", "dr", "prof", "professor", "capt", "captain", "sir", "lady", "lord", "rev", "reverend", "colonel", "major", "lieutenant", "herr", "monsieur", "madame"}
+        if w.lower() not in {"mr", "mrs", "ms", "miss", "dr", "prof", "professor", "capt", "captain", "sir", "lady", "lord", "rev", "reverend", "colonel", "major", "lieutenant", "herr", "monsieur", "madame", "king", "emperor", "maharaja", "maharani", "prince", "princess", "queen"}
     ]
     if not all(NAME_WORD.match(w) for w in bare if w):
         return "review", 0.65, ["non_name_token"]
@@ -160,12 +184,23 @@ def gate(
     if not title and roles & ROLE_TOKENS:
         return "non_character", 0.95, ["generic_non_person_name_pattern"]
     contexts = [str(m["context"] or "") for m in mentions]
-    exact = sum(1 for x in contexts if n.lower() in x.lower())
+    observed_names = []
+    safe_variant_keys = {value.casefold() for value in character_name_variants(n)}
+    for mention in mentions:
+        try:
+            mention_text = str(mention["mention_text"] or "").strip()
+        except (KeyError, IndexError):
+            mention_text = ""
+        if mention_text and mention_text.casefold() in safe_variant_keys:
+            observed_names.append(mention_text)
+    evidence_names = list(dict.fromkeys(character_name_variants(n) + observed_names))
+    evidence_pattern = "(?:" + "|".join(re.escape(value) for value in evidence_names) + ")"
+    exact = sum(1 for x in contexts if re.search(rf"\b{evidence_pattern}\b", x, re.I))
     scenes = len({m["scene_id"] for m in mentions if m["scene_id"] is not None})
     speech = sum(1 for x in contexts if SPEECH_CUE.search(x))
     action = sum(1 for x in contexts if ACTION_CUE.search(x))
-    direct = sum(1 for x in contexts if re.search(DIRECT_PERSON_CUE.pattern.format(name=re.escape(n)), x, re.I))
-    physical = physical_presence_count(n, contexts)
+    direct = sum(1 for x in contexts if re.search(DIRECT_PERSON_CUE.pattern.format(name=evidence_pattern), x, re.I))
+    physical = max((physical_presence_count(value, contexts) for value in evidence_names), default=0)
 
     if conflicting_entity_types and conflicting_entity_types & {"location", "environment"}:
         if direct == 0 and physical == 0:
@@ -180,7 +215,7 @@ def gate(
     if len(bare) >= 2:
         score += 0.15; reasons.append("multiword_person_name")
     if exact >= 2:
-        score += 0.15; reasons.append("name_repeated_in_context")
+        score += 0.15; reasons.append("name_patternpeated_in_context")
     if len(mentions) >= 3:
         score += 0.10; reasons.append("recurring_mentions")
     if scenes >= 2:
@@ -219,7 +254,7 @@ def build(db: str | Path, document_id: int) -> dict[str, int]:
             names_by_entity_type.setdefault(norm(entity["canonical_name"]).lower(), set()).add(str(entity["entity_type"]))
         for e in entities:
             mentions = con.execute(
-                "SELECT scene_id,context FROM entity_mentions WHERE document_id=? AND entity_id=? ORDER BY page_start,id",
+                "SELECT scene_id,context,mention_text FROM entity_mentions WHERE document_id=? AND entity_id=? ORDER BY page_start,id",
                 (document_id, e["id"]),
             ).fetchall()
             conflicting = names_by_entity_type.get(norm(e["canonical_name"]).lower(), set()) - {str(e["entity_type"])}
