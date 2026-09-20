@@ -142,4 +142,3 @@ def test_identity_lock_follows_deterministic_physical_presence_even_if_semantic_
     result = cinematic.enhance_generation_package(media=_media(), **context)
 
     assert "CANONICAL CHARACTER IDENTITY LOCK: Lord Shiva." in result["image"]["prompt"]
-\n
