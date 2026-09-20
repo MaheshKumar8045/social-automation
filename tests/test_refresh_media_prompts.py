@@ -42,7 +42,8 @@ def test_refresh_plan_is_deterministic_and_zero_llm():
     assert result["long_video_prompt_package"]["shots"]
     assert result["audio_prompt"]
     assert result["characters"][0]["source_presence"]["classification"] == "reference_only"
-    assert "Rama" not in result["image_prompt"].lower()
+    assert result["generation_intent"]["narrative_focus_character"]["canonical_name"] == "Rama"
+    assert "NARRATIVE FOCAL CHARACTER (CONTROLLED PRODUCTION INFERENCE): Rama" in result["image_prompt"]
     assert validate_plan(result) == []
 
 
