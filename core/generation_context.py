@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -104,6 +105,45 @@ class GenerationContext:
             ).fetchall()
             if row["text"]
         ]
+        # Entity-to-canonical linking can miss a source narrator when OCR/PDF
+        # extraction produces a bare source name that was not linked to the
+        # canonical entity mention. Recover only confirmed/likely/singleton
+        # canonical characters whose canonical name or approved alias is
+        # explicitly present in this scene. This adds reference context; the
+        # source-presence gate below still decides whether the character is
+        # physically visible.
+        scene_text = str(
+            con.execute(
+                "SELECT text FROM scenes WHERE document_id=? AND id=?",
+                (document_id, scene_id),
+            ).fetchone()["text"] or ""
+        )
+        linked_ids = {int(row["canonical_character_id"]) for row in rows}
+        fallback_rows = con.execute(
+            """SELECT id, canonical_name, status, confidence
+               FROM canonical_characters
+               WHERE document_id=? AND status IN ('confirmed','likely','singleton')
+               ORDER BY id""",
+            (document_id,),
+        ).fetchall()
+        matched_fallback = []
+        for candidate in fallback_rows:
+            cid = int(candidate["id"])
+            if cid in linked_ids:
+                continue
+            aliases = con.execute(
+                "SELECT alias FROM canonical_character_aliases WHERE canonical_character_id=? ORDER BY id",
+                (cid,),
+            ).fetchall()
+            source_forms = [str(candidate["canonical_name"] or "")]
+            source_forms.extend(str(a["alias"] or "") for a in aliases)
+            if any(
+                form and re.search(rf"(?<!\\w){re.escape(form)}(?!\\w)", scene_text, re.I)
+                for form in source_forms
+            ):
+                matched_fallback.append(candidate)
+        rows = list(rows) + matched_fallback
+
         result = []
         for row in rows:
             cid = int(row["canonical_character_id"])
