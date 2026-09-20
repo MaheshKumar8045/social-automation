@@ -30,13 +30,18 @@ def _prepare_characters(characters: list[Any], events: list[Any] | None = None, 
         if not isinstance(raw, dict) or not raw.get("canonical_name"):
             continue
         character = dict(raw)
-        # Recompute presence only from scene-local source text and scene-local events.
-        # Entity-mention context can contain surrounding prose from later moments.
-        contexts = [str(scene_text)] if scene_text else []
-        count = physical_presence_count(
-            str(character.get("canonical_name")),
-            contexts + event_contexts,
-        )
+        # Recompute presence from sentence-local evidence containing the exact
+        # canonical name, plus scene-local events. Do not pass the entire scene
+        # as one context: an unrelated later action such as "Trikota burned"
+        # must never establish Trikota as a visible person.
+        name = str(character.get("canonical_name"))
+        normalized_scene = re.sub(r"\s+", " ", scene_text or "").strip()
+        contexts = [
+            sentence.strip()
+            for sentence in re.split(r"(?<=[.!?])\s+", normalized_scene)
+            if re.search(rf"\b{re.escape(name)}\b", sentence, re.I)
+        ]
+        count = physical_presence_count(name, contexts + event_contexts)
         # Recompute this scene-local signal on every refresh. Never trust a stale
         # derived presence flag from an older package revision.
         character["source_presence"] = {
