@@ -165,7 +165,7 @@ def overlay_contract(style: dict[str, Any]) -> str:
     return (
         "TEXT / OVERLAY POLICY: TEXT RENDERING IS DISABLED IN THE IMAGE MODEL. "
         "Create clean artwork only. Leave the protected negative-space region empty for post-processing. "
-        "Do not generate words, letters, captions, subtitles, dialogue, signs, logos, watermarks, or typography. "
+        "Do not draw, spell, simulate, invent, or generate words, letters, captions, subtitles, dialogue, signs, logos, watermarks, or typography. "
         "Do not copy prompt instructions into the artwork. "
         "The exact source text is rendered later by the deterministic overlay renderer using the fixed "
         f"{overlay.get('font_family', 'Georgia')} regular serif, warm-white text "
