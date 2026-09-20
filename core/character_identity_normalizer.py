@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS character_identity_members (
 """
 
 TITLE_RE = re.compile(
-    r'^(mr|mrs|ms|miss|dr|prof|professor|capt|captain|sir|lady|lord|rev|reverend|colonel|major|lieutenant|herr|monsieur|madame)\.?\s+',
+    r'^(mr|mrs|ms|miss|dr|prof|professor|capt|captain|sir|lady|lord|rev|reverend|colonel|major|lieutenant|herr|monsieur|madame|king|emperor|maharaja|maharani|prince|princess|queen)\.?\s+',
     re.I,
 )
 FRAGMENT_RE = re.compile(r'(?:[-‐‑‒–—])$')
@@ -54,6 +54,7 @@ QUALIFIER_WORDS = {
 TITLE_WORDS = {
     'mr', 'mrs', 'ms', 'miss', 'dr', 'prof', 'professor', 'capt', 'captain', 'sir', 'lady', 'lord',
     'rev', 'reverend', 'colonel', 'major', 'lieutenant', 'herr', 'monsieur', 'madame',
+    'king', 'emperor', 'maharaja', 'maharani', 'prince', 'princess', 'queen',
 }
 
 def norm(name: str) -> str:
