@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS mention_identity_resolution (
  UNIQUE(document_id, group_id)
 );
 '''
-TITLE_RE=re.compile(r'^(?:mr|mrs|ms|miss|dr|prof|professor|capt|captain|sir|lady|lord|rev|reverend|colonel|major|lieutenant|herr|monsieur|madame)\.?\s+',re.I)
+TITLE_RE=re.compile(r'^(?:mr|mrs|ms|miss|dr|prof|professor|capt|captain|sir|lady|lord|rev|reverend|colonel|major|lieutenant|herr|monsieur|madame|king|emperor|maharaja|maharani|prince|princess|queen)\.?\s+',re.I)
 
 def base(s): return re.sub(r'[^a-z0-9 ]+',' ',TITLE_RE.sub('',s or '').lower()).strip()
 def tokens(s): return base(s).split()
