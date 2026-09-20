@@ -120,3 +120,26 @@ def test_video_prompts_receive_scene_specific_cinematic_direction():
     result = enhance_generation_package(media=_media(), **_context("The warriors crossed the ruined gate."))
     assert all("CINEMATIC DIRECTION" in c["prompt"] for c in result["short_video"]["clips"])
     assert all("CINEMATIC DIRECTION" in s["prompt"] for s in result["long_video"]["shots"])
+
+def test_identity_lock_follows_deterministic_physical_presence_even_if_semantic_visibility_is_empty(monkeypatch):
+    import core.cinematic_generation as cinematic
+
+    context = _context("Lord Shiva watched the dying embers of the city.")
+    context["characters"][0]["source_presence"] = {
+        "physical_presence": True,
+        "physical_presence_evidence_count": 1,
+        "classification": "physical",
+    }
+
+    original = cinematic.build_generation_intent
+
+    def advisory_without_visible(*args, **kwargs):
+        intent = original(*args, **kwargs)
+        intent["visible_characters"] = []
+        return intent
+
+    monkeypatch.setattr(cinematic, "build_generation_intent", advisory_without_visible)
+    result = cinematic.enhance_generation_package(media=_media(), **context)
+
+    assert "CANONICAL CHARACTER IDENTITY LOCK: Lord Shiva." in result["image"]["prompt"]
+\n
