@@ -154,14 +154,29 @@ def _prompt(
     lighting=camera.get("lighting","motivated naturalistic lighting")
     by_name={str(c.get("canonical_name") or "").casefold(): c for c in characters if isinstance(c,dict)}
     identity_blocks=[]
+    # The production QA contract derives mandatory canonical names from the
+    # deterministic scene-local physical-presence signal. Build identity locks
+    # from that same source-of-truth, not only from advisory LLM visible-character
+    # semantics. This prevents a stale/partial semantic character list from
+    # producing a prompt that names a canonical subject without its identity lock.
+    locked_names: set[str] = set()
     for item in intent.get("visible_characters") or []:
-        character=by_name.get(str(item.get("name") or "").casefold())
+        name = str(item.get("name") or "").strip()
+        if name:
+            locked_names.add(name.casefold())
+    for character in characters:
+        if not isinstance(character, dict):
+            continue
+        name = str(character.get("canonical_name") or "").strip()
+        presence = character.get("source_presence") or {}
+        if name and presence.get("physical_presence") is True:
+            locked_names.add(name.casefold())
+    if narrative_focus_name:
+        locked_names.add(narrative_focus_name.casefold())
+    for name in sorted(locked_names):
+        character = by_name.get(name)
         if character:
             identity_blocks.append(character_identity_block(character))
-    if narrative_focus_name:
-        focus_character = by_name.get(narrative_focus_name.casefold())
-        if focus_character:
-            identity_blocks.append(character_identity_block(focus_character))
     identity_text=" ".join(identity_blocks)
     return (
         f"Source-grounded {genre} cinematic generation for scene {scene.get('scene_order','')}: {_clean(scene.get('title'),140)}. "
