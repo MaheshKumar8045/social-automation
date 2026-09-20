@@ -41,6 +41,63 @@ def _complete_source_fragment(text: str, source: str) -> str:
     return _clean(source[start:start + len(value) + match.end()]) if match else ""
 
 
+def _character_source_variants(character: dict[str, Any]) -> list[str]:
+    """Return conservative canonical/approved-alias forms usable against source text."""
+    variants = character_name_variants(str(character.get("canonical_name") or ""))
+    for alias in character.get("aliases") or []:
+        value = alias.get("alias") if isinstance(alias, dict) else alias
+        value = _clean(value, 120)
+        if value:
+            variants.extend(character_name_variants(value))
+    return list(dict.fromkeys(v for v in variants if v))
+
+
+def _flattened_narrator_source(
+    source: str,
+    characters: list[dict[str, Any]],
+) -> str:
+    """Remove a flattened chapter/narrator heading while preserving narration.
+
+    PDF text extraction can collapse a layout such as:
+
+        1 The end
+        Ravana
+        Tomorrow is my funeral.
+
+    into:
+
+        1 The end Ravana Tomorrow is my funeral.
+
+    The heading and narrator are metadata; the first-person prose is the visual
+    source text. Only a source name/approved alias immediately before the first
+    first-person anchor is stripped. No generic word is treated as a narrator.
+    """
+    normalized = re.sub(r"\s+", " ", source or "").strip()
+    first_person = re.search(r"\b(?:I|me|my|mine|we|us|our|ours)\b", normalized, re.I)
+    if not first_person:
+        return normalized
+
+    matches: list[re.Match[str]] = []
+    for character in characters:
+        if not isinstance(character, dict):
+            continue
+        for name in _character_source_variants(character):
+            for match in re.finditer(rf"\b{re.escape(name)}\b", normalized[:first_person.start()], re.I):
+                if not re.search(r"[.!?]", normalized[match.end():first_person.start()]):
+                    matches.append(match)
+    if not matches:
+        return normalized
+
+    narrator = max(matches, key=lambda m: m.end())
+    if first_person.start() - narrator.end() > 80:
+        return normalized
+
+    # Keep only the prose beginning at the first-person anchor. This removes
+    # both the chapter heading and narrator label without requiring the heading
+    # text to match the scene title exactly.
+    return normalized[first_person.start():].lstrip(" \t:;,-—–")
+
+
 def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], characters: list[dict[str, Any]]) -> list[str]:
     """Select visual moments in source order.
 
@@ -49,28 +106,7 @@ def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], char
     actual opening moment of a scene.
     """
     source = str(scene.get("text") or "")
-    names = []
-    for character in characters:
-        if not isinstance(character, dict) or not character.get("canonical_name"):
-            continue
-        names.extend(character_name_variants(str(character.get("canonical_name"))))
-    names = list(dict.fromkeys(names))
-    # Some PDF extractors flatten chapter number/title/narrator headings into
-    # the first prose sentence, e.g. "1 The end Ravana Tomorrow is my funeral."
-    # When a canonical narrator name immediately precedes the first-person prose,
-    # remove only that heading prefix for visual-moment extraction.
-    moment_source = source
-    first_person = re.search(r"\b(?:I|me|my|mine|we|us|our|ours)\b", source, re.I)
-    if first_person and names:
-        heading_matches = []
-        for name in names:
-            match = re.search(rf"\b{re.escape(name)}\b", source[:first_person.start()], re.I)
-            if match and not re.search(r"[.!?]", source[match.end():first_person.start()]):
-                heading_matches.append(match)
-        if heading_matches:
-            heading = max(heading_matches, key=lambda m: m.end())
-            if first_person.start() - heading.end() <= 80:
-                moment_source = source[heading.end():].lstrip(" \t:;,-—–")
+    moment_source = _flattened_narrator_source(source, characters)
     source = moment_source
     candidates: list[tuple[int, int, str]] = []
     seen: set[str] = set()
@@ -134,7 +170,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
         name = _clean(character.get("canonical_name"), 100)
         if not name:
             continue
-        name_variants = character_name_variants(name)
+        name_variants = _character_source_variants(character)
         name_pattern = "(?:" + "|".join(re.escape(value) for value in name_variants) + ")"
         source_presence = character.get("source_presence") or {}
         has_authoritative_presence = isinstance(source_presence, dict) and "physical_presence" in source_presence
@@ -252,7 +288,7 @@ def infer_narrative_focus_character(
         name = _clean(character.get("canonical_name"), 120)
         if not name:
             continue
-        name_variants = character_name_variants(name)
+        name_variants = _character_source_variants(character)
         name_pattern = "(?:" + "|".join(re.escape(value) for value in name_variants) + ")"
         name_matches = list(re.finditer(rf"\b{name_pattern}\b", source, re.I))
         if not name_matches:
