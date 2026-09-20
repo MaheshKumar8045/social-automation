@@ -163,7 +163,7 @@ def subject_policy(intent: dict[str, Any]) -> str:
 def overlay_contract(style: dict[str, Any]) -> str:
     overlay = style.get("overlay") or DEFAULT_ART_DIRECTION["overlay"]
     return (
-        "IMAGE TEXT RULE: TEXT RENDERING IS DISABLED IN THE IMAGE MODEL. "
+        "TEXT / OVERLAY POLICY: TEXT RENDERING IS DISABLED IN THE IMAGE MODEL. "
         "Create clean artwork only. Leave the protected negative-space region empty for post-processing. "
         "Do not generate words, letters, captions, subtitles, dialogue, signs, logos, watermarks, or typography. "
         "Do not copy prompt instructions into the artwork. "
