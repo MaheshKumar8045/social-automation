@@ -92,10 +92,11 @@ def _flattened_narrator_source(
     if first_person.start() - narrator.end() > 80:
         return normalized
 
-    # Keep only the prose beginning at the first-person anchor. This removes
-    # both the chapter heading and narrator label without requiring the heading
-    # text to match the scene title exactly.
-    return normalized[first_person.start():].lstrip(" \t:;,-—–")
+    # Keep the prose beginning immediately after the narrator label. Using
+    # first_person.start() here would be wrong for possessives such as
+    # "Tomorrow is my funeral": "my" is a first-person word inside the prose,
+    # not the start of the narration.
+    return normalized[narrator.end():].lstrip(" \t:;,-—–")
 
 
 def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], characters: list[dict[str, Any]]) -> list[str]:
