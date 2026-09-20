@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from .character_candidate_gate import physical_presence_count
+from .generation_intent import infer_narrative_focus_character
 from .visual_continuity import character_identity_block, fixed_style_block, subject_policy, overlay_contract
 from .visual_generation_policy import composition_policy, enrich_character, load_visual_policy
 
@@ -211,6 +212,7 @@ def _base_prompt(
     layout: dict[str, Any],
     inference_genre: str,
     world_profile: dict[str, Any],
+    narrative_focus_character: dict[str, str] | None = None,
 ) -> str:
     parts = [
         f"Source-grounded {inference_genre} media depiction.",
@@ -242,10 +244,7 @@ def _base_prompt(
         for c in characters
         if (c.get("source_presence") or {}).get("physical_presence") is True
     ]
-    from .generation_intent import infer_narrative_focus_character
-    narrative_focus = context.get("narrative_focus_character")
-    if not isinstance(narrative_focus, dict):
-        narrative_focus = infer_narrative_focus_character(str(scene.get("text") or ""), characters)
+    narrative_focus = narrative_focus_character
     parts.append(
         subject_policy({
             "visible_characters": visible_names,
@@ -330,7 +329,20 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
     moments = _visual_moments(scene, events, characters)
     if not moments:
         moments = ["Hold the established source scene state without adding a new event."]
-    base = _base_prompt(scene, characters, objects, moments, continuity, layout, genre, world_profile)
+    narrative_focus = context.get("narrative_focus_character")
+    if not isinstance(narrative_focus, dict):
+        narrative_focus = infer_narrative_focus_character(str(scene.get("text") or ""), characters)
+    base = _base_prompt(
+        scene,
+        characters,
+        objects,
+        moments,
+        continuity,
+        layout,
+        genre,
+        world_profile,
+        narrative_focus,
+    )
     overlays = _overlay(dialogue, scene, layout)
 
     count = max(1, min(int(clip_count), 8))
