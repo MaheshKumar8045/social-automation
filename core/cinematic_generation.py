@@ -143,6 +143,8 @@ def _prompt(
 ) -> str:
     visible=", ".join(x["name"] for x in intent["visible_characters"]) or "none"
     referenced=", ".join(intent["referenced_characters"]) or "none"
+    narrative_focus = intent.get("narrative_focus_character") or {}
+    narrative_focus_name = _clean(narrative_focus.get("canonical_name"), 120) if isinstance(narrative_focus, dict) else ""
     dims=(world_profile or {}).get("dimensions") or {}
     world=[]
     for key in ("culture","religious_context","region","period"):
@@ -161,7 +163,11 @@ def _prompt(
         f"Source-grounded {genre} cinematic generation for scene {scene.get('scene_order','')}: {_clean(scene.get('title'),140)}. "
         f"SOURCE-ANCHORED SCENE INTERPRETATION: {focus} SOURCE VISUAL MOMENT: {focus} "
         f"VISIBLE SOURCE-CONFIRMED CHARACTERS: {visible}. REFERENCED-ONLY CHARACTERS: {referenced}; do not render referenced-only names. "
-        f"{subject_policy(intent)} "
+        + (f"NARRATIVE FOCAL CHARACTER (CONTROLLED PRODUCTION INFERENCE): {narrative_focus_name}. "
+           "This is a first-person visualization aid, not source-confirmed physical-presence evidence. "
+           "Use this character as the principal visual subject and do not substitute another person. "
+           if narrative_focus_name else "")
+        + f"{subject_policy(intent)} "
         f"{fixed_style_block(load_visual_policy(), genre)} "
         f"DETECTED STORY WORLD (context only): {', '.join(world) if world else 'unknown'}. "
         f"CINEMATIC DIRECTION: {camera.get('framing','balanced cinematic frame')}; {camera.get('movement','restrained movement')}; "
@@ -171,6 +177,9 @@ def _prompt(
         "Preserve source-supported objects, geography, and continuity state. Unknown attributes remain unknown. "
         "Do not invent costumes, anatomy, props, architecture, weather, supernatural effects, actions, or story events. "
         "Maintain clear foreground/midground/background hierarchy and readable subject separation. "
+        "IMAGE MODEL TEXT SAFETY: TEXT RENDERING IS DISABLED. Do not generate words, letters, captions, "
+        "dialogue, subtitles, signs, logos, watermarks, or any prompt/instruction text inside the artwork. "
+        "Leave the protected negative-space area clean for the deterministic overlay renderer. "
         + extra
     )
 
@@ -182,10 +191,12 @@ def _overlays(dialogue: list[str], intent: dict[str,Any], layout: dict[str,Any])
     else: boxes.append({"box_number":1,"box_type":"narrative_box","text":intent["primary_visual_moment"],"text_source":"source_visual_moment","required":True,"placement":"largest protected negative-space region opposite subject/action","max_width_percent":layout.get("dialogue_box_max_width_percent",68),"max_height_percent":layout.get("dialogue_box_max_height_percent",15),"avoid":["faces","hands","important_objects","primary_action"]})
     return boxes
 
-def enhance_generation_package(*, scene: dict[str,Any], characters: list[dict[str,Any]], objects: list[dict[str,Any]], events: list[dict[str,Any]], continuity: dict[str,Any], world_profile: dict[str,Any], genre: str, media: dict[str,Any]) -> dict[str,Any]:
+def enhance_generation_package(*, scene: dict[str,Any], characters: list[dict[str,Any]], objects: list[dict[str,Any]], events: list[dict[str,Any]], continuity: dict[str,Any], world_profile: dict[str,Any], genre: str, media: dict[str,Any], narrative_focus_character: dict[str, str] | None = None) -> dict[str,Any]:
     text=str(scene.get("text") or ""); dialogue=_source_dialogue(text,scene); intent=build_generation_intent(scene=scene,characters=characters,objects=objects,events=events,continuity=continuity,dialogue=dialogue,genre=genre)
+    if narrative_focus_character is not None:
+        intent["narrative_focus_character"] = narrative_focus_character
     existing_layout=((media.get("image") or {}).get("layout") or {}); layout={"aspect_ratio":existing_layout.get("aspect_ratio","9:16"),"safe_margin_percent":existing_layout.get("safe_margin_percent",7),"critical_subject_safe_area_percent":existing_layout.get("critical_subject_safe_area_percent",86),"background_visible_percent":existing_layout.get("background_visible_percent",[35,55]),"main_subject_height_percent":existing_layout.get("main_subject_height_percent",[45,65]),"secondary_subject_height_percent":existing_layout.get("secondary_subject_height_percent",[25,50]),"group_subject_height_percent":existing_layout.get("group_subject_height_percent",[30,55]),"dialogue_box_max_width_percent":existing_layout.get("dialogue_box_max_width_percent",68),"dialogue_box_max_height_percent":existing_layout.get("dialogue_box_max_height_percent",15)}
-    image_role="action" if intent["emotional_signal"]=="combat" else "consequence" if intent["emotional_signal"]=="destruction" else "movement" if intent["emotional_signal"]=="travel" else "reaction" if intent["emotional_signal"]=="reaction" and intent["visible_characters"] else "establish"
+    image_role="action" if intent["emotional_signal"]=="combat" else "consequence" if intent["emotional_signal"]=="destruction" else "movement" if intent["emotional_signal"]=="travel" else "reaction" if intent["emotional_signal"]=="reaction" and (intent["visible_characters"] or intent.get("narrative_focus_character")) else "establish"
     image_camera=_camera_for(image_role,intent["emotional_signal"],bool(intent["visible_characters"])); image_prompt=_prompt(scene,intent,world_profile,genre,intent["primary_visual_moment"],image_camera,characters,"Compose one dominant source-derived visual moment for mobile-first 9:16. Reserve protected negative space for the deterministic text overlay. The generated artwork itself must contain no text.")
     overlays=_overlays(dialogue,intent,layout); short_roles=intent["cinematic_arc"][:3]; clips=[]
     for i,role in enumerate(short_roles):
