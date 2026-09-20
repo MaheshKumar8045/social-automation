@@ -40,44 +40,48 @@ def _complete_source_fragment(text: str, source: str) -> str:
 
 
 def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], characters: list[dict[str, Any]]) -> list[str]:
+    """Select visual moments in source order.
+
+    Cinematic salience may annotate moments, but it must never reorder the
+    narrative chronology. A high-scoring later event must not displace the
+    actual opening moment of a scene.
+    """
     source = str(scene.get("text") or "")
-    # Mention-only characters must not bias visual-moment selection. Only source-confirmed
-    # visible canonical identities are allowed to raise a moment's character score.
     names = [
         str(c.get("canonical_name") or "").casefold()
         for c in characters
         if isinstance(c, dict) and (c.get("source_presence") or {}).get("physical_presence") is True
     ]
-    event_candidates: list[tuple[int, int, str]] = []
+    candidates: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+
     for order, event in enumerate(events):
         raw = str(event.get("text") or "")
         text = _complete_source_fragment(raw, source)
         if not text or text not in source:
             continue
-        score = 50 + (30 if _ACTION_RE.search(text) else 0) + (15 if _DESTRUCTION_RE.search(text) else 0) + (10 if _COMBAT_RE.search(text) else 0) + (7 if _REACTION_RE.search(text) else 0)
-        score += sum(12 for name in names if name and name in text.casefold())
-        event_candidates.append((score, order, text))
-    sentences = _sentences(source)
-    # With no trustworthy event extraction, sentence order is the source of truth.
-    # Do not rank/reorder prose merely because a keyword scores higher.
-    if not event_candidates:
-        return sentences[:6] if sentences else ([source.strip()] if source.strip() else [])
-    sentence_candidates: list[tuple[int, int, str]] = []
-    base_order = len(event_candidates)
-    for offset, sentence in enumerate(sentences):
-        score = 12 + (45 if _ACTION_RE.search(sentence) else 0) + (15 if _DESTRUCTION_RE.search(sentence) else 0) + (10 if _COMBAT_RE.search(sentence) else 0) + (8 if _TRAVEL_RE.search(sentence) else 0) + (7 if _REACTION_RE.search(sentence) else 0)
-        score += sum(10 for name in names if name and name in sentence.casefold())
-        sentence_candidates.append((score, base_order + offset, sentence))
-    candidates = event_candidates + sentence_candidates
-    result: list[str] = []
-    seen: set[str] = set()
-    for _, _, text in sorted(candidates, key=lambda x: (-x[0], x[1])):
         key = text.casefold()
-        if key not in seen and text in source:
-            seen.add(key)
-            result.append(text)
-    return result[:6]
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append((source.find(text), order, text))
 
+    sentences = _sentences(source)
+    base_order = len(events) + 1
+    for offset, sentence in enumerate(sentences):
+        key = sentence.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append((source.find(sentence), base_order + offset, sentence))
+
+    if not candidates:
+        return [source.strip()] if source.strip() else []
+
+    # Source position is authoritative. Event/keyword salience must never
+    # reorder later material ahead of the actual opening of the scene.
+    candidates.sort(key=lambda item: (item[0] if item[0] >= 0 else 10**9, item[1]))
+    return [text for _, _, text in candidates[:6]]
 
 def _source_participants(scene_text: str) -> list[dict[str, str]]:
     """Return only anonymous groups/participants explicitly named by the scene text."""
