@@ -88,3 +88,5 @@ def test_malformed_source_entity_name_does_not_gain_alias_from_short_name():
     assert decision == "review"
     assert score < 0.48
     assert "untitled_name_without_repeated_direct_evidence" in reasons
+
+# CI validation marker: exercise the full branch test suite without changing behavior.
