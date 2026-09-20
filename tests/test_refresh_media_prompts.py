@@ -47,6 +47,32 @@ def test_refresh_plan_is_deterministic_and_zero_llm():
     assert validate_plan(result) == []
 
 
+def test_refresh_plan_does_not_mark_burning_city_as_physical_character():
+    plan = _plan()
+    plan["scene"]["text"] = (
+        "Ravana Tomorrow is my funeral. My capital, Trikota, was the greatest city in the world. "
+        "Trikota burned for days. Hanuman did that to us."
+    )
+    plan["characters"] = [
+        {
+            "canonical_character_id": 10,
+            "canonical_name": "Trikota",
+            "scene_mentions": [{"context": "My capital, Trikota, was the greatest city in the world. Trikota burned for days."}],
+            "visual_profile": {"identity_anchor": "vib-trikota", "source_facts": [], "inferred_facts": []},
+        },
+        {
+            "canonical_character_id": 11,
+            "canonical_name": "Hanuman",
+            "scene_mentions": [{"context": "Hanuman did that to us."}],
+            "visual_profile": {"identity_anchor": "vib-hanuman", "source_facts": [], "inferred_facts": []},
+        },
+    ]
+    result = refresh_plan(plan)
+    by_name = {c["canonical_name"]: c for c in result["characters"]}
+    assert by_name["Trikota"]["source_presence"]["physical_presence"] is False
+    assert by_name["Hanuman"]["source_presence"]["physical_presence"] is False
+
+
 def test_refresh_plan_recomputes_presence_and_emits_identity_lock():
     plan = _plan()
     plan["scene"]["text"] = "Professor Mayan stood at the gate."
