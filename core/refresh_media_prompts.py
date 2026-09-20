@@ -118,6 +118,20 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
     if output_dir is None:
         output_dir = package_path.parent / "_visual_continuity_refresh"
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Build a document-wide canonical character index so a first-person narrator
+    # can be resolved even when the scene-local entity extraction omitted that
+    # canonical character from the scene character list.
+    document_characters: dict[str, dict[str, Any]] = {}
+    for record in scenes:
+        if not isinstance(record, dict) or not isinstance(record.get("plan"), dict):
+            continue
+        for character in record["plan"].get("characters") or []:
+            if not isinstance(character, dict) or not character.get("canonical_name"):
+                continue
+            key = str(character.get("canonical_character_id") or character.get("canonical_name")).casefold()
+            document_characters.setdefault(key, character)
+    canonical_focus_characters = list(document_characters.values())
+
     failures: list[dict[str, Any]] = []
     refreshed: list[dict[str, Any]] = []
     character_refs: dict[str, dict[str, Any]] = {}
@@ -133,8 +147,27 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
         scene_order = scene.get("scene_order")
         characters_for_focus = original_plan.get("characters") or []
         source_text = str(scene.get("text") or "")
-        local_focus = infer_narrative_focus_character(source_text, characters_for_focus)
+        local_focus = infer_narrative_focus_character(source_text, canonical_focus_characters)
         current_focus = local_focus
+        refresh_input_plan = original_plan
+        if current_focus is not None:
+            focus_name = str(current_focus.get("canonical_name") or "").strip().casefold()
+            has_focus_character = any(
+                isinstance(character, dict)
+                and str(character.get("canonical_name") or "").strip().casefold() == focus_name
+                for character in characters_for_focus
+            )
+            if not has_focus_character:
+                focus_character = next(
+                    (
+                        character for character in canonical_focus_characters
+                        if str(character.get("canonical_name") or "").strip().casefold() == focus_name
+                    ),
+                    None,
+                )
+                if focus_character is not None:
+                    refresh_input_plan = dict(original_plan)
+                    refresh_input_plan["characters"] = list(characters_for_focus) + [dict(focus_character)]
         if (
             current_focus is None
             and active_narrative_focus is not None
@@ -148,7 +181,7 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
                 "carried deterministic first-person narrative focus from the immediately preceding scene"
             )
 
-        plan = refresh_plan(original_plan, narrative_focus_character=current_focus)
+        plan = refresh_plan(refresh_input_plan, narrative_focus_character=current_focus)
         if current_focus is not None:
             plan["narrative_focus_character"] = current_focus
         errors = validate_plan(plan)
