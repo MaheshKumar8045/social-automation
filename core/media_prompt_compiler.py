@@ -269,8 +269,7 @@ def _base_prompt(
         )
         if focus_character is not None:
             parts.append(
-                "NARRATIVE FOCAL CHARACTER IDENTITY LOCK: "
-                + character_identity_block(focus_character)
+                character_identity_block(focus_character)
             )
         parts.append(
             "NARRATIVE FOCAL CHARACTER EXECUTION RULE: this named canonical character is the "
