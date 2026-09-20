@@ -197,6 +197,42 @@ def test_first_person_scene_with_one_named_canonical_character_resolves_narrativ
     assert result["narrative_focus_character"]["canonical_name"] == "Ravana"
 
 
+def test_first_person_reference_to_another_character_does_not_resolve_narrative_focus():
+    chars = [{
+        "canonical_name": "Rama",
+        "source_presence": {
+            "physical_presence": False,
+            "physical_presence_evidence_count": 0,
+            "classification": "reference_only",
+        },
+        "scene_mentions": [{"context": "I remembered Rama after the war."}],
+    }]
+    result = _intent(
+        "I remembered Rama after the war.",
+        characters=chars,
+        dialogue=["I remembered Rama after the war."],
+    )
+    assert result["narrative_focus_character"] is None
+
+
+def test_explicit_self_identification_resolves_narrative_focus():
+    chars = [{
+        "canonical_name": "Ravana",
+        "source_presence": {
+            "physical_presence": False,
+            "physical_presence_evidence_count": 0,
+            "classification": "reference_only",
+        },
+        "scene_mentions": [{"context": "Ravana, I am the king who lost everything."}],
+    }]
+    result = _intent(
+        "I am Ravana, and tomorrow is my funeral.",
+        characters=chars,
+        dialogue=["I am Ravana, and tomorrow is my funeral."],
+    )
+    assert result["narrative_focus_character"]["canonical_name"] == "Ravana"
+
+
 def test_ambiguous_first_person_scene_does_not_invent_narrative_focus():
     chars = [
         {"canonical_name": "Ravana", "scene_mentions": [{"context": "Ravana spoke to Hanuman."}]},
