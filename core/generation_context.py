@@ -133,7 +133,7 @@ class GenerationContext:
                    ORDER BY em.page_start, em.id""",
                 (document_id, scene_id, cid),
             ).fetchall()]
-            presence_contexts = [str(mention.get("context") or "") for mention in mentions if mention.get("context")]
+            presence_contexts = [str(scene["text"] or "")] if scene["text"] else []
             # Event evidence is scene-local source evidence too. This matters for
             # passive physical states such as "Kumbha was captured" where the
             # canonical mention context may be a short reference but the event
