@@ -251,6 +251,28 @@ def _base_prompt(
             "narrative_focus_character": narrative_focus,
         })
     )
+    if narrative_focus:
+        focus_name = str(narrative_focus.get("canonical_name") or "").strip()
+        focus_character = next(
+            (
+                character for character in characters
+                if str(character.get("canonical_name") or "").strip().casefold()
+                == focus_name.casefold()
+            ),
+            None,
+        )
+        if focus_character is not None:
+            parts.append(
+                "NARRATIVE FOCAL CHARACTER IDENTITY LOCK: "
+                + character_identity_block(focus_character)
+            )
+        parts.append(
+            "NARRATIVE FOCAL CHARACTER EXECUTION RULE: this named canonical character is the "
+            "mandatory principal subject for the visual frame. Preserve every source-supported "
+            "identity fact exactly. Do not substitute a different person, gender, age, species, "
+            "social identity, or generic stock-character interpretation. If an approved character "
+            "reference exists, it overrides generic model priors."
+        )
     parts.append(overlay_contract(load_visual_policy()))
     parts.append(
         "IMAGE MODEL SAFETY: the image generator must output artwork only. "
