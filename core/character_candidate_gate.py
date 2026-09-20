@@ -87,8 +87,9 @@ def physical_presence_count(name: str, contexts: list[str]) -> int:
             # ("my capital, Trikota", "Trikota was ... city"). Such predicates
             # are not evidence that a person is physically present.
             location_context = re.search(
-                rf"(?:\b(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b[^.!?]{{0,80}}\b{name_re}\b|"
-                rf"\b{name_re}\b[^.!?]{{0,80}}\b(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b)",
+                rf"(?:\b(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b\s*,\s*\b{name_re}\b|"
+                rf"\b{name_re}\b\s*,\s*(?:the\s+)?(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b|"
+                rf"\b{name_re}\b\s+(?:was|were|is|are)\s+(?:the\s+)?(?:greatest\s+|finest\s+|largest\s+|smallest\s+)?(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b)",
                 sentence,
                 re.I,
             )
