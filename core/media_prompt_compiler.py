@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from .character_candidate_gate import physical_presence_count
-from .visual_continuity import fixed_style_block, subject_policy, overlay_contract
+from .visual_continuity import character_identity_block, fixed_style_block, subject_policy, overlay_contract
 from .visual_generation_policy import composition_policy, enrich_character, load_visual_policy
 
 
