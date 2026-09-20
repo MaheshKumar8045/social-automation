@@ -268,3 +268,47 @@ def test_overlay_renderer_fails_closed_when_required_overlay_is_missing(tmp_path
     assert result["processed"] == 0
     assert any("required source-derived dialogue/narrative overlay is missing" in item for item in result["failures"])
     assert not (tmp_path / "final").exists()
+
+
+def test_narrative_focus_prompt_contains_character_identity_lock():
+    from core.media_prompt_compiler import compile_media_prompts
+
+    character = {
+        "canonical_character_id": 999,
+        "canonical_name": "Ravana",
+        "source_presence": {
+            "physical_presence": False,
+            "physical_presence_evidence_count": 0,
+            "classification": "reference_only",
+        },
+        "visual_profile": {
+            "identity_anchor": "vib-ravana-test",
+            "visual_role": "ruler",
+            "source_facts": [
+                {
+                    "attribute": "gender",
+                    "value": "male",
+                    "locked_for_continuity": True,
+                }
+            ],
+            "inferred_facts": [],
+            "unknown_source_attributes": [],
+        },
+    }
+    result = compile_media_prompts({
+        "scene": {
+            "scene_order": 1,
+            "title": "The end",
+            "text": "Ravana Tomorrow is my funeral.",
+        },
+        "characters": [character],
+        "objects": [],
+        "events": [],
+        "continuity": {},
+        "world_profile": {},
+        "visual_genre": "general_narrative",
+    })
+    prompt = result["image"]["prompt"]
+    assert "NARRATIVE FOCAL CHARACTER IDENTITY LOCK" in prompt
+    assert "SOURCE gender=male" in prompt
+    assert "NARRATIVE FOCAL CHARACTER EXECUTION RULE" in prompt
