@@ -75,6 +75,21 @@ def test_character_action_remains_visible_when_city_is_mentioned():
     assert result["visible_characters"] == [{"name": "Ravana", "evidence": "Ravana walked through the city."}]
 
 
+def test_location_name_with_destruction_verb_is_not_visible_character():
+    chars = [{
+        "canonical_name": "Trikota",
+        "scene_mentions": [{
+            "context": "My capital, Trikota, was the greatest city in the world. Trikota burned for days."
+        }],
+    }]
+    result = _intent(
+        "My capital, Trikota, was the greatest city in the world. Trikota burned for days.",
+        characters=chars,
+    )
+    assert result["visible_characters"] == []
+    assert result["referenced_characters"] == ["Trikota"]
+
+
 def test_opening_asura_scene_resolves_ravana_and_no_canonical_visible_characters():
     chars = [
         {"canonical_name": "Ravana", "scene_mentions": [{"context": "Ravana Tomorrow is my funeral."}]},
