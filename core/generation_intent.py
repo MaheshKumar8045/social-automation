@@ -179,6 +179,36 @@ def _dialogue_kind(source: str, dialogue: list[str]) -> str:
     return "spoken" if speech else "first_person_narration"
 
 
+def infer_narrative_focus_character(
+    scene_text: str,
+    characters: list[dict[str, Any]],
+    *,
+    dialogue_kind: str | None = None,
+) -> dict[str, str] | None:
+    """Resolve a deterministic first-person narrative focal character.
+
+    This is separate from source-confirmed physical presence. A first-person
+    narrator may be visualized as a controlled production focus only when
+    exactly one canonical identity is explicitly named in the scene source.
+    """
+    if dialogue_kind not in (None, "first_person_narration"):
+        return None
+    source = re.sub(r"\s+", " ", str(scene_text or "")).strip()
+    if not re.search(r"\b(?:I|me|my|mine|we|us|our|ours)\b", source, re.I):
+        return None
+    candidates: list[dict[str, str]] = []
+    for character in characters:
+        if not isinstance(character, dict):
+            continue
+        name = _clean(character.get("canonical_name"), 120)
+        if name and re.search(rf"\b{re.escape(name)}\b", source, re.I):
+            candidates.append({
+                "canonical_name": name,
+                "reason": "first-person narrative with exactly one explicitly named canonical character in the scene source",
+            })
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def _select_arc(signal: str, has_visible: bool, has_dialogue: bool) -> list[str]:
     if signal == "combat":
         return ["establish", "action", "reaction"]
@@ -199,6 +229,8 @@ def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str,
     if not moments:
         moments = _sentences(source)[:6] if _sentences(source) else ([source.strip()] if source.strip() else ["Preserve the established source scene state without adding an event."])
     visible, referenced = _presence(source, characters, events)
+    dialogue_kind = _dialogue_kind(source, dialogue)
+    narrative_focus = infer_narrative_focus_character(source, characters, dialogue_kind=dialogue_kind)
     signal = "combat" if _COMBAT_RE.search(source) else "destruction" if _DESTRUCTION_RE.search(source) else "travel" if _TRAVEL_RE.search(source) else "reaction" if _REACTION_RE.search(source) else "neutral"
     return {
         "schema_version": 2,
@@ -215,7 +247,8 @@ def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str,
         "action": moments[0],
         "emotional_signal": signal,
         "dialogue": dialogue[:3],
-        "dialogue_kind": _dialogue_kind(source, dialogue),
+        "dialogue_kind": dialogue_kind,
+        "narrative_focus_character": narrative_focus,
         "cinematic_arc": _select_arc(signal, bool(visible), bool(dialogue)),
         "continuity": continuity if isinstance(continuity, dict) else {},
         "genre": genre,
@@ -228,6 +261,7 @@ def build_generation_intent(*, scene: dict[str, Any], characters: list[dict[str,
             "Every visual focus must be a complete source-grounded sentence or exact source fragment that can be traced to the scene text.",
             "The project visual-language block is immutable; scene lighting may vary only when motivated by source evidence.",
             "Generated artwork must leave typography to the deterministic overlay layer.",
-            "When no source-confirmed subject exists, the frame must remain environment/object-led rather than inventing a protagonist.",
+            "A first-person narrative focus may be visualized only as an explicitly labeled controlled production inference; it must never be mistaken for source-confirmed physical presence.",
+            "When no source-confirmed subject exists and no narrative focus is resolved, the frame must remain environment/object-led rather than inventing a protagonist.",
         ],
     }
