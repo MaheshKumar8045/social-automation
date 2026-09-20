@@ -19,7 +19,7 @@ from .prompt_export import _write_scene_media_files, validate_plan
 from .generation_intent import infer_narrative_focus_character
 
 
-def _prepare_characters(characters: list[Any], events: list[Any] | None = None) -> list[dict[str, Any]]:
+def _prepare_characters(characters: list[Any], events: list[Any] | None = None, scene_text: str = "") -> list[dict[str, Any]]:
     prepared: list[dict[str, Any]] = []
     event_contexts = [
         str(event.get("text") or "")
@@ -32,7 +32,7 @@ def _prepare_characters(characters: list[Any], events: list[Any] | None = None) 
         character = dict(raw)
         # Recompute presence only from scene-local source text and scene-local events.
         # Entity-mention context can contain surrounding prose from later moments.
-        contexts = [str(scene_text)] if scene_text else []
+            contexts = [str(scene_text)] if scene_text else []
         count = physical_presence_count(
             str(character.get("canonical_name")),
             contexts + event_contexts,
@@ -57,6 +57,7 @@ def refresh_plan(
     characters = _prepare_characters(
         plan.get("characters") or [],
         plan.get("events") or [],
+        str(scene.get("text") or ""),
     )
     context = {
         "scene": scene,
