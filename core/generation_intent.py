@@ -179,7 +179,26 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
             context = _clean(mention.get("context"), 320)
             if context and context in scene_text and re.search(rf"\b{re.escape(name)}\b", context, re.I):
                 source_contexts.append(context)
-        physical_context = next((c for c in source_contexts if _CHARACTER_PHYSICAL_RE.search(c)), None)
+
+        def _is_location_description(context: str) -> bool:
+            # Names such as Trikota can be canonicalized as characters upstream
+            # even when the source sentence is plainly describing a place:
+            # "My capital, Trikota..." / "Trikota was ... city" / "Trikota burned".
+            # Environmental destruction is not character physical presence.
+            return bool(re.search(
+                rf"(?:\b(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b\s*,\s*\b{re.escape(name)}\b|"
+                rf"\b{re.escape(name)}\b\s*,\s*(?:the\s+)?(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b|"
+                rf"\b{re.escape(name)}\b\s+(?:was|were|is|are)\s+(?:the\s+)?(?:greatest\s+|finest\s+|largest\s+|smallest\s+)?(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b|"
+                rf"\b{re.escape(name)}\b\s+(?:burned|burnt|burns|burning|was\s+destroyed|were\s+destroyed|is\s+destroyed|was\s+ruined|were\s+ruined)\b)",
+                context,
+                re.I,
+            ))
+
+        physical_context = next(
+            (ctx for ctx in source_contexts
+             if not _is_location_description(ctx) and _CHARACTER_PHYSICAL_RE.search(ctx)),
+            None,
+        )
         if physical_event or physical_context:
             visible.append({"name": name, "evidence": physical_event or physical_context or name})
         elif matching_events or source_contexts or re.search(rf"\b{re.escape(name)}\b", scene_text, re.I):
