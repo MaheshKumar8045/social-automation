@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .character_candidate_gate import character_name_variants
+
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 _ACTION_RE = re.compile(r"\b(?:approach\w*|arriv\w*|attack\w*|battle|capture\w*|climb\w*|come|cross\w*|cry\w*|die\w*|enter\w*|fall\w*|flee\w*|follow\w*|fight\w*|fought|grab\w*|hold\w*|kill\w*|look\w*|move\w*|open\w*|reach\w*|return\w*|run\w*|save\w*|sit\w*|stand\w*|take\w*|turn\w*|walk\w*|watch\w*|travel\w*|strike\w*|destroy\w*|burn\w*|collapse\w*|kneel\w*|rise\w*|speak\w*)\b", re.I)
 # This expression is deliberately character-presence-specific. Generic scene words
@@ -47,11 +49,12 @@ def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], char
     actual opening moment of a scene.
     """
     source = str(scene.get("text") or "")
-    names = [
-        str(c.get("canonical_name") or "").strip()
-        for c in characters
-        if isinstance(c, dict) and c.get("canonical_name")
-    ]
+    names = []
+    for character in characters:
+        if not isinstance(character, dict) or not character.get("canonical_name"):
+            continue
+        names.extend(character_name_variants(str(character.get("canonical_name"))))
+    names = list(dict.fromkeys(names))
     # Some PDF extractors flatten chapter number/title/narrator headings into
     # the first prose sentence, e.g. "1 The end Ravana Tomorrow is my funeral."
     # When a canonical narrator name immediately precedes the first-person prose,
@@ -61,7 +64,7 @@ def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], char
     if first_person and names:
         heading_matches = []
         for name in names:
-            match = re.search(rf"\b{re.escape(name)}\b", source[:first_person.start()], re.I)
+            match = re.search(rf"\b{name_pattern}\b", source[:first_person.start()], re.I)
             if match and not re.search(r"[.!?]", source[match.end():first_person.start()]):
                 heading_matches.append(match)
         if heading_matches:
@@ -131,9 +134,11 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
         name = _clean(character.get("canonical_name"), 100)
         if not name:
             continue
+        name_variants = character_name_variants(name)
+        name_pattern = "(?:" + "|".join(re.escape(value) for value in name_variants) + ")"
         source_presence = character.get("source_presence") or {}
         has_authoritative_presence = isinstance(source_presence, dict) and "physical_presence" in source_presence
-        matching_events = [e for e in event_texts if e in scene_text and re.search(rf"\b{re.escape(name)}\b", e, re.I)]
+        matching_events = [e for e in event_texts if e in scene_text and re.search(rf"\b{name_pattern}\b", e, re.I)]
 
         if has_authoritative_presence:
             if source_presence.get("physical_presence") is True:
@@ -152,7 +157,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
                             if isinstance(m, dict)
                             and _clean(m.get("context"), 320)
                             and _clean(m.get("context"), 320) in normalized_source
-                            and re.search(rf"\b{re.escape(name)}\b", _clean(m.get("context"), 320), re.I)
+                            and re.search(rf"\b{name_pattern}\b", _clean(m.get("context"), 320), re.I)
                         ),
                         None,
                     )
@@ -164,9 +169,9 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
                     referenced.append(name)
             elif matching_events or any(
                 isinstance(m, dict) and _clean(m.get("context"), 320)
-                and re.search(rf"\b{re.escape(name)}\b", _clean(m.get("context"), 320), re.I)
+                and re.search(rf"\b{name_pattern}\b", _clean(m.get("context"), 320), re.I)
                 for m in character.get("scene_mentions") or []
-            ) or re.search(rf"\b{re.escape(name)}\b", scene_text, re.I):
+            ) or re.search(rf"\b{name_pattern}\b", scene_text, re.I):
                 referenced.append(name)
             continue
 
@@ -177,7 +182,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
         source_contexts = []
         for mention in character.get("scene_mentions") or []:
             context = _clean(mention.get("context"), 320)
-            if context and context in scene_text and re.search(rf"\b{re.escape(name)}\b", context, re.I):
+            if context and context in scene_text and re.search(rf"\b{name_pattern}\b", context, re.I):
                 source_contexts.append(context)
 
         def _is_location_description(context: str) -> bool:
@@ -187,9 +192,9 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
             # Environmental destruction is not character physical presence.
             return bool(re.search(
                 rf"(?:\b(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b\s*,\s*\b{re.escape(name)}\b|"
-                rf"\b{re.escape(name)}\b\s*,\s*(?:the\s+)?(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b|"
-                rf"\b{re.escape(name)}\b\s+(?:was|were|is|are)\s+(?:the\s+)?(?:greatest\s+|finest\s+|largest\s+|smallest\s+)?(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b|"
-                rf"\b{re.escape(name)}\b\s+(?:burned|burnt|burns|burning|was\s+destroyed|were\s+destroyed|is\s+destroyed|was\s+ruined|were\s+ruined)\b)",
+                rf"\b{name_pattern}\b\s*,\s*(?:the\s+)?(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b|"
+                rf"\b{name_pattern}\b\s+(?:was|were|is|are)\s+(?:the\s+)?(?:greatest\s+|finest\s+|largest\s+|smallest\s+)?(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b|"
+                rf"\b{name_pattern}\b\s+(?:burned|burnt|burns|burning|was\s+destroyed|were\s+destroyed|is\s+destroyed|was\s+ruined|were\s+ruined)\b)",
                 context,
                 re.I,
             ))
@@ -201,7 +206,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
         )
         if physical_event or physical_context:
             visible.append({"name": name, "evidence": physical_event or physical_context or name})
-        elif matching_events or source_contexts or re.search(rf"\b{re.escape(name)}\b", scene_text, re.I):
+        elif matching_events or source_contexts or re.search(rf"\b{name_pattern}\b", scene_text, re.I):
             referenced.append(name)
     return visible[:8], list(dict.fromkeys(referenced))[:10]
 
@@ -247,16 +252,19 @@ def infer_narrative_focus_character(
         name = _clean(character.get("canonical_name"), 120)
         if not name:
             continue
-        name_re = re.escape(name)
-        name_matches = list(re.finditer(rf"\b{name_re}\b", source, re.I))
+        name_variants = character_name_variants(name)
+        name_pattern = "(?:" + "|".join(re.escape(value) for value in name_variants) + ")"
+        name_matches = list(re.finditer(rf"\b{name_pattern}\b", source, re.I))
         if not name_matches:
             continue
 
-        # Strong explicit identity forms.
+        # Strong explicit identity forms. Safe title-stripped variants are
+        # accepted here because the canonical identity may be stored as
+        # "King Ravana" while the source prose says simply "Ravana".
         strong_patterns = (
-            rf"\b(?:I|me|my|mine|we|us|our|ours)\b(?:(?![.!?]).){{0,60}}\b(?:am|is|was|are|called|named)\b(?:(?![.!?]).){{0,40}}\b{name_re}\b",
-            rf"\bI\s*,\s*{name_re}\b",
-            rf"\bmy\s+name\s+is\s+{name_re}\b",
+            rf"\b(?:I|me|my|mine|we|us|our|ours)\b(?:(?![.!?]).){{0,60}}\b(?:am|is|was|are|called|named)\b(?:(?![.!?]).){{0,40}}\b{name_pattern}\b",
+            rf"\bI\s*,\s*{name_pattern}\b",
+            rf"\bmy\s+name\s+is\s+{name_pattern}\b",
         )
         strong_positions = [
             m.start()
