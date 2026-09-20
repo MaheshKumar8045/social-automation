@@ -62,3 +62,28 @@ def test_refresh_plan_recomputes_presence_and_emits_identity_lock():
     assert result["characters"][0]["source_presence"]["physical_presence"] is True
     assert "CANONICAL CHARACTER IDENTITY LOCK: Professor Mayan" in result["image_prompt"]
     assert validate_plan(result) == []
+
+
+def test_refresh_plan_can_carry_first_person_narrative_focus():
+    plan = _plan()
+    plan["scene"]["text"] = "Sounds of joy float down to me from my city."
+    plan["characters"] = [{
+        "canonical_character_id": 1,
+        "canonical_name": "Ravana",
+        "scene_mentions": [],
+        "visual_profile": {
+            "identity_anchor": "vib-ravana",
+            "source_facts": [],
+            "inferred_facts": [],
+        },
+    }]
+    result = refresh_plan(
+        plan,
+        narrative_focus_character={
+            "canonical_name": "Ravana",
+            "reason": "carried deterministic first-person narrative focus from the immediately preceding scene",
+        },
+    )
+    assert "NARRATIVE FOCAL CHARACTER (CONTROLLED PRODUCTION INFERENCE): Ravana" in result["image_prompt"]
+    assert result["image_dialogue_overlays"]
+    assert result["image_dialogue_overlays"][0]["required"] is True
