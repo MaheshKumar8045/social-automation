@@ -316,3 +316,39 @@ def test_visual_moments_preserve_source_order_over_later_high_salience_events():
     assert moments[0] == "Tomorrow is my funeral."
     assert moments[1].startswith("I can hear the jackals")
     assert moments[2] == "My beloved Lanka is being destroyed."
+
+
+
+def test_titled_canonical_narrator_resolves_from_bare_source_name():
+    chars = [{
+        "canonical_name": "King Ravana",
+        "source_presence": {
+            "physical_presence": False,
+            "physical_presence_evidence_count": 0,
+            "classification": "reference_only",
+        },
+        "scene_mentions": [{"context": "Ravana Tomorrow is my funeral.", "mention_text": "Ravana"}],
+    }]
+    result = _intent(
+        "King Ravana Tomorrow is my funeral. I can hear the jackals.",
+        characters=chars,
+        dialogue=["Tomorrow is my funeral."],
+    )
+    assert result["narrative_focus_character"]["canonical_name"] == "King Ravana"
+    assert result["primary_visual_moment"] == "Tomorrow is my funeral."
+    assert result["visible_characters"] == []
+
+
+def test_titled_canonical_character_is_visible_from_bare_source_name_when_physical():
+    chars = [{
+        "canonical_name": "King Ravana",
+        "scene_mentions": [{"context": "Ravana walked through the city.", "mention_text": "Ravana"}],
+    }]
+    result = _intent(
+        "Ravana walked through the city.",
+        characters=chars,
+    )
+    assert result["visible_characters"] == [{
+        "name": "King Ravana",
+        "evidence": "Ravana walked through the city.",
+    }]
