@@ -87,12 +87,14 @@ class GenerationContext:
         rows = con.execute(
             """SELECT DISTINCT cc.id canonical_character_id, cc.canonical_name, cc.status, cc.confidence
                FROM entity_mentions em
+               JOIN entities e ON e.id=em.entity_id
                JOIN canonical_character_aliases cca ON cca.entity_id=em.entity_id
                JOIN canonical_characters cc ON cc.id=cca.canonical_character_id
                WHERE em.document_id=? AND em.scene_id=?
+                 AND e.document_id=? AND e.entity_type='character'
                  AND cc.document_id=? AND cc.status IN ('confirmed','likely','singleton')
                ORDER BY cc.id""",
-            (document_id, scene_id, document_id),
+            (document_id, scene_id, document_id, document_id),
         ).fetchall()
         event_contexts = [
             str(row["text"] or "")
