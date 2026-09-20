@@ -121,7 +121,7 @@ def test_refresh_package_carries_first_person_focus_to_adjacent_scene(tmp_path):
     summary = refresh_package(source, output)
 
     assert summary["qa_passed"] is True
-    refreshed = json.loads(source.read_text(encoding="utf-8"))["scenes"]
+    refreshed = json.loads((output / "all_prompts.json").read_text(encoding="utf-8"))["scenes"]
     second_plan = refreshed[1]["plan"]
     assert second_plan["narrative_focus_character"]["canonical_name"] == "Ravana"
     assert "NARRATIVE FOCAL CHARACTER (CONTROLLED PRODUCTION INFERENCE): Ravana" in second_plan["image_prompt"]
