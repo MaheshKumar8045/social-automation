@@ -219,6 +219,18 @@ def process_directory(
             or plan.get("dialogue_overlays")
             or []
         )
+        required_boxes = [
+            box
+            for box in boxes
+            if isinstance(box, dict)
+            and box.get("required") is not False
+            and str(box.get("text") or "").strip()
+        ]
+        if not required_boxes:
+            failures.append(
+                f"{image_path.name}: required source-derived dialogue/narrative overlay is missing"
+            )
+            continue
         try:
             with Image.open(image_path) as source:
                 rendered = render_overlays(source, boxes)
