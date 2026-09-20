@@ -48,10 +48,27 @@ def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], char
     """
     source = str(scene.get("text") or "")
     names = [
-        str(c.get("canonical_name") or "").casefold()
+        str(c.get("canonical_name") or "").strip()
         for c in characters
-        if isinstance(c, dict) and (c.get("source_presence") or {}).get("physical_presence") is True
+        if isinstance(c, dict) and c.get("canonical_name")
     ]
+    # Some PDF extractors flatten chapter number/title/narrator headings into
+    # the first prose sentence, e.g. "1 The end Ravana Tomorrow is my funeral."
+    # When a canonical narrator name immediately precedes the first-person prose,
+    # remove only that heading prefix for visual-moment extraction.
+    moment_source = source
+    first_person = re.search(r"\b(?:I|me|my|mine|we|us|our|ours)\b", source, re.I)
+    if first_person and names:
+        heading_matches = []
+        for name in names:
+            match = re.search(rf"\b{re.escape(name)}\b", source[:first_person.start()], re.I)
+            if match and not re.search(r"[.!?]", source[match.end():first_person.start()]):
+                heading_matches.append(match)
+        if heading_matches:
+            heading = max(heading_matches, key=lambda m: m.end())
+            if first_person.start() - heading.end() <= 80:
+                moment_source = source[heading.end():].lstrip(" \t:;,-—–")
+    source = moment_source
     candidates: list[tuple[int, int, str]] = []
     seen: set[str] = set()
 
@@ -194,32 +211,75 @@ def infer_narrative_focus_character(
     source = re.sub(r"\s+", " ", str(scene_text or "")).strip()
     if not re.search(r"\b(?:I|me|my|mine|we|us|our|ours)\b", source, re.I):
         return None
-    candidates: list[dict[str, str]] = []
     # A name merely appearing anywhere in first-person prose is not enough:
-    # "I remembered Rama" names someone else. The narrator must be explicitly
-    # self-identified by the source, e.g. "Ravana ... my funeral", "I am Ravana",
-    # "I, Ravana", or "my name is Ravana".
-    self_identified: list[dict[str, str]] = []
+    # "I remembered Rama" names someone else. We first look for an explicit
+    # self-identification, then for the narrator-heading pattern used by the
+    # source extraction: a canonical name immediately before the first-person
+    # prose (e.g. "Ravana Tomorrow is my funeral."). This must prefer the
+    # nearest name to the first first-person anchor so a later referenced
+    # character such as Hanuman cannot steal the narrator identity.
+    self_identified: list[tuple[int, int, dict[str, str]]] = []
+    first_person = re.search(r"\b(?:I|me|my|mine|we|us|our|ours)\b", source, re.I)
+    first_person_pos = first_person.start() if first_person else None
+
     for character in characters:
         if not isinstance(character, dict):
             continue
         name = _clean(character.get("canonical_name"), 120)
-        if not name or not re.search(rf"\b{re.escape(name)}\b", source, re.I):
+        if not name:
             continue
         name_re = re.escape(name)
-        patterns = (
-            rf"\b{name_re}\b(?:(?![.!?]).){{0,140}}\b(?:I|me|my|mine|we|us|our|ours)\b",
+        name_matches = list(re.finditer(rf"\b{name_re}\b", source, re.I))
+        if not name_matches:
+            continue
+
+        # Strong explicit identity forms.
+        strong_patterns = (
             rf"\b(?:I|me|my|mine|we|us|our|ours)\b(?:(?![.!?]).){{0,60}}\b(?:am|is|was|are|called|named)\b(?:(?![.!?]).){{0,40}}\b{name_re}\b",
             rf"\bI\s*,\s*{name_re}\b",
             rf"\bmy\s+name\s+is\s+{name_re}\b",
         )
-        if any(re.search(pattern, source, re.I) for pattern in patterns):
-            self_identified.append({
-                "canonical_name": name,
-                "reason": "first-person narrative with explicit source self-identification",
-            })
-    if len(self_identified) == 1:
-        return self_identified[0]
+        strong_positions = [
+            m.start()
+            for pattern in strong_patterns
+            for m in [re.search(pattern, source, re.I)]
+            if m
+        ]
+        if strong_positions:
+            self_identified.append((
+                0,
+                min(strong_positions),
+                {"canonical_name": name, "reason": "first-person narrative with explicit source self-identification"},
+            ))
+            continue
+
+        # Chapter/scene extraction commonly flattens a narrator heading into
+        # the first prose sentence: "Ravana Tomorrow is my funeral." Treat only
+        # a name that occurs immediately before the first-person anchor as the
+        # narrator. Do not search the whole scene, because later references
+        # ("Hanuman did that to us") are not self-identification.
+        if first_person_pos is not None:
+            preceding = [
+                match for match in name_matches
+                if match.end() <= first_person_pos
+                and not re.search(r"[.!?]", source[match.end():first_person_pos])
+            ]
+            if preceding:
+                nearest = max(preceding, key=lambda m: m.end())
+                distance = first_person_pos - nearest.end()
+                if distance <= 80:
+                    self_identified.append((
+                        1,
+                        distance,
+                        {"canonical_name": name, "reason": "first-person narrative with source narrator heading"},
+                    ))
+
+    if self_identified:
+        self_identified.sort(key=lambda item: (item[0], item[1], item[2]["canonical_name"].casefold()))
+        best_rank = self_identified[0][0]
+        best = [item for item in self_identified if item[0] == best_rank]
+        if len(best) == 1:
+            return best[0][2]
     return None
 
 
