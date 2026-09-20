@@ -220,6 +220,14 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
             os.fsync(handle.fileno())
             temp_name = handle.name
         os.replace(temp_name, package_path)
+    # Always publish the complete refreshed package inside the requested output
+    # directory. This keeps dry-runs self-contained and makes the generated artifact
+    # independently inspectable without modifying the source package.
+    (output_dir / "all_prompts.json").write_text(
+        json.dumps(new_package, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
     summary = {
         "scene_count": len(refreshed),
         "qa_passed": not failures,
