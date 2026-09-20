@@ -215,6 +215,21 @@ def test_first_person_reference_to_another_character_does_not_resolve_narrative_
     assert result["narrative_focus_character"] is None
 
 
+def test_scene_heading_narrator_beats_later_referenced_character():
+    chars = [
+        {"canonical_name": "Ravana", "scene_mentions": [{"context": "Ravana Tomorrow is my funeral."}]},
+        {"canonical_name": "Hanuman", "scene_mentions": [{"context": "Hanuman did that to us."}]},
+        {"canonical_name": "Trikota", "scene_mentions": [{"context": "My capital, Trikota, was the greatest city in the world."}]},
+    ]
+    result = _intent(
+        "1 The end Ravana Tomorrow is my funeral. My capital, Trikota, was the greatest city in the world. Hanuman did that to us.",
+        characters=chars,
+        dialogue=["Tomorrow is my funeral."],
+    )
+    assert result["narrative_focus_character"]["canonical_name"] == "Ravana"
+    assert result["primary_visual_moment"] == "Tomorrow is my funeral."
+
+
 def test_explicit_self_identification_resolves_narrative_focus():
     chars = [{
         "canonical_name": "Ravana",
