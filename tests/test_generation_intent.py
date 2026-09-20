@@ -41,6 +41,26 @@ def test_physical_character_event_is_visible():
     assert result["visible_characters"] == [{"name": "Kumbha", "evidence": "Kumbha fought at the gate."}]
 
 
+def test_location_named_like_character_is_not_visible_when_scene_describes_city():
+    chars = [{
+        "canonical_name": "Trikota",
+        "source_presence": {
+            "physical_presence": True,
+            "physical_presence_evidence_count": 1,
+            "classification": "physical",
+        },
+        "scene_mentions": [{
+            "context": "My capital, Trikota, was the greatest city in the world. Trikota burned for days."
+        }],
+    }]
+    result = _intent(
+        "Tomorrow is my funeral. I can hear the jackals eating my friends and family.",
+        characters=chars,
+    )
+    assert result["visible_characters"] == []
+    assert result["referenced_characters"] == []
+
+
 def test_source_established_anonymous_participants_are_separate_from_canonical_characters():
     text = "The enemy is celebrating his victory. The monkey-men will be busy plundering Trikota."
     result = _intent(text)
