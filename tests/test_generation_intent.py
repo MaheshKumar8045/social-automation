@@ -156,3 +156,35 @@ def test_authoritative_physical_presence_survives_source_whitespace_normalizatio
     )
     assert result["visible_characters"]
     assert result["visible_characters"][0]["name"] == "Professor Mayan"
+
+
+def test_first_person_scene_with_one_named_canonical_character_resolves_narrative_focus():
+    chars = [{
+        "canonical_name": "Ravana",
+        "source_presence": {
+            "physical_presence": False,
+            "physical_presence_evidence_count": 0,
+            "classification": "reference_only",
+        },
+        "scene_mentions": [{"context": "Ravana Tomorrow is my funeral."}],
+    }]
+    result = _intent(
+        "Ravana Tomorrow is my funeral.",
+        characters=chars,
+        dialogue=["Tomorrow is my funeral."],
+    )
+    assert result["visible_characters"] == []
+    assert result["narrative_focus_character"]["canonical_name"] == "Ravana"
+
+
+def test_ambiguous_first_person_scene_does_not_invent_narrative_focus():
+    chars = [
+        {"canonical_name": "Ravana", "scene_mentions": [{"context": "Ravana spoke to Hanuman."}]},
+        {"canonical_name": "Hanuman", "scene_mentions": [{"context": "Ravana spoke to Hanuman."}]},
+    ]
+    result = _intent(
+        "Ravana spoke to Hanuman. I remembered the city.",
+        characters=chars,
+        dialogue=["I remembered the city."],
+    )
+    assert result["narrative_focus_character"] is None
