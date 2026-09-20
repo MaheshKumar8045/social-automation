@@ -243,7 +243,9 @@ def _base_prompt(
         if (c.get("source_presence") or {}).get("physical_presence") is True
     ]
     from .generation_intent import infer_narrative_focus_character
-    narrative_focus = infer_narrative_focus_character(str(scene.get("text") or ""), characters)
+    narrative_focus = context.get("narrative_focus_character")
+    if not isinstance(narrative_focus, dict):
+        narrative_focus = infer_narrative_focus_character(str(scene.get("text") or ""), characters)
     parts.append(
         subject_policy({
             "visible_characters": visible_names,
