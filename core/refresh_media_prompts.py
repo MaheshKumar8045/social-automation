@@ -6,6 +6,7 @@ import shutil
 import os
 import tempfile
 import re
+import sqlite3
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -112,6 +113,61 @@ def refresh_plan(
     return plan
 
 
+def _load_document_canonical_characters(package: dict[str, Any]) -> list[dict[str, Any]]:
+    """Load the complete canonical character index from the source DB when available."""
+    source_database = package.get("source_database")
+    document_id = package.get("document_id")
+    if not source_database or document_id is None:
+        return []
+    database = Path(str(source_database))
+    if not database.is_file():
+        return []
+    try:
+        with sqlite3.connect(database) as con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                """SELECT id, canonical_name, status, confidence
+                   FROM canonical_characters
+                   WHERE document_id=? AND status IN ('confirmed','likely','singleton')
+                   ORDER BY id""",
+                (int(document_id),),
+            ).fetchall()
+            result: list[dict[str, Any]] = []
+            for row in rows:
+                cid = int(row["id"])
+                aliases = [dict(x) for x in con.execute(
+                    "SELECT alias, relationship, confidence FROM canonical_character_aliases "
+                    "WHERE canonical_character_id=? ORDER BY id", (cid,)
+                ).fetchall()]
+                vp = con.execute(
+                    "SELECT id FROM canonical_visual_profiles WHERE document_id=? AND canonical_character_id=?",
+                    (int(document_id), cid),
+                ).fetchone()
+                facts: list[dict[str, Any]] = []
+                if vp:
+                    facts = [dict(x) for x in con.execute(
+                        """SELECT category, attribute, value, status, confidence, scene_id,
+                                  page_start, page_end, evidence
+                           FROM canonical_visual_facts
+                           WHERE canonical_visual_profile_id=?
+                           ORDER BY confidence DESC, id""", (int(vp["id"]),)
+                    ).fetchall()]
+                result.append({
+                    "canonical_character_id": cid,
+                    "canonical_name": row["canonical_name"],
+                    "status": row["status"],
+                    "confidence": row["confidence"],
+                    "aliases": aliases,
+                    "visual_facts": facts,
+                    "scene_mentions": [],
+                    "source_presence": {"physical_presence": False, "physical_presence_evidence_count": 0, "classification": "reference_only"},
+                    "unknown_visual_attributes": True,
+                })
+            return result
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
 def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply: bool = False) -> dict[str, Any]:
     if not package_path.is_file():
         raise FileNotFoundError(f"Generation package not found: {package_path}")
@@ -123,10 +179,15 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
     if output_dir is None:
         output_dir = package_path.parent / "_visual_continuity_refresh"
     output_dir.mkdir(parents=True, exist_ok=True)
-    # Build a document-wide canonical character index so a first-person narrator
-    # can be resolved even when the scene-local entity extraction omitted that
-    # canonical character from the scene character list.
+    # Build a document-wide canonical character index. Start with the authoritative
+    # source DB, then overlay scene-package records so narrator identities omitted by
+    # scene-local entity extraction remain resolvable without inventing identities.
     document_characters: dict[str, dict[str, Any]] = {}
+    for character in _load_document_canonical_characters(package):
+        if not character.get("canonical_name"):
+            continue
+        key = str(character.get("canonical_character_id") or character.get("canonical_name")).casefold()
+        document_characters[key] = character
     for record in scenes:
         if not isinstance(record, dict) or not isinstance(record.get("plan"), dict):
             continue
@@ -134,7 +195,7 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
             if not isinstance(character, dict) or not character.get("canonical_name"):
                 continue
             key = str(character.get("canonical_character_id") or character.get("canonical_name")).casefold()
-            document_characters.setdefault(key, character)
+            document_characters[key] = character
     canonical_focus_characters = list(document_characters.values())
 
     failures: list[dict[str, Any]] = []
