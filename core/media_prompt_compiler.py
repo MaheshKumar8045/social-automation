@@ -301,11 +301,9 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
         if not raw.get("canonical_name"):
             continue
         character = dict(raw)
-        contexts = [
-            str(m.get("context") or "")
-            for m in character.get("scene_mentions") or []
-            if isinstance(m, dict) and m.get("context")
-        ]
+        # Presence must be established from the actual scene source or scene-local events.
+        # Broad entity-mention context may include later geography/history and must not create a visible subject.
+        contexts = [str(scene.get("text") or "")] if scene.get("text") else []
         count = physical_presence_count(
             str(character.get("canonical_name")),
             contexts + event_contexts,
