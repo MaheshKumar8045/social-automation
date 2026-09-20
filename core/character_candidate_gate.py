@@ -249,12 +249,14 @@ def build(db: str | Path, document_id: int) -> dict[str, int]:
             "SELECT id,entity_type,canonical_name FROM entities WHERE document_id=? ORDER BY id",
             (document_id,),
         ).fetchall()
+        mention_columns = {row["name"] for row in con.execute("PRAGMA table_info(entity_mentions)").fetchall()}
+        mention_select = "scene_id,context,mention_text" if "mention_text" in mention_columns else "scene_id,context"
         names_by_entity_type: dict[str, set[str]] = {}
         for entity in entities:
             names_by_entity_type.setdefault(norm(entity["canonical_name"]).lower(), set()).add(str(entity["entity_type"]))
         for e in entities:
             mentions = con.execute(
-                "SELECT scene_id,context,mention_text FROM entity_mentions WHERE document_id=? AND entity_id=? ORDER BY page_start,id",
+                f"SELECT {mention_select} FROM entity_mentions WHERE document_id=? AND entity_id=? ORDER BY page_start,id",
                 (document_id, e["id"]),
             ).fetchall()
             conflicting = names_by_entity_type.get(norm(e["canonical_name"]).lower(), set()) - {str(e["entity_type"])}
