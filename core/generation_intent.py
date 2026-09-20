@@ -195,16 +195,32 @@ def infer_narrative_focus_character(
     if not re.search(r"\b(?:I|me|my|mine|we|us|our|ours)\b", source, re.I):
         return None
     candidates: list[dict[str, str]] = []
+    # A name merely appearing anywhere in first-person prose is not enough:
+    # "I remembered Rama" names someone else. The narrator must be explicitly
+    # self-identified by the source, e.g. "Ravana ... my funeral", "I am Ravana",
+    # "I, Ravana", or "my name is Ravana".
+    self_identified: list[dict[str, str]] = []
     for character in characters:
         if not isinstance(character, dict):
             continue
         name = _clean(character.get("canonical_name"), 120)
-        if name and re.search(rf"\b{re.escape(name)}\b", source, re.I):
-            candidates.append({
+        if not name or not re.search(rf"\b{re.escape(name)}\b", source, re.I):
+            continue
+        name_re = re.escape(name)
+        patterns = (
+            rf"\b{name_re}\b(?:(?![.!?]).){{0,140}}\b(?:I|me|my|mine|we|us|our|ours)\b",
+            rf"\b(?:I|me|my|mine|we|us|our|ours)\b(?:(?![.!?]).){{0,60}}\b(?:am|is|was|are|called|named)\b(?:(?![.!?]).){{0,40}}\b{name_re}\b",
+            rf"\bI\s*,\s*{name_re}\b",
+            rf"\bmy\s+name\s+is\s+{name_re}\b",
+        )
+        if any(re.search(pattern, source, re.I) for pattern in patterns):
+            self_identified.append({
                 "canonical_name": name,
-                "reason": "first-person narrative with exactly one explicitly named canonical character in the scene source",
+                "reason": "first-person narrative with explicit source self-identification",
             })
-    return candidates[0] if len(candidates) == 1 else None
+    if len(self_identified) == 1:
+        return self_identified[0]
+    return None
 
 
 def _select_arc(signal: str, has_visible: bool, has_dialogue: bool) -> list[str]:
