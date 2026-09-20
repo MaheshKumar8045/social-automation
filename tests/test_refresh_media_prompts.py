@@ -90,6 +90,53 @@ def test_refresh_plan_can_carry_first_person_narrative_focus():
     assert result["image_dialogue_overlays"][0]["required"] is True
 
 
+def test_refresh_package_resolves_first_person_focus_from_document_character_index(tmp_path):
+    import json
+    from core.refresh_media_prompts import refresh_package
+
+    first = _plan()
+    first["scene"]["scene_order"] = 1
+    first["scene"]["text"] = "Ravana Tomorrow is my funeral. I can hear the jackals."
+    first["characters"] = [{
+        "canonical_character_id": 10,
+        "canonical_name": "Trikota",
+        "scene_mentions": [{"context": "My capital, Trikota, was the greatest city in the world. Trikota burned for days."}],
+        "visual_profile": {"identity_anchor": "vib-trikota", "visual_role": "deity", "source_facts": [], "inferred_facts": []},
+    }]
+
+    second = _plan()
+    second["scene"]["scene_order"] = 2
+    second["scene"]["text"] = "Ravana walked through the ruins."
+    second["characters"] = [{
+        "canonical_character_id": 20,
+        "canonical_name": "Ravana",
+        "scene_mentions": [{"context": "Ravana walked through the ruins."}],
+        "visual_profile": {"identity_anchor": "vib-ravana", "visual_role": "ruler", "source_facts": [], "inferred_facts": []},
+    }]
+
+    package = {
+        "schema_version": 2,
+        "document_id": 1,
+        "scene_count": 2,
+        "scenes": [
+            {"scene_id": 1, "story_id": 1, "scene_order": 1, "title": "Scene 1", "plan": first},
+            {"scene_id": 2, "story_id": 1, "scene_order": 2, "title": "Scene 2", "plan": second},
+        ],
+    }
+    source = tmp_path / "all_prompts.json"
+    source.write_text(json.dumps(package), encoding="utf-8")
+    output = tmp_path / "refresh"
+    summary = refresh_package(source, output)
+
+    assert summary["qa_passed"] is True
+    refreshed = json.loads((output / "all_prompts.json").read_text(encoding="utf-8"))["scenes"]
+    first_plan = refreshed[0]["plan"]
+    assert first_plan["narrative_focus_character"]["canonical_name"] == "Ravana"
+    assert "NARRATIVE FOCAL CHARACTER (CONTROLLED PRODUCTION INFERENCE): Ravana" in first_plan["image_prompt"]
+    assert "mandatory source-confirmed visible canonical characters: Trikota" not in first_plan["image_prompt"]
+    assert "CANONICAL CHARACTER IDENTITY LOCK: Ravana" in first_plan["image_prompt"]
+
+
 def test_refresh_package_carries_first_person_focus_to_adjacent_scene(tmp_path):
     import json
     from core.refresh_media_prompts import refresh_package
