@@ -92,7 +92,7 @@ def _visual_moments(scene: dict[str, Any], events: list[dict[str, Any]], charact
     normalized = re.sub(r"\s+", " ", narrative).strip()
     for offset, sentence in enumerate(_SENTENCE_RE.split(normalized)):
         sentence = _clean(sentence, 260)
-        if len(sentence.split()) < 5:
+        if len(sentence.split()) < 3:
             continue
         key = sentence.casefold()
         if key in seen:
