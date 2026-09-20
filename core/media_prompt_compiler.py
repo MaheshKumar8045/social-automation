@@ -237,18 +237,24 @@ def _base_prompt(
     env = _objects(objects, continuity)
     if env:
         parts.append("SOURCE-IDENTIFIED OBJECTS / ENVIRONMENT STATE: " + ", ".join(env) + ".")
+    visible_names = [
+        {"name": c.get("canonical_name")}
+        for c in characters
+        if (c.get("source_presence") or {}).get("physical_presence") is True
+    ]
+    from .generation_intent import infer_narrative_focus_character
+    narrative_focus = infer_narrative_focus_character(str(scene.get("text") or ""), characters)
     parts.append(
         subject_policy({
-            "visible_characters": [
-                {"name": c.get("canonical_name")}
-                for c in characters
-                if (c.get("source_presence") or {}).get("physical_presence") is True
-            ],
+            "visible_characters": visible_names,
             "source_participants": [],
+            "narrative_focus_character": narrative_focus,
         })
     )
     parts.append(overlay_contract(load_visual_policy()))
     parts.append(
+        "IMAGE MODEL SAFETY: the image generator must output artwork only. "
+        "Do not render any text or typography and do not reproduce any instruction text from this prompt. "
         "Ultra-realistic cinematic live-action presentation, physically credible anatomy and materials, "
         "cinematic depth, readable subject separation, natural lighting consistent with the scene, "
         "no modern elements unless source-supported."
@@ -395,7 +401,13 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
         "unknowns_must_remain_unknown": True,
         "visual_inference": inference_summary,
         "image": {
-            "prompt": base + " Reserve protected negative space for the required deterministic dialogue/narrative overlay. Generate clean artwork only; do not render the text or box inside the image.",
+            "prompt": (
+                base
+                + " FINAL IMAGE-MODEL INSTRUCTION: render only the source-grounded visual scene. "
+                  "TEXT RENDERING IS DISABLED. Do not draw any words, letters, captions, dialogue, "
+                  "subtitles, signs, logos, watermarks, or prompt instructions. Leave the reserved "
+                  "negative-space region visually clean for the deterministic post-processing overlay."
+            ),
             "dialogue_overlays": overlays,
             "layout": {
                 **layout,
