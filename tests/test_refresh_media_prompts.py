@@ -88,3 +88,40 @@ def test_refresh_plan_can_carry_first_person_narrative_focus():
     assert "NARRATIVE FOCAL CHARACTER (CONTROLLED PRODUCTION INFERENCE): Ravana" in result["image_prompt"]
     assert result["image_dialogue_overlays"]
     assert result["image_dialogue_overlays"][0]["required"] is True
+
+
+def test_refresh_package_carries_first_person_focus_to_adjacent_scene(tmp_path):
+    import json
+    from core.refresh_media_prompts import refresh_package
+
+    first = _plan()
+    first["scene"]["scene_order"] = 1
+    first["scene"]["text"] = "Ravana Tomorrow is my funeral."
+    first["characters"][0]["canonical_name"] = "Ravana"
+    first["characters"][0]["scene_mentions"] = [{"context": "Ravana Tomorrow is my funeral."}]
+    first["characters"][0]["visual_profile"]["identity_anchor"] = "vib-ravana"
+
+    second = _plan()
+    second["scene"]["scene_order"] = 2
+    second["scene"]["text"] = "Sounds of joy float down to me from my city."
+    second["characters"] = []
+
+    package = {
+        "schema_version": 2,
+        "document_id": 1,
+        "scene_count": 2,
+        "scenes": [
+            {"scene_id": 1, "story_id": 1, "scene_order": 1, "title": "Scene 1", "plan": first},
+            {"scene_id": 2, "story_id": 1, "scene_order": 2, "title": "Scene 2", "plan": second},
+        ],
+    }
+    source = tmp_path / "all_prompts.json"
+    source.write_text(json.dumps(package), encoding="utf-8")
+    output = tmp_path / "refresh"
+    summary = refresh_package(source, output)
+
+    assert summary["qa_passed"] is True
+    refreshed = json.loads(source.read_text(encoding="utf-8"))["scenes"]
+    second_plan = refreshed[1]["plan"]
+    assert second_plan["narrative_focus_character"]["canonical_name"] == "Ravana"
+    assert "NARRATIVE FOCAL CHARACTER (CONTROLLED PRODUCTION INFERENCE): Ravana" in second_plan["image_prompt"]
