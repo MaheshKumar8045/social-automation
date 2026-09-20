@@ -126,11 +126,25 @@ def character_identity_block(character: dict[str, Any]) -> str:
 def subject_policy(intent: dict[str, Any]) -> str:
     visible = intent.get("visible_characters") or []
     participants = intent.get("source_participants") or []
+    narrative_focus = intent.get("narrative_focus_character") or {}
     if visible:
+        names = ", ".join(str(x.get("name") or "").strip() for x in visible if isinstance(x, dict))
         return (
-            "SUBJECT POLICY: render only the source-confirmed visible canonical characters and any "
-            "source-established anonymous participants needed by the visual moment. Referenced-only "
+            f"SUBJECT POLICY: mandatory source-confirmed visible canonical characters: {names or 'none'}. "
+            "They are the only canonical render targets. Do not replace, gender-swap, omit, or substitute "
+            "a mandatory canonical character with another human or humanoid subject. Source-established "
+            "anonymous participants may appear only when required by the visual moment. Referenced-only "
             "canonical names are context, never render targets."
+        )
+    if narrative_focus:
+        name = str(narrative_focus.get("canonical_name") or "").strip()
+        return (
+            "SUBJECT POLICY: no canonical character is source-confirmed physically visible. "
+            f"NARRATIVE FOCAL CHARACTER (CONTROLLED PRODUCTION INFERENCE): {name}. "
+            "This focal character may be visualized because the scene is first-person and the narrator "
+            "was deterministically resolved; this is not a claim of source-confirmed physical presence. "
+            "Do not replace this focal character with another person, woman, man, bystander, or generic portrait. "
+            "Do not add other human or humanoid subjects unless the source establishes them."
         )
     if participants:
         labels = ", ".join(str(x.get("label") or "").strip() for x in participants if isinstance(x, dict))
@@ -141,18 +155,20 @@ def subject_policy(intent: dict[str, Any]) -> str:
         )
     return (
         "SUBJECT POLICY: this is an environment/object-led frame with no source-confirmed visible canonical "
-        "character or anonymous participant. Keep the frame free of human or humanoid subjects; do not add "
-        "a protagonist, portrait, bystander, crowd, silhouette, or substitute character."
+        "character, narrative focal character, or anonymous participant. Keep the frame free of human or humanoid "
+        "subjects; do not add a protagonist, portrait, bystander, crowd, silhouette, or substitute character."
     )
 
 
 def overlay_contract(style: dict[str, Any]) -> str:
     overlay = style.get("overlay") or DEFAULT_ART_DIRECTION["overlay"]
     return (
-        "TEXT / OVERLAY POLICY: generate clean artwork only and reserve protected negative space for a "
-        "separate deterministic text layer. Do not draw, spell, simulate, or invent dialogue/caption text, "
-        "letters, subtitles, signs, logos, or watermarks inside the generated artwork. The final overlay "
-        f"uses one fixed {overlay.get('font_family', 'Georgia')} regular serif treatment, warm-white text "
+        "IMAGE TEXT RULE: TEXT RENDERING IS DISABLED IN THE IMAGE MODEL. "
+        "Create clean artwork only. Leave the protected negative-space region empty for post-processing. "
+        "Do not generate words, letters, captions, subtitles, dialogue, signs, logos, watermarks, or typography. "
+        "Do not copy prompt instructions into the artwork. "
+        "The exact source text is rendered later by the deterministic overlay renderer using the fixed "
+        f"{overlay.get('font_family', 'Georgia')} regular serif, warm-white text "
         f"({overlay.get('text', '#F3EEE3')}) on a near-black translucent panel "
         f"({overlay.get('background', '#111318')}, alpha {overlay.get('background_alpha', 220)}), "
         f"maximum width {overlay.get('max_width_percent', 68)}% and maximum height {overlay.get('max_height_percent', 15)}%."
