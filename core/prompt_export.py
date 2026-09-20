@@ -306,7 +306,15 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
                     errors.append(f"image prompt is missing production continuity contract: {token}")
             if names and "canonical character identity lock:" not in lowered_prompt:
                 errors.append("image prompt is missing canonical character identity lock")
-            if not names and not any(
+
+            narrative_focus = _mapping(media.get("generation_intent")).get("narrative_focus_character")
+            has_narrative_focus = isinstance(narrative_focus, dict) and bool(
+                str(narrative_focus.get("canonical_name") or "").strip()
+            )
+            if has_narrative_focus:
+                if "narrative focal character (controlled production inference):" not in lowered_prompt:
+                    errors.append("image prompt is missing deterministic narrative focal-character contract")
+            elif not names and not any(
                 token in lowered_prompt
                 for token in ("keep the frame free of human or humanoid subjects", "anonymous source participants")
             ):
