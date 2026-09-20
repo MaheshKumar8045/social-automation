@@ -68,37 +68,42 @@ def _dialogue(scene: dict[str, Any]) -> list[str]:
 
 
 def _visual_moments(scene: dict[str, Any], events: list[dict[str, Any]], characters: list[dict[str, Any]]) -> list[str]:
-    name_tokens = [
-        _clean(c.get("canonical_name"), 100).lower()
-        for c in characters
-        if c.get("canonical_name")
-        and (c.get("source_presence") or {}).get("physical_presence") is True
-    ]
-    candidates: list[tuple[int, str]] = []
-    for event in events:
+    """Select source-grounded visual moments without changing source chronology."""
+    source = str(scene.get("text") or "")
+    candidates: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+
+    for order, event in enumerate(events):
         text = _clean(event.get("text"), 260)
         if not text:
             continue
-        score = 50 + (25 if _ACTION_RE.search(text) else 0)
-        score += sum(12 for name in name_tokens if name and name in text.lower())
-        candidates.append((score, text))
+        position = source.find(text)
+        if position < 0:
+            # Event extraction can contain a prefix/suffix; only use it when it
+            # can be located in the source rather than inventing chronology.
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append((position, order, text))
 
-    narrative = _strip_dialogue(str(scene.get("text") or ""))
-    for sentence in _SENTENCE_RE.split(re.sub(r"\s+", " ", narrative).strip()):
+    narrative = _strip_dialogue(source)
+    normalized = re.sub(r"\s+", " ", narrative).strip()
+    for offset, sentence in enumerate(_SENTENCE_RE.split(normalized)):
         sentence = _clean(sentence, 260)
         if len(sentence.split()) < 5:
             continue
-        if _SPEECH_CUE_RE.search(sentence) and not _ACTION_RE.search(sentence):
+        key = sentence.casefold()
+        if key in seen:
             continue
-        score = 10 + (45 if _ACTION_RE.search(sentence) else 0)
-        score += sum(10 for name in name_tokens if name and name in sentence.lower())
-        if 6 <= len(sentence.split()) <= 32:
-            score += 10
-        candidates.append((score, sentence))
+        seen.add(key)
+        position = source.find(sentence)
+        if position >= 0:
+            candidates.append((position, len(events) + offset, sentence))
 
-    candidates.sort(key=lambda x: (-x[0], x[1].lower()))
-    return _unique([x[1] for x in candidates], 3)
-
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    return _unique([text for _, _, text in candidates], 3)
 
 def _objects(objects: list[dict[str, Any]], continuity: dict[str, Any]) -> list[str]:
     values = [_clean(o.get("canonical_name"), 100) for o in objects if o.get("canonical_name")]
