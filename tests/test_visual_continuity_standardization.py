@@ -170,3 +170,101 @@ def test_overlay_renderer_does_not_publish_partial_output(tmp_path):
     assert result["failures"]
     assert not (tmp_path / "final").exists()
     assert (tmp_path / "final.staging").exists()
+
+
+def test_first_person_narrative_focus_is_mandatory_and_not_physical_presence():
+    character = {
+        "canonical_character_id": 101,
+        "canonical_name": "Ravana",
+        "source_presence": {
+            "physical_presence": False,
+            "physical_presence_evidence_count": 0,
+            "classification": "reference_only",
+        },
+        "visual_profile": {
+            "identity_anchor": "vib-ravana",
+            "visual_role": "ruler",
+            "source_facts": [],
+            "inferred_facts": [],
+        },
+        "scene_mentions": [{"context": "Ravana Tomorrow is my funeral."}],
+    }
+    result = enhance_generation_package(
+        scene={"scene_order": 1, "title": "The end", "text": "Ravana Tomorrow is my funeral."},
+        characters=[character],
+        objects=[],
+        events=[],
+        continuity={"available": True},
+        world_profile={},
+        genre="mythology",
+        media=_media(),
+        narrative_focus_character={
+            "canonical_name": "Ravana",
+            "reason": "first-person narrative with exactly one explicitly named canonical character in the scene source",
+        },
+    )
+    prompt = result["image"]["prompt"]
+    assert "NARRATIVE FOCAL CHARACTER (CONTROLLED PRODUCTION INFERENCE): Ravana" in prompt
+    assert "do not substitute another person" in prompt.lower()
+    assert "TEXT RENDERING IS DISABLED" in prompt
+    assert "do not generate words, letters, captions" in prompt.lower()
+    assert result["generation_intent"]["visible_characters"] == []
+    assert result["generation_intent"]["narrative_focus_character"]["canonical_name"] == "Ravana"
+
+
+def test_visible_canonical_character_is_explicitly_mandatory_subject():
+    character = {
+        "canonical_character_id": 102,
+        "canonical_name": "Ravana",
+        "source_presence": {
+            "physical_presence": True,
+            "physical_presence_evidence_count": 1,
+            "classification": "physical",
+        },
+        "visual_profile": {
+            "identity_anchor": "vib-ravana",
+            "visual_role": "ruler",
+            "source_facts": [],
+            "inferred_facts": [],
+        },
+        "scene_mentions": [{"context": "Ravana sat on the throne."}],
+    }
+    result = enhance_generation_package(
+        scene={"scene_order": 2, "title": "The throne", "text": "Ravana sat on the throne."},
+        characters=[character],
+        objects=[],
+        events=[{"text": "Ravana sat on the throne."}],
+        continuity={"available": True},
+        world_profile={},
+        genre="mythology",
+        media=_media(),
+    )
+    prompt = result["image"]["prompt"]
+    assert "mandatory source-confirmed visible canonical characters: Ravana" in prompt
+    assert "do not replace, gender-swap, omit, or substitute" in prompt.lower()
+
+
+def test_overlay_renderer_fails_closed_when_required_overlay_is_missing(tmp_path):
+    import json
+    from PIL import Image
+    from core.render_text_overlays import process_directory
+
+    package = tmp_path / "all_prompts.json"
+    package.write_text(json.dumps({
+        "scenes": [{
+            "scene_id": 1,
+            "scene_order": 1,
+            "plan": {
+                "scene_id": 1,
+                "scene_order": 1,
+                "image_dialogue_overlays": [],
+            },
+        }],
+    }), encoding="utf-8")
+    images = tmp_path / "images"
+    images.mkdir()
+    Image.new("RGB", (100, 100), (90, 90, 90)).save(images / "scene_001.png")
+    result = process_directory(images, tmp_path / "final", package, expected_count=1, require_complete=True)
+    assert result["processed"] == 0
+    assert any("required source-derived dialogue/narrative overlay is missing" in item for item in result["failures"])
+    assert not (tmp_path / "final").exists()
