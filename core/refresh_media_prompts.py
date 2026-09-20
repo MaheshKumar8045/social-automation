@@ -5,6 +5,7 @@ import json
 import shutil
 import os
 import tempfile
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from .media_prompt_compiler import compile_media_prompts
 from .visual_continuity import character_identity_block, fixed_style_block
 from .visual_generation_policy import enrich_character, load_visual_policy
 from .prompt_export import _write_scene_media_files, validate_plan
+from .generation_intent import infer_narrative_focus_character
 
 
 def _prepare_characters(characters: list[Any], events: list[Any] | None = None) -> list[dict[str, Any]]:
@@ -48,7 +50,11 @@ def _prepare_characters(characters: list[Any], events: list[Any] | None = None) 
     return prepared
 
 
-def refresh_plan(plan: dict[str, Any]) -> dict[str, Any]:
+def refresh_plan(
+    plan: dict[str, Any],
+    *,
+    narrative_focus_character: dict[str, str] | None = None,
+) -> dict[str, Any]:
     scene = plan.get("scene") or {}
     characters = _prepare_characters(
         plan.get("characters") or [],
@@ -64,6 +70,7 @@ def refresh_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "visual_genre": plan.get("visual_genre") or "general_narrative",
         "visual_generation_policy": plan.get("visual_generation_policy") or {},
         "generation_constraints": plan.get("generation_constraints") or [],
+        "narrative_focus_character": narrative_focus_character,
     }
     media = compile_media_prompts(context, clip_count=3)
     policy = context.get("visual_generation_policy") or load_visual_policy()
@@ -85,6 +92,7 @@ def refresh_plan(plan: dict[str, Any]) -> dict[str, Any]:
         world_profile=context["world_profile"],
         genre=context["visual_genre"],
         media=media,
+        narrative_focus_character=narrative_focus_character,
     )
     plan = dict(plan)
     plan["characters"] = characters
@@ -114,13 +122,39 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
     failures: list[dict[str, Any]] = []
     refreshed: list[dict[str, Any]] = []
     character_refs: dict[str, dict[str, Any]] = {}
+    active_narrative_focus: dict[str, str] | None = None
+    previous_scene_order: int | None = None
 
     for record in scenes:
         if not isinstance(record, dict) or not isinstance(record.get("plan"), dict):
             failures.append({"scene_id": record.get("scene_id") if isinstance(record, dict) else None, "errors": ["invalid scene record"]})
             continue
-        plan = refresh_plan(record["plan"])
+        original_plan = record["plan"]
+        scene = original_plan.get("scene") or {}
+        scene_order = scene.get("scene_order")
+        characters_for_focus = original_plan.get("characters") or []
+        source_text = str(scene.get("text") or "")
+        local_focus = infer_narrative_focus_character(source_text, characters_for_focus)
+        current_focus = local_focus
+        if (
+            current_focus is None
+            and active_narrative_focus is not None
+            and previous_scene_order is not None
+            and isinstance(scene_order, int)
+            and scene_order == previous_scene_order + 1
+            and re.search(r"\b(?:I|me|my|mine|we|us|our|ours)\b", source_text, re.I)
+        ):
+            current_focus = dict(active_narrative_focus)
+            current_focus["reason"] = (
+                "carried deterministic first-person narrative focus from the immediately preceding scene"
+            )
+
+        plan = refresh_plan(original_plan, narrative_focus_character=current_focus)
+        if current_focus is not None:
+            plan["narrative_focus_character"] = current_focus
         errors = validate_plan(plan)
+        active_narrative_focus = current_focus
+        previous_scene_order = scene_order if isinstance(scene_order, int) else previous_scene_order
         for character in plan.get("characters") or []:
             if not isinstance(character, dict):
                 continue
