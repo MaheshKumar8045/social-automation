@@ -215,7 +215,7 @@ def gate(
     if len(bare) >= 2:
         score += 0.15; reasons.append("multiword_person_name")
     if exact >= 2:
-        score += 0.15; reasons.append("name_patternpeated_in_context")
+        score += 0.15; reasons.append("name_repeated_in_context")
     if len(mentions) >= 3:
         score += 0.10; reasons.append("recurring_mentions")
     if scenes >= 2:
