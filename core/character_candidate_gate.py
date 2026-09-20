@@ -28,7 +28,7 @@ NON_PERSON = set(
     "african english englishman european french icelandic icelanders russians danish makololos makololo bochjesmen queen earth orange reykjawik sneffels mother earth".split()
 )
 TITLE_ONLY = re.compile(
-    r"^(?:mr|mrs|ms|miss|dr|prof|professor|capt|captain|sir|lady|lord|rev|reverend|colonel|major|lieutenant|herr|monsieur|madame)\.?$",
+    r"^(?:mr|mrs|ms|miss|dr|prof|professor|capt|captain|sir|lady|lord|rev|reverend|colonel|major|lieutenant|herr|monsieur|madame|king|emperor|maharaja|maharani|prince|princess|queen)\.?$",
     re.I,
 )
 PERSON_TITLE = re.compile(
@@ -67,6 +67,11 @@ ROLE_TOKENS = {
 }
 
 
+def norm(name: str) -> str:
+    s = re.sub(r"\s+", " ", name.replace("‐", "-").replace("‑", "-").replace("‒", "-").replace("–", "-").replace("—", "-")).strip(" ,.;:\"'")
+    s = re.sub(r"\s+([,.;:])", r"\1", s)
+    return s[:-1] if s.endswith("-") and len(s) > 3 else s
+
 IDENTITY_QUALIFIER_WORDS = {
     "mr", "mrs", "ms", "miss", "dr", "prof", "professor", "capt", "captain",
     "sir", "lady", "lord", "rev", "reverend", "colonel", "major", "lieutenant",
@@ -89,11 +94,6 @@ def character_name_variants(name: str) -> list[str]:
             variants.append(stripped)
     return variants
 
-
-def norm(name: str) -> str:
-    s = re.sub(r"\s+", " ", name.replace("‐", "-").replace("‑", "-").replace("‒", "-").replace("–", "-").replace("—", "-")).strip(" ,.;:\"'")
-    s = re.sub(r"\s+([,.;:])", r"\1", s)
-    return s[:-1] if s.endswith("-") and len(s) > 3 else s
 
 
 def physical_presence_count(name: str, contexts: list[str]) -> int:
