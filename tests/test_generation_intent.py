@@ -69,6 +69,28 @@ def test_source_established_anonymous_participants_are_separate_from_canonical_c
     assert all(item["evidence"] in text for item in result["source_participants"])
 
 
+def test_character_action_remains_visible_when_city_is_mentioned():
+    chars = [{"canonical_name": "Ravana", "scene_mentions": [{"context": "Ravana walked through the city."}]}]
+    result = _intent("Ravana walked through the city.", characters=chars)
+    assert result["visible_characters"] == [{"name": "Ravana", "evidence": "Ravana walked through the city."}]
+
+
+def test_opening_asura_scene_resolves_ravana_and_no_canonical_visible_characters():
+    chars = [
+        {"canonical_name": "Ravana", "scene_mentions": [{"context": "Ravana Tomorrow is my funeral."}]},
+        {"canonical_name": "Trikota", "scene_mentions": [{"context": "My capital, Trikota, was the greatest city in the world. Trikota burned for days."}]},
+        {"canonical_name": "Hanuman", "scene_mentions": [{"context": "Hanuman did that to us."}]},
+    ]
+    text = (
+        "1 The end Ravana Tomorrow is my funeral. I can hear the scuffing sounds made by the jackals. "
+        "My capital, Trikota, was the greatest city in the world. Trikota burned for days. Hanuman did that to us."
+    )
+    result = _intent(text, characters=chars, dialogue=["Tomorrow is my funeral."])
+    assert result["narrative_focus_character"]["canonical_name"] == "Ravana"
+    assert result["primary_visual_moment"] == "Tomorrow is my funeral."
+    assert result["visible_characters"] == []
+
+
 def test_named_character_is_not_reclassified_as_anonymous_participant():
     text = "Rama stood over me after I had fallen."
     chars = [{"canonical_name": "Rama", "scene_mentions": [{"context": text}]}]
