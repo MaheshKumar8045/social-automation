@@ -45,7 +45,7 @@ ACTION_CUE = re.compile(
     re.I,
 )
 PHYSICAL_SUBJECT_CUE = re.compile(
-    r"\b(?:approach\w*|arriv\w*|attack\w*|capture\w*|climb\w*|come|cross\w*|cry\w*|die\w*|enter\w*|fall\w*|flee\w*|follow\w*|fight\w*|fought|grab\w*|hold\w*|kill\w*|look\w*|move\w*|open\w*|reach\w*|return\w*|run\w*|save\w*|sit\w*|stand\w*|take\w*|turn\w*|walk\w*|watch\w*|travel\w*|strike\w*|destroy\w*|burn\w*|collapse\w*|kneel\w*|rise\w*|speak\w*|stood|sat|lay|remained|waited|rested|entered|arrived|appeared|left|returned|looked|watched|faced|knelt|rose|walked|ran|fled|followed|held|carried|spoke|sang|wept|cried)\b",
+    r"\b(?:approach\w*|arriv\w*|attack\w*|capture\w*|climb\w*|come|cross\w*|cry\w*|die\w*|enter\w*|fall\w*|flee\w*|follow\w*|fight\w*|fought|grab\w*|hold\w*|kill\w*|look\w*|move\w*|open\w*|reach\w*|return\w*|run\w*|save\w*|sit\w*|stand\w*|take\w*|turn\w*|walk\w*|watch\w*|travel\w*|strike\w*|kneel\w*|rise\w*|speak\w*|stood|sat|lay|remained|waited|rested|entered|arrived|appeared|left|returned|looked|watched|faced|knelt|rose|walked|ran|fled|followed|held|carried|spoke|sang|wept|cried)\b",
     re.I,
 )
 COPULA_PHYSICAL = re.compile(
@@ -82,6 +82,17 @@ def physical_presence_count(name: str, contexts: list[str]) -> int:
         matched = False
         for index, sentence in enumerate(sentences):
             if not re.search(rf"\b{name_re}\b", sentence, re.I):
+                continue
+            # A canonical name can be attached to a place/entity description
+            # ("my capital, Trikota", "Trikota was ... city"). Such predicates
+            # are not evidence that a person is physically present.
+            location_context = re.search(
+                rf"(?:\b(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b[^.!?]{{0,80}}\b{name_re}\b|"
+                rf"\b{name_re}\b[^.!?]{{0,80}}\b(?:capital|city|town|village|kingdom|empire|island|river|mountain|temple|palace|fort|country|province|region|world)\b)",
+                sentence,
+                re.I,
+            )
+            if location_context:
                 continue
             if re.search(rf"\b{name_re}\b\s+{PHYSICAL_SUBJECT_CUE.pattern}", sentence, re.I):
                 matched = True
