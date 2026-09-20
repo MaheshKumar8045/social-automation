@@ -139,18 +139,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
                         ),
                         None,
                     )
-                if physical is None:
-                    physical = next(
-                        (
-                            _clean(m.get("context"), 320)
-                            for m in character.get("scene_mentions") or []
-                            if isinstance(m, dict)
-                            and _clean(m.get("context"), 320)
-                            and re.search(rf"\b{re.escape(name)}\b", _clean(m.get("context"), 320), re.I)
-                        ),
-                        None,
-                    )
-                visible.append({"name": name, "evidence": physical or f"Source-confirmed physical presence: {name}."})
+                # Never use arbitrary mention context outside the current scene source.\n                # Surrounding context may describe later locations or historical events.\n                visible.append({"name": name, "evidence": physical or f"Source-confirmed physical presence: {name}."})
             elif matching_events or any(
                 isinstance(m, dict) and _clean(m.get("context"), 320)
                 and re.search(rf"\b{re.escape(name)}\b", _clean(m.get("context"), 320), re.I)
