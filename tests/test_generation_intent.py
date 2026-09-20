@@ -188,3 +188,23 @@ def test_ambiguous_first_person_scene_does_not_invent_narrative_focus():
         dialogue=["I remembered the city."],
     )
     assert result["narrative_focus_character"] is None
+
+
+def test_visual_moments_preserve_source_order_over_later_high_salience_events():
+    from core.generation_intent import _candidate_moments
+
+    scene = {
+        "scene_order": 1,
+        "text": (
+            "Tomorrow is my funeral. I can hear the jackals eating my friends and family. "
+            "My beloved Lanka is being destroyed. My capital, Trikota, was the greatest city in the world."
+        ),
+    }
+    events = [
+        {"text": "My beloved Lanka is being destroyed."},
+        {"text": "Tomorrow is my funeral."},
+    ]
+    moments = _candidate_moments(scene, events, [])
+    assert moments[0] == "Tomorrow is my funeral."
+    assert moments[1].startswith("I can hear the jackals")
+    assert moments[2] == "My beloved Lanka is being destroyed."
