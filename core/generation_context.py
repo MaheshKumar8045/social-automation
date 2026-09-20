@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .character_candidate_gate import physical_presence_count
+from .generation_intent import infer_narrative_focus_character
 from .world_context import build_world_profile
 
 
@@ -38,6 +39,10 @@ class GenerationContext:
             events = self._events(con, document_id, scene_id)
             continuity = self._continuity(con, document_id, scene_id)
             self._add_canonical_continuity_ids(continuity, characters)
+            narrative_focus_character = infer_narrative_focus_character(
+                str(scene["text"] or ""),
+                characters,
+            )
 
             world_profile = build_world_profile(self.database_path, document_id)
             narrative_top = (world_profile.get("dimensions", {}).get("narrative_type", {}).get("top") or {})
@@ -63,6 +68,7 @@ class GenerationContext:
                 "characters": characters,
                 "objects": objects,
                 "events": events,
+                "narrative_focus_character": narrative_focus_character,
                 "continuity": continuity,
                 "neighbors": {
                     "previous": self._neighbor(con, document_id, scene_id, -1),
