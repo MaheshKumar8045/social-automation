@@ -138,7 +138,7 @@ class GenerationContext:
             source_forms = [str(candidate["canonical_name"] or "")]
             source_forms.extend(str(a["alias"] or "") for a in aliases)
             if any(
-                form and re.search(rf"(?<!\\w){re.escape(form)}(?!\\w)", scene_text, re.I)
+                form and re.search(rf"(?<!\w){re.escape(form)}(?!\w)", scene_text, re.I)
                 for form in source_forms
             ):
                 matched_fallback.append(candidate)
