@@ -64,7 +64,7 @@ def _candidate_moments(scene: dict[str, Any], events: list[dict[str, Any]], char
     if first_person and names:
         heading_matches = []
         for name in names:
-            match = re.search(rf"\b{name_pattern}\b", source[:first_person.start()], re.I)
+            match = re.search(rf"\b{re.escape(name)}\b", source[:first_person.start()], re.I)
             if match and not re.search(r"[.!?]", source[match.end():first_person.start()]):
                 heading_matches.append(match)
         if heading_matches:
