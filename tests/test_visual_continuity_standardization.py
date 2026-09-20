@@ -309,6 +309,6 @@ def test_narrative_focus_prompt_contains_character_identity_lock():
         "visual_genre": "general_narrative",
     })
     prompt = result["image"]["prompt"]
-    assert "NARRATIVE FOCAL CHARACTER IDENTITY LOCK" in prompt
+    assert "CANONICAL CHARACTER IDENTITY LOCK: Ravana." in prompt
     assert "SOURCE gender=male" in prompt
     assert "NARRATIVE FOCAL CHARACTER EXECUTION RULE" in prompt
