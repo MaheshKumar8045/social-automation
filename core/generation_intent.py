@@ -165,7 +165,7 @@ def _presence(scene_text: str, characters: list[dict[str, Any]], events: list[di
                 # Surrounding context may describe later locations or historical events.
                 if physical is not None:
                     visible.append({"name": name, "evidence": physical})
-                elif matching_events or re.search(rf"\\b{re.escape(name)}\\b", scene_text, re.I):
+                elif matching_events or re.search(rf"\b{name_pattern}\b", scene_text, re.I):
                     referenced.append(name)
             elif matching_events or any(
                 isinstance(m, dict) and _clean(m.get("context"), 320)
