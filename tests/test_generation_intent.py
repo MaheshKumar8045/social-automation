@@ -319,6 +319,36 @@ def test_visual_moments_preserve_source_order_over_later_high_salience_events():
 
 
 
+def test_flattened_chapter_heading_preserves_narrator_and_prose_boundary():
+    chars = [{
+        "canonical_name": "Ravana",
+        "aliases": [{"alias": "Ravana", "relationship": "canonical"}],
+        "scene_mentions": [{"context": "Ravana Tomorrow is my funeral.", "mention_text": "Ravana"}],
+    }]
+    result = _intent(
+        "1 The end Ravana Tomorrow is my funeral. I do not know if they will bury me.",
+        characters=chars,
+        dialogue=["Tomorrow is my funeral."],
+    )
+    assert result["primary_visual_moment"] == "Tomorrow is my funeral."
+    assert result["narrative_focus_character"]["canonical_name"] == "Ravana"
+
+
+def test_narrative_focus_matches_approved_alias_when_canonical_name_differs():
+    chars = [{
+        "canonical_name": "King Ravana",
+        "aliases": [{"alias": "Ravana", "relationship": "alias"}],
+        "scene_mentions": [{"context": "Ravana Tomorrow is my funeral.", "mention_text": "Ravana"}],
+    }]
+    result = _intent(
+        "1 The end Ravana Tomorrow is my funeral.",
+        characters=chars,
+        dialogue=["Tomorrow is my funeral."],
+    )
+    assert result["narrative_focus_character"]["canonical_name"] == "King Ravana"
+    assert result["primary_visual_moment"] == "Tomorrow is my funeral."
+
+
 def test_titled_canonical_narrator_resolves_from_bare_source_name():
     chars = [{
         "canonical_name": "King Ravana",
