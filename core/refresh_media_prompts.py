@@ -30,11 +30,9 @@ def _prepare_characters(characters: list[Any], events: list[Any] | None = None) 
         if not isinstance(raw, dict) or not raw.get("canonical_name"):
             continue
         character = dict(raw)
-        contexts = [
-            str(m.get("context") or "")
-            for m in character.get("scene_mentions") or []
-            if isinstance(m, dict) and m.get("context")
-        ]
+        # Recompute presence only from scene-local source text and scene-local events.
+        # Entity-mention context can contain surrounding prose from later moments.
+        contexts = [str(scene_text)] if scene_text else []
         count = physical_presence_count(
             str(character.get("canonical_name")),
             contexts + event_contexts,
