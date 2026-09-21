@@ -80,6 +80,9 @@ def _valid_plan():
         "media_prompt_package": {
             "source_grounded": True,
             "unknowns_must_remain_unknown": True,
+            "generation_intent": {
+                "narrative_focus_character": None,
+            },
             "visual_inference": visual_inference,
             "image": {
                 "prompt": image_prompt,
