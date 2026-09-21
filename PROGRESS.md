@@ -245,3 +245,14 @@ After the next full run:
 - Scene 1 contains canonical Ravana ID 30.
 - Scene 1 image prompt contains the narrative focal-character contract and canonical identity lock where applicable.
 - No scene-generation exception occurs.
+
+
+### CI review finding after QA hardening
+
+GitHub Actions compile check passed on commit `42ccbad`, but the full pytest suite initially failed 4 tests because the existing test fixture represented a pre-schema-6 media package without `media.generation_intent`.
+
+This was a **test fixture compatibility issue introduced by the new QA assertion**, not a production runtime failure. The fixture has now been updated in commit `963f2e3` to include:
+
+`media.generation_intent.narrative_focus_character = None`.
+
+The next CI run must be green before sign-off.
