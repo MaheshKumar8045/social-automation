@@ -1,4 +1,4 @@
-from core.generation_intent import build_generation_intent
+from core.generation_intent import build_generation_intent, infer_narrative_focus_character
 
 
 def _intent(text, *, events=None, characters=None, dialogue=None):
