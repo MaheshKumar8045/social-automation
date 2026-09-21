@@ -428,3 +428,19 @@ def test_refresh_package_keeps_canonical_identity_when_optional_visual_tables_ar
         c["canonical_name"] == "King Ravana" and c["canonical_character_id"] == 30
         for c in result["characters"]
     )
+
+
+def test_source_database_candidates_derives_structure_db_from_prompts_directory(tmp_path):
+    from core.refresh_media_prompts import _source_database_candidates
+
+    db = tmp_path / "Asura - Tale Of The Vanquished_structure.db"
+    db.write_text("", encoding="utf-8")
+    prompts = tmp_path / "Asura - Tale Of The Vanquished_structure_prompts"
+    prompts.mkdir()
+
+    candidates = _source_database_candidates(
+        {"document_id": 1},
+        prompts / "all_prompts.json",
+    )
+
+    assert db in candidates
