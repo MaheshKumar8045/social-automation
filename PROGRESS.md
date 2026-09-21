@@ -273,3 +273,15 @@ Required smoke-test assertions for Scene 1:
 - image prompt contains `CANONICAL CHARACTER IDENTITY LOCK: King Ravana`
 
 The full DOD should not be restarted until this smoke test and the full pytest suite are green.
+
+## Latest production smoke-test finding (2026-09-21)
+
+After the full DOD rebuild reached prompt generation, a direct real-database Scene 1 smoke test exposed a second runtime bug that the 150-test suite had not covered:
+
+- `core/generation_context.py::_characters()` merged fallback canonical-character SQLite rows selected as `id` into rows expected to contain `canonical_character_id`.
+- Real execution therefore failed with `IndexError: No item with that key` when fallback character recovery was exercised.
+- Fixed by aliasing the fallback query column to `canonical_character_id`.
+- Fix commit: `f4ab8c6` (`fix: normalize fallback canonical character row ids`).
+- Added regression test: `99cd6b8` (`test: cover fallback canonical character row shape`).
+
+The previous 150 passing tests were not sufficient evidence for production sign-off because they did not exercise this real fallback-row path. **Do not rerun the 9-hour DOD until the latest code passes compile, the full test suite, and a direct real Asura Scene 1 generation-plan smoke test.**
