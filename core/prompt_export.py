@@ -340,6 +340,17 @@ def build_all_prompts(database: str | Path, document_id: int, output_dir: str | 
         if media_dir.exists():
             shutil.rmtree(media_dir)
 
+    # Never leave a previous successful package looking current after a failed
+    # scene build. The package is authoritative only when this run reaches the
+    # final write below.
+    for stale_file in (
+        output_dir / "all_prompts.json",
+        output_dir / "prompt_export_summary.json",
+        output_dir / "scene_prompts.jsonl",
+    ):
+        if stale_file.exists():
+            stale_file.unlink()
+
     stages: dict[str, Any] = {}
     stages["candidate_gate"] = build_candidate_gate(database, document_id)
     stages["character_evidence"] = CharacterEvidenceClassifier(database).build(document_id)
