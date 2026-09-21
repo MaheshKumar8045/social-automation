@@ -73,7 +73,7 @@ def _flattened_narrator_source(
     first-person anchor is stripped. No generic word is treated as a narrator.
     """
     normalized = re.sub(r"\s+", " ", source or "").strip()
-    first_person = re.search(r"\b(?:I|me|my|mine|we|us|our|ours)\b", normalized, re.I)
+    first_person = re.search(r"\b(?:I(?!\s*[.!?])|me|my|mine|we|us|our|ours)\b", normalized, re.I)
     if not first_person:
         return normalized
 
@@ -270,7 +270,7 @@ def infer_narrative_focus_character(
     if dialogue_kind not in (None, "first_person_narration"):
         return None
     source = re.sub(r"\s+", " ", str(scene_text or "")).strip()
-    if not re.search(r"\b(?:I|me|my|mine|we|us|our|ours)\b", source, re.I):
+    if not re.search(r"\b(?:I(?!\s*[.!?])|me|my|mine|we|us|our|ours)\b", source, re.I):
         return None
     # A name merely appearing anywhere in first-person prose is not enough:
     # "I remembered Rama" names someone else. We first look for an explicit
@@ -280,7 +280,7 @@ def infer_narrative_focus_character(
     # nearest name to the first first-person anchor so a later referenced
     # character such as Hanuman cannot steal the narrator identity.
     self_identified: list[tuple[int, int, dict[str, str]]] = []
-    first_person = re.search(r"\b(?:I|me|my|mine|we|us|our|ours)\b", source, re.I)
+    first_person = re.search(r"\b(?:I(?!\s*[.!?])|me|my|mine|we|us|our|ours)\b", source, re.I)
     first_person_pos = first_person.start() if first_person else None
 
     for character in characters:
