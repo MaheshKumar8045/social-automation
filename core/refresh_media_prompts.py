@@ -193,8 +193,28 @@ def _load_document_canonical_characters(database: Path, document_id: int) -> lis
 
 
 def _source_database_candidates(package: dict[str, Any], package_path: Path) -> list[Path]:
-    """Resolve the source DB from all package locations before giving up."""
-    raw_paths: list[Any] = [package.get("source_database")]
+    """Resolve the authoritative structure DB deterministically.
+
+    Generated prompt packages may contain an absolute/relative source_database
+    value from the machine that created them. That value is useful, but the
+    package's sibling *_structure.db is the canonical local artifact and must
+    take precedence when the package lives in the normal *_structure_prompts
+    directory. Relative paths are resolved against the package directory rather
+    than the current working directory.
+    """
+    raw_paths: list[Any] = []
+
+    # Normal package layout is authoritative: <name>_structure_prompts/all_prompts.json
+    # sits directly beside <name>_structure.db. Put this candidate first so a stale
+    # path embedded in a copied package cannot select an unrelated DB.
+    parent = package_path.parent
+    if parent.name.endswith("_prompts"):
+        raw_paths.append(parent.parent / f"{parent.name[:-8]}.db")
+        # Be tolerant of harmless naming variations while still restricting the
+        # fallback to structure databases in the same document directory.
+        raw_paths.extend(sorted(parent.parent.glob("*_structure.db")))
+
+    raw_paths.append(package.get("source_database"))
     for record in package.get("scenes") or []:
         if not isinstance(record, dict):
             continue
@@ -203,23 +223,25 @@ def _source_database_candidates(package: dict[str, Any], package_path: Path) -> 
         if isinstance(plan, dict):
             raw_paths.append(plan.get("source_database"))
 
-    # Normal package layout: <db>_prompts/all_prompts.json sits beside the DB.
-    parent = package_path.parent
-    if parent.name.endswith("_prompts"):
-        # <name>_structure_prompts/all_prompts.json -> <name>_structure.db
-        raw_paths.append(parent.parent / f"{parent.name[:-8]}.db")
-
     candidates: list[Path] = []
     seen: set[str] = set()
     for raw in raw_paths:
         if not raw:
             continue
         candidate = Path(str(raw))
-        key = str(candidate).casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        candidates.append(candidate)
+        variants = [candidate]
+        if not candidate.is_absolute():
+            variants.extend([
+                package_path.parent / candidate,
+                package_path.parent.parent / candidate,
+            ])
+        for variant in variants:
+            resolved = variant.resolve(strict=False)
+            key = str(resolved).casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(resolved)
     return candidates
 
 
