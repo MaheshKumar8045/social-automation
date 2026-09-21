@@ -275,10 +275,18 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
                 continue
             key = str(character.get("canonical_character_id") or character.get("canonical_name")).casefold()
             document_characters[key] = character
-        # The first DB that actually contains canonical identities for this
-        # document is authoritative. Do not silently fall through to a stale
-        # DB merely because the file exists but has no matching document rows.
         break
+
+    # If a real source DB is available, the DB canonical index is immutable:
+    # scene-local records may contribute evidence, aliases, and visual profile
+    # enrichment, but they can never replace a document canonical identity.
+    # Keep a separate identity map so stale numeric IDs (e.g. 30=Lord Shiva in
+    # an old scene package) cannot delete/replace DB ID 30=King Ravana.
+    canonical_by_id = {
+        str(character.get("canonical_character_id")).casefold(): character
+        for character in document_characters.values()
+        if character.get("canonical_character_id") is not None
+    }
 
     # A source-grounded package with an available local structure DB must not
     # silently degrade into scene-local identities. That exact failure mode can
@@ -318,7 +326,7 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
                     break
 
             if identity_match is None and scene_id is not None:
-                by_id = document_characters.get(str(scene_id).casefold())
+                by_id = canonical_by_id.get(str(scene_id).casefold())
                 if by_id is not None:
                     # A numeric collision with a different canonical identity is
                     # stale scene-package data. It must be discarded, not inserted
@@ -331,6 +339,11 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
 
             if identity_match is None:
                 key = str(scene_id or scene_name).casefold()
+                if scene_id is not None and str(scene_id).casefold() in canonical_by_id:
+                    # The scene-local name is untrusted when its numeric ID is
+                    # already occupied by an authoritative canonical identity.
+                    # Do not insert or overwrite anything.
+                    continue
                 # Never replace an authoritative document identity with a
                 # scene-local record that arrived under a colliding numeric ID.
                 existing = document_characters.get(key)
