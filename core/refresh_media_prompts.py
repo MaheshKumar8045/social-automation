@@ -408,6 +408,30 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
                 if focus_character is not None:
                     refresh_input_plan = dict(original_plan)
                     refresh_input_plan["characters"] = list(characters_for_focus) + [dict(focus_character)]
+        if current_focus is not None and not any(
+            isinstance(character, dict)
+            and str(character.get("canonical_name") or "").strip().casefold()
+            == str(current_focus.get("canonical_name") or "").strip().casefold()
+            for character in refresh_input_plan.get("characters") or []
+        ):
+            focus_character = next(
+                (
+                    character for character in canonical_focus_characters
+                    if str(character.get("canonical_name") or "").strip().casefold()
+                    == str(current_focus.get("canonical_name") or "").strip().casefold()
+                ),
+                None,
+            )
+            if focus_character is None:
+                raise RuntimeError(
+                    "Narrative focus resolved to a canonical identity that is not present "
+                    f"in the document character index: {current_focus.get('canonical_name')}"
+                )
+            refresh_input_plan = dict(refresh_input_plan)
+            refresh_input_plan["characters"] = list(
+                refresh_input_plan.get("characters") or []
+            ) + [dict(focus_character)]
+
         if (
             current_focus is None
             and active_narrative_focus is not None
@@ -420,6 +444,24 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
             current_focus["reason"] = (
                 "carried deterministic first-person narrative focus from the immediately preceding scene"
             )
+            focus_character = next(
+                (
+                    character for character in canonical_focus_characters
+                    if str(character.get("canonical_name") or "").strip().casefold()
+                    == str(current_focus.get("canonical_name") or "").strip().casefold()
+                ),
+                None,
+            )
+            if focus_character is not None and not any(
+                isinstance(character, dict)
+                and str(character.get("canonical_name") or "").strip().casefold()
+                == str(current_focus.get("canonical_name") or "").strip().casefold()
+                for character in refresh_input_plan.get("characters") or []
+            ):
+                refresh_input_plan = dict(refresh_input_plan)
+                refresh_input_plan["characters"] = list(
+                    refresh_input_plan.get("characters") or []
+                ) + [dict(focus_character)]
 
         plan = refresh_plan(refresh_input_plan, narrative_focus_character=current_focus)
         if current_focus is not None:
