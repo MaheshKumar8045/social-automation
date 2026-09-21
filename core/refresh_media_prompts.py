@@ -200,7 +200,28 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
             if not isinstance(character, dict) or not character.get("canonical_name"):
                 continue
             key = str(character.get("canonical_character_id") or character.get("canonical_name")).casefold()
-            document_characters[key] = character
+            existing = document_characters.get(key)
+            if existing is None:
+                document_characters[key] = character
+                continue
+            # The source DB is authoritative for canonical identity. A stale or
+            # corrupted scene-local record can reuse the same numeric ID for a
+            # different name (e.g. Scene 1 ID 30 = Lord Shiva while the DB's
+            # canonical ID 30 = King Ravana). Never let the scene package
+            # overwrite the authoritative identity in that collision case.
+            existing_name = str(existing.get("canonical_name") or "").strip()
+            scene_name = str(character.get("canonical_name") or "").strip()
+            if existing_name.casefold() != scene_name.casefold():
+                continue
+            merged = dict(existing)
+            for field in ("scene_mentions", "visual_facts"):
+                left = list(merged.get(field) or [])
+                right = list(character.get(field) or [])
+                merged[field] = left + [item for item in right if item not in left]
+            for field in ("visual_profile", "source_presence"):
+                if character.get(field) is not None:
+                    merged[field] = character[field]
+            document_characters[key] = merged
     canonical_focus_characters = list(document_characters.values())
 
     failures: list[dict[str, Any]] = []
