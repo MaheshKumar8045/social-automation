@@ -120,7 +120,7 @@ class GenerationContext:
         )
         linked_ids = {int(row["canonical_character_id"]) for row in rows}
         fallback_rows = con.execute(
-            """SELECT id, canonical_name, status, confidence
+            """SELECT id AS canonical_character_id, canonical_name, status, confidence
                FROM canonical_characters
                WHERE document_id=? AND status IN ('confirmed','likely','singleton')
                ORDER BY id""",
