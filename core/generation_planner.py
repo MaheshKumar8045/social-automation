@@ -202,14 +202,25 @@ class GenerationPlanner:
         return output
 
     @staticmethod
-    def _prompt_bundle(context, characters, objects, events, constraints):
+    def _prompt_bundle(context, characters, objects, events, constraints, narrative_focus_character=None):
         media_context = dict(context)
-        media_context.update(characters=characters, objects=objects, events=events, generation_constraints=constraints)
+        media_context.update(
+            characters=characters,
+            objects=objects,
+            events=events,
+            generation_constraints=constraints,
+        )
         media = compile_media_prompts(media_context)
         media = enhance_generation_package(
-            scene=context.get("scene") or {}, characters=characters, objects=objects, events=events,
-            continuity=context.get("continuity") or {}, world_profile=context.get("world_profile") or {},
-            genre=context.get("visual_genre") or "general_narrative", media=media,
+            scene=context.get("scene") or {},
+            characters=characters,
+            objects=objects,
+            events=events,
+            continuity=context.get("continuity") or {},
+            world_profile=context.get("world_profile") or {},
+            genre=context.get("visual_genre") or "general_narrative",
+            media=media,
+            narrative_focus_character=narrative_focus_character,
         )
         source = str((context.get("scene") or {}).get("text") or "")
         media = _repair_truncated_visual_moments(media, source)
@@ -267,7 +278,14 @@ class GenerationPlanner:
                 visual_constraints.append("No canonical character is source-confirmed as present; do not force a character identity into the scene.")
             if llm_semantics_result is not None:
                 visual_constraints.append("Local LLM semantics are advisory source interpretation and must pass exact source-evidence validation before influencing generation.")
-            prompts = self._prompt_bundle(context, characters, context.get("objects") or [], context.get("events") or [], visual_constraints)
+            prompts = self._prompt_bundle(
+                context,
+                characters,
+                context.get("objects") or [],
+                context.get("events") or [],
+                visual_constraints,
+                narrative_focus_character=context.get("narrative_focus_character"),
+            )
             result = {
                 "document_id": document_id, "scene_id": scene_id, "plan_version": 9, "plan_status": "ready",
                 "source_grounded": True, "unknowns_must_remain_unknown": True, "world_profile": world_profile,
