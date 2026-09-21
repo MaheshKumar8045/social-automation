@@ -192,6 +192,46 @@ def _load_document_canonical_characters(database: Path, document_id: int) -> lis
     return result
 
 
+def _resolve_canonical_narrator_focus(
+    source_text: str,
+    characters: list[dict[str, Any]],
+) -> dict[str, str] | None:
+    source = re.sub(r"\s+", " ", str(source_text or "")).strip()
+    first_person = re.search(r"\b(?:I(?!\s*[.!?])|me|my|mine|we|us|our|ours)\b", source, re.I)
+    if not first_person:
+        return None
+    candidates: list[tuple[int, int, dict[str, str]]] = []
+    prefix = source[:first_person.start()]
+    for character in characters:
+        if not isinstance(character, dict):
+            continue
+        canonical_name = str(character.get("canonical_name") or "").strip()
+        if not canonical_name:
+            continue
+        variants = [canonical_name]
+        parts = canonical_name.split()
+        if len(parts) > 1 and parts[0].casefold().rstrip(".") in {"king", "emperor", "maharaja", "maharani", "prince", "princess", "queen"}:
+            variants.append(" ".join(parts[1:]))
+        for alias in character.get("aliases") or []:
+            value = alias.get("alias") if isinstance(alias, dict) else alias
+            if value:
+                variants.append(str(value).strip())
+        for variant in dict.fromkeys(v for v in variants if v):
+            for match in re.finditer(rf"\b{re.escape(variant)}\b", prefix, re.I):
+                if re.search(r"[.!?]", prefix[match.end():]):
+                    continue
+                distance = first_person.start() - match.end()
+                if 0 <= distance <= 80:
+                    candidates.append((distance, match.start(), {"canonical_name": canonical_name, "reason": "first-person narrative with authoritative canonical narrator heading"}))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]["canonical_name"].casefold()))
+    best = candidates[0]
+    tied = [item for item in candidates if item[0] == best[0]]
+    if len({item[2]["canonical_name"].casefold() for item in tied}) != 1:
+        return None
+    return best[2]
+
 def _source_database_candidates(package: dict[str, Any], package_path: Path) -> list[Path]:
     """Resolve the authoritative structure DB deterministically.
 
@@ -388,6 +428,8 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
         characters_for_focus = original_plan.get("characters") or []
         source_text = str(scene.get("text") or "")
         local_focus = infer_narrative_focus_character(source_text, canonical_focus_characters)
+        if local_focus is None:
+            local_focus = _resolve_canonical_narrator_focus(source_text, canonical_focus_characters)
         current_focus = local_focus
         refresh_input_plan = original_plan
         if current_focus is not None:
