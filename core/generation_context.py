@@ -175,7 +175,7 @@ class GenerationContext:
                    ORDER BY em.page_start, em.id""",
                 (document_id, scene_id, cid),
             ).fetchall()]
-            presence_contexts = [str(scene["text"] or "")] if scene["text"] else []
+            # `scene` belongs to GenerationContext.build(); use the scene-local text captured above.\n            presence_contexts = [scene_text] if scene_text else []
             # Event evidence is scene-local source evidence too. This matters for
             # passive physical states such as "Kumbha was captured" where the
             # canonical mention context may be a short reference but the event
