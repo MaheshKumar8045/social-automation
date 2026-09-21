@@ -100,3 +100,15 @@ def test_visual_moments_preserve_source_order():
 def test_deterministic_output():
     ctx = _context()
     assert compile_media_prompts(ctx) == compile_media_prompts(ctx)
+
+
+def test_flattened_narrator_heading_is_not_visual_moment():
+    context = _context(
+        "1 The end Ravana Tomorrow is my funeral. I can hear the jackals."
+    )
+    context["characters"][0]["canonical_name"] = "Ravana"
+    context["characters"][0]["aliases"] = [{"alias": "Ravana", "relationship": "source_name", "confidence": 1.0}]
+    media = compile_media_prompts(context)
+    prompt = media["image"]["prompt"]
+    assert "PRIMARY SOURCE VISUAL MOMENT: Tomorrow is my funeral." in prompt
+    assert "PRIMARY SOURCE VISUAL MOMENT: 1 The end Ravana" not in prompt
