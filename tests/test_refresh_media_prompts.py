@@ -420,6 +420,8 @@ def test_refresh_package_keeps_canonical_identity_when_optional_visual_tables_ar
 
     summary = refresh_package(source, output)
     assert summary["qa_passed"] is True
+    assert summary["canonical_database_selected"] == str(db)
+    assert summary["canonical_database_character_count"] == 1
 
     result = json.loads((output / "all_prompts.json").read_text(encoding="utf-8"))["scenes"][0]["plan"]
     assert result["generation_intent"]["primary_visual_moment"] == "Tomorrow is my funeral."
