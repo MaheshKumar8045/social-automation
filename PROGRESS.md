@@ -162,3 +162,86 @@ Then validate the complete QA result and inspect any remaining failures before d
 ## Resume instruction
 
 When returning to this project, read this file first. The current checkpoint is the active full DOD run `20260921_131806`. Continue from the recorded phase/result rather than restarting investigation from scratch.
+
+
+## 2026-09-21 production DOD failure and review checkpoint
+
+The full DOD rebuild reached the prompt-generation stage after successfully rebuilding the source database:
+
+- 442 pages
+- 63 sections
+- 63 stories
+- 191 scenes
+- 2078 entities
+- 6463 mentions
+- 2109 aliases
+- 191 events
+
+It then failed on Scene 1 with:
+
+`NameError: name 'scene' is not defined`
+
+in `core/generation_context.py::_characters()`.
+
+A first attempted fix accidentally inserted a literal escaped newline, producing a second failure:
+
+`NameError: name 'presence_contexts' is not defined`.
+
+The correct fix is now committed as `ca55c61`:
+
+- `presence_contexts = [scene_text] if scene_text else []`
+
+The focused regression suite had passed after the first fix, but the real DOD exposed a production-only scope path that the tests did not cover.
+
+### Additional critical review finding
+
+During a deeper end-to-end code review, a second production bug was found before another expensive DOD run:
+
+`core/generation_planner.py::_prompt_bundle()` called `compile_media_prompts()`, which correctly received the deterministic `context["narrative_focus_character"]`, but then called `enhance_generation_package()` without passing that focus.
+
+`enhance_generation_package()` rebuilds `generation_intent`, so the resolved first-person narrator focus could be lost from the final DOD generation intent even though the earlier media compiler had it.
+
+This directly explains the historical symptom where Scene 1 had a correct source moment but blank narrative focus in the final package.
+
+Fix committed as `00c6a6b`:
+
+- preserve `narrative_focus_character` through `_prompt_bundle()`
+- pass it explicitly into `enhance_generation_package()`
+
+A new regression test was added:
+
+- `tests/test_generation_planner.py`
+- verifies the resolved narrative focus survives the planner-to-cinematic-enhancement boundary.
+
+Additional QA hardening committed as `01be86f`:
+
+- `validate_plan()` now requires `media.generation_intent`
+- if a narrative focal character exists, the final image prompt must contain that canonical focal character name.
+
+### Current sign-off status
+
+**NOT YET SIGNED OFF.**
+
+The source database/pipeline extraction is proven to complete, but the current branch has just received the planner focus-propagation fix and QA hardening. Before another full DOD run, run:
+
+1. Python compile check for the project.
+2. Full pytest suite, not only the five focused suites.
+3. Targeted generation-planner regression.
+4. A deterministic generation-plan smoke test using the rebuilt Asura structure DB if available.
+5. Only then run the full DOD.
+
+Do not spend another multi-hour DOD run until these checks pass.
+
+### Required DOD acceptance criteria
+
+After the next full run:
+
+- DOD exits successfully.
+- 191 scenes exported.
+- QA passed with zero failures.
+- Scene 1 primary moment = `Tomorrow is my funeral.`
+- Scene 1 narrative focus = `King Ravana`.
+- Scene 1 visible canonical characters = none.
+- Scene 1 contains canonical Ravana ID 30.
+- Scene 1 image prompt contains the narrative focal-character contract and canonical identity lock where applicable.
+- No scene-generation exception occurs.
