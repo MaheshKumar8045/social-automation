@@ -279,13 +279,23 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
                 by_id = document_characters.get(str(scene_id).casefold())
                 if by_id is not None:
                     # A numeric collision with a different canonical identity is
-                    # ignored rather than allowed to corrupt the DB-derived index.
+                    # stale scene-package data. It must be discarded, not inserted
+                    # back under the same key, otherwise it silently overwrites the
+                    # authoritative DB identity (e.g. DB id 30 = King Ravana while
+                    # an older scene package incorrectly uses id 30 for Lord Shiva).
                     if str(by_id.get("canonical_name") or "").strip().casefold() != scene_name.casefold():
                         continue
                     identity_match = by_id
 
             if identity_match is None:
                 key = str(scene_id or scene_name).casefold()
+                # Never replace an authoritative document identity with a
+                # scene-local record that arrived under a colliding numeric ID.
+                existing = document_characters.get(key)
+                if existing is not None:
+                    existing_name = str(existing.get("canonical_name") or "").strip().casefold()
+                    if existing_name != scene_name.casefold():
+                        continue
                 document_characters[key] = character
                 continue
 
