@@ -272,6 +272,15 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
         if not _nonempty_text(audio.get("sound_design"), minimum=20):
             errors.append("audio sound-design direction is missing or too short")
 
+    generation_intent = media.get("generation_intent")
+    if not isinstance(generation_intent, dict):
+        errors.append("unified media generation_intent is missing")
+        generation_intent = {}
+    narrative_focus = _mapping(generation_intent.get("narrative_focus_character"))
+    focus_name = str(narrative_focus.get("canonical_name") or "").strip()
+    if focus_name and focus_name.casefold() not in image_prompt.casefold():
+        errors.append("image prompt is missing the resolved narrative focal character")
+
     visual_inference = media.get("visual_inference")
     if not isinstance(visual_inference, dict):
         visual_inference = _mapping(image.get("visual_inference"))
