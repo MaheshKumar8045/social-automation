@@ -1,39 +1,53 @@
 # Project Progress — Production Media Generation Intelligence
 
-## Completed
-- Local Qwen3 30B runtime integration in `shadow`/`enhance` modes.
-- Strict source-grounding validation retained; no validator weakening.
-- Character identity/candidate gating and visual-bible continuity retained.
-- Shared `GenerationIntent` is now the single source-of-truth layer for Image, Short Video, and Long Video.
-- Visual moments are source-traceable and sentence-complete; incomplete event fragments are extended only when the source contains the completion.
-- Visible character presence requires scene-local source evidence. Broader story/world knowledge and stale mention contexts cannot create on-screen characters.
-- First-person narration is explicitly separated from spoken dialogue.
-- Image composition is scene-signal aware and does not force character portraits when the scene establishes only environment/action.
-- Short Video uses three progressive beats with distinct camera grammar and transitions.
-- Long Video uses a dynamic 4–8 shot plan with purpose-specific camera grammar and no forced character shots.
-- Audio voice metadata is synchronized with the actual dialogue/narration used by clips and shots.
-- Cross-media continuity is carried through the shared generation intent.
-- Production regression tests cover source completeness, source-local presence, narration, cinematic progression, camera diversity, audio alignment, and shared intent.
-- GitHub Actions compile/test workflow added.
+## Current checkpoint — 2026-09-21
 
-## Final implementation review
-Double-checked the agreed production fixes and corrected two additional risks found during review:
-1. Visible character evidence could previously come from a mention context that was not present in the current scene. This is now source-local only.
-2. Long-form role planning could repeat the same role/camera grammar as shot count increased. The planner now has explicit consequence/develop/destination profiles and a controlled optional-role sequence rather than cycling the first three roles.
+The project is currently in the **real-data upstream identity validation** phase for the Asura production book.
 
-The strict validator remains unchanged.
+### Current source
 
-## Verification status
-Previous local baseline verified by the user: 79 tests passed; focused LLM/cinematic tests passed; Ollama `qwen3:30b` check passed. The latest hardening commits were written through GitHub, so final execution verification must be performed locally in the Windows environment.
+- PDF: `M:\\social-automation\\data\\Asura\\Asura - Tale Of The Vanquished.pdf`
+- 442 pages
+- 63 sections
+- 191 scenes
+- Branch: `llm-local-qwen`
 
-## Final commands
+### Verified locally
+
+- Full test suite: **151 passed**
+- Compile check: **passed**
+- Focused character/identity/generation suite: **56 passed**
+
+### Current production run
+
+The real source pipeline has been started:
+
 ```powershell
-git switch llm-local-qwen
-git pull --ff-only origin llm-local-qwen
-python -m compileall -q core tests
-python -m pytest -q
-python -m pytest tests\test_generation_intent.py tests\test_cinematic_generation.py tests\test_prompt_export.py tests\test_llm_runtime_hardening.py tests\test_scene_semantic_llm.py -q
-python -m tools.check_ollama --model qwen3:30b
+.\\.venv\\Scripts\\python.exe -m core.pipeline "data\\Asura\\Asura - Tale Of The Vanquished.pdf"
 ```
 
-Then run one-scene generation and inspect all three media `.txt` outputs before the full 191-scene run.
+It successfully recognized the PDF and entered the book-processing pipeline. Completion has not yet been reported at this checkpoint.
+
+### Current fix under validation
+
+The entity extractor previously suppressed a character candidate when the same name was also discovered by location/environment heuristics. This caused bare `Ravana` to be stored as a location in the production DB, while `Ravana Tomorrow` was discovered as a character.
+
+The local fix removes that premature suppression and relies on the downstream candidate gate to resolve conflicting evidence.
+
+### DOD status
+
+**DOD is intentionally not running yet.**
+
+Do not start the expensive 191-scene DOD until the regenerated DB passes the real-data Scene 1 gate:
+
+- `King Ravana` canonical focus
+- canonical ID 30
+- safe alias `Ravana`
+- primary moment `Tomorrow is my funeral.`
+- correct source-local physical presence semantics
+- canonical identity lock in the final image prompt
+- no planner/runtime exception
+
+### Resume point
+
+Tomorrow, continue from the result of the currently running source pipeline. The next task is targeted real-data validation, then Scene 1 generation-plan smoke test, then DOD only if those gates pass.
