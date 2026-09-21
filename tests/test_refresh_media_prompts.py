@@ -551,3 +551,74 @@ def test_refresh_package_prefers_local_structure_db_and_preserves_canonical_iden
     )
     assert "NARRATIVE FOCAL CHARACTER (CONTROLLED PRODUCTION INFERENCE): King Ravana" in result["image_prompt"]
     assert "CANONICAL CHARACTER IDENTITY LOCK: King Ravana" in result["image_prompt"]
+
+
+def test_refresh_package_injects_resolved_focus_into_scene_media_input(tmp_path):
+    import json
+    import sqlite3
+    from core.refresh_media_prompts import refresh_package
+
+    prompts = tmp_path / "Asura - Tale Of The Vanquished_structure_prompts"
+    prompts.mkdir()
+    db = prompts.parent / "Asura - Tale Of The Vanquished_structure.db"
+    con = sqlite3.connect(db)
+    con.executescript("""
+        CREATE TABLE canonical_characters (
+            id INTEGER PRIMARY KEY,
+            document_id INTEGER,
+            canonical_name TEXT,
+            status TEXT,
+            confidence REAL
+        );
+        CREATE TABLE canonical_character_aliases (
+            id INTEGER PRIMARY KEY,
+            canonical_character_id INTEGER,
+            alias TEXT,
+            relationship TEXT,
+            confidence REAL
+        );
+    """)
+    con.execute("INSERT INTO canonical_characters VALUES (30, 1, 'King Ravana', 'confirmed', 1.0)")
+    con.execute("INSERT INTO canonical_character_aliases VALUES (1, 30, 'Ravana', 'alias', 1.0)")
+    con.commit()
+    con.close()
+
+    plan = _plan()
+    plan["scene"]["scene_order"] = 1
+    plan["scene"]["text"] = "1 The end Ravana Tomorrow is my funeral. I can hear the jackals."
+    plan["characters"] = [{
+        "canonical_character_id": 30,
+        "canonical_name": "Lord Shiva",
+        "scene_mentions": [],
+        "visual_profile": {
+            "identity_anchor": "vib-shiva",
+            "source_facts": [],
+            "inferred_facts": [],
+        },
+    }]
+    package = {
+        "schema_version": 2,
+        "document_id": 1,
+        "source_database": str(tmp_path / "stale.db"),
+        "scene_count": 1,
+        "scenes": [{
+            "scene_id": 1, "story_id": 1, "scene_order": 1,
+            "title": "I. The end — Scene 1", "plan": plan,
+        }],
+    }
+    source = prompts / "all_prompts.json"
+    source.write_text(json.dumps(package), encoding="utf-8")
+    output = tmp_path / "refresh"
+
+    summary = refresh_package(source, output)
+    assert summary["qa_passed"] is True
+    result = json.loads((output / "all_prompts.json").read_text(encoding="utf-8"))["scenes"][0]["plan"]
+
+    gi = result["generation_intent"]
+    assert gi["primary_visual_moment"] == "Tomorrow is my funeral."
+    assert gi["narrative_focus_character"]["canonical_name"] == "King Ravana"
+    assert gi["visible_characters"] == []
+    assert any(
+        c["canonical_name"] == "King Ravana" and c["canonical_character_id"] == 30
+        for c in result["characters"]
+    )
