@@ -199,29 +199,58 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
         for character in record["plan"].get("characters") or []:
             if not isinstance(character, dict) or not character.get("canonical_name"):
                 continue
-            key = str(character.get("canonical_character_id") or character.get("canonical_name")).casefold()
-            existing = document_characters.get(key)
-            if existing is None:
+            scene_name = str(character.get("canonical_name") or "").strip()
+            scene_id = character.get("canonical_character_id")
+
+            # Scene-local IDs are not authoritative: older packages can contain
+            # stale/colliding numeric IDs. First reconcile by canonical identity
+            # (canonical name + approved aliases), then use numeric IDs only when
+            # the identity name agrees with the authoritative record.
+            identity_match = None
+            for existing in document_characters.values():
+                existing_name = str(existing.get("canonical_name") or "").strip()
+                if existing_name.casefold() == scene_name.casefold():
+                    identity_match = existing
+                    break
+                aliases = existing.get("aliases") or []
+                for alias in aliases:
+                    alias_value = alias.get("alias") if isinstance(alias, dict) else alias
+                    if str(alias_value or "").strip().casefold() == scene_name.casefold():
+                        identity_match = existing
+                        break
+                if identity_match is not None:
+                    break
+
+            if identity_match is None and scene_id is not None:
+                by_id = document_characters.get(str(scene_id).casefold())
+                if by_id is not None:
+                    # A numeric collision with a different canonical identity is
+                    # ignored rather than allowed to corrupt the DB-derived index.
+                    if str(by_id.get("canonical_name") or "").strip().casefold() != scene_name.casefold():
+                        continue
+                    identity_match = by_id
+
+            if identity_match is None:
+                key = str(scene_id or scene_name).casefold()
                 document_characters[key] = character
                 continue
-            # The source DB is authoritative for canonical identity. A stale or
-            # corrupted scene-local record can reuse the same numeric ID for a
-            # different name (e.g. Scene 1 ID 30 = Lord Shiva while the DB's
-            # canonical ID 30 = King Ravana). Never let the scene package
-            # overwrite the authoritative identity in that collision case.
-            existing_name = str(existing.get("canonical_name") or "").strip()
-            scene_name = str(character.get("canonical_name") or "").strip()
-            if existing_name.casefold() != scene_name.casefold():
-                continue
-            merged = dict(existing)
+
+            canonical_key = str(
+                identity_match.get("canonical_character_id") or identity_match.get("canonical_name")
+            ).casefold()
+            merged = dict(identity_match)
             for field in ("scene_mentions", "visual_facts"):
                 left = list(merged.get(field) or [])
                 right = list(character.get(field) or [])
                 merged[field] = left + [item for item in right if item not in left]
+            # Preserve DB canonical identity/aliases while allowing package
+            # scene-local evidence/profile data to enrich the canonical record.
             for field in ("visual_profile", "source_presence"):
                 if character.get(field) is not None:
                     merged[field] = character[field]
-            document_characters[key] = merged
+            document_characters[canonical_key] = merged
+            if canonical_key != str(scene_id or "").casefold() and scene_id is not None:
+                document_characters.pop(str(scene_id).casefold(), None)
     canonical_focus_characters = list(document_characters.values())
 
     failures: list[dict[str, Any]] = []
