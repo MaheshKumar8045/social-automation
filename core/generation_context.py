@@ -128,7 +128,7 @@ class GenerationContext:
         ).fetchall()
         matched_fallback = []
         for candidate in fallback_rows:
-            cid = int(candidate["id"])
+            cid = int(candidate["canonical_character_id"])
             if cid in linked_ids:
                 continue
             aliases = con.execute(
