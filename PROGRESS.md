@@ -1,0 +1,164 @@
+# Project Progress Checkpoint
+
+## Current objective
+
+Complete the production end-to-end pipeline for:
+
+- Source PDF: `M:\\social-automation\\data\\Asura\\Asura - Tale Of The Vanquished.pdf`
+- Expected source size: 442 pages
+- Existing scene count: 191
+- Goal: produce a correct 191-scene cinematic generation/prompt package with canonical identity, narrative focus, visual continuity, and QA passing.
+
+## Active DOD run
+
+- Run ID: `20260921_131806`
+- Started: 2026-09-21 13:18:06
+- Mode: `shadow`
+- Model: `qwen3:30b`
+- LLM timeout: 1800 seconds
+- Qwen thinking: disabled
+- Full DOD rebuild is currently in progress.
+- Do NOT start another DOD run unless this run fails and its failure has been diagnosed.
+
+Run checkpoint directory:
+
+`M:\\social-automation\\data\\Asura\\DOD_RUN_20260921_131806\\`
+
+Expected checkpoint files:
+
+- `previous_structure.db`
+- `previous_all_prompts.json`
+- `dod_full.log`
+
+## Current phase at last update
+
+The full DOD run had reached the Docling PDF scan phase.
+
+Observed messages included:
+
+`RapidOCR returned empty result!`
+
+These were observed during Docling processing and had not been established as a pipeline failure.
+
+Next expected stages:
+
+1. PDF / Docling scan
+2. Document structure
+3. SQLite structure DB
+4. Scene extraction
+5. Character/entity extraction
+6. Canonical identity
+7. Visual facts/profiles
+8. Event extraction
+9. Qwen semantic extraction
+10. Generation intent
+11. Cinematic/media compilation
+12. Visual continuity
+13. Prompt export
+14. QA
+15. Scene 1 validation
+16. Full artifact validation
+
+## Critical investigation history
+
+The previous full DOD run took approximately 9 hours and produced:
+
+- 442 pages
+- 63 sections
+- 191 scenes
+
+However Scene 1 was incorrect.
+
+Expected Scene 1:
+
+- Primary visual moment: `Tomorrow is my funeral.`
+- Narrative focus: `King Ravana`
+- Visible characters: none
+- Canonical Ravana ID: 30
+
+Previous incorrect result:
+
+- Primary visual moment contained the entire opening paragraph beginning with `1 The end Ravana Tomorrow is my funeral...`
+- Narrative focus was blank
+- Visible characters: 0
+- Ravana was absent from scene-local characters
+
+## Real-data diagnosis completed before current rebuild
+
+The authoritative structure DB was confirmed:
+
+`M:\\social-automation\\data\\Asura\\Asura - Tale Of The Vanquished_structure.db`
+
+It contains 76 canonical characters.
+
+Ravana record:
+
+- canonical_character_id: 30
+- canonical_name: King Ravana
+- status: confirmed
+- confidence: 1.0
+- aliases:
+  - King Ravana
+  - King Ravana Prabhu
+  - Maharaja Ravana
+
+The actual Scene 1 source was inspected and begins with:
+
+`1 The end Ravana Tomorrow is my funeral...`
+
+Both production narrator resolvers were tested directly against the real source and real canonical database:
+
+- Standard resolver -> `King Ravana`
+- Refresh resolver -> `King Ravana`
+
+Therefore the investigation ruled out a simple missing-canonical-record or narrator-resolution problem.
+
+The deterministic refresh nevertheless produced the old Scene 1 semantics, even after the resolver fix. Because the user did not want to spend more time debugging a generated artifact, the decision was made to perform a clean full DOD rebuild from the source PDF.
+
+## Code fixes already on branch
+
+Branch: `llm-local-qwen`
+
+Relevant commits:
+
+- `ad3b4f2` fix: recover narrator directly from canonical aliases during refresh
+- `bcefbd3` test: lock canonical focus injection before media compilation
+- `a14b054` fix: inject resolved canonical focus before media compilation
+- `2087ad2` fix: make canonical document IDs immutable during refresh merge
+- `df545c7` test: expose canonical database selection in refresh regression
+- `453f988` fix: fail fast when canonical document index cannot be loaded
+- `6aae505d` test: cover local structure DB precedence and narrator collision
+- `caac3ace` fix: resolve authoritative structure DB before embedded paths
+- `5fc8d5f` fix: preserve authoritative identity on scene ID collision
+
+Focused regression suite was green with 73 passing tests before the current full rebuild.
+
+## Important operational rules
+
+- Never delete `data\\Asura\\`.
+- Do not rerun the expensive DOD while the current run is still active.
+- Do not assume a generated artifact is correct merely because deterministic refresh QA passes.
+- After the current DOD completes, validate the actual generated `all_prompts.json`, especially Scene 1, before any refresh or further modifications.
+- Preserve `DOD_RUN_20260921_131806` and its log for forensic comparison.
+- If the current run fails, diagnose the exact phase/scene/source transformation before starting another expensive run.
+
+## Required final validation
+
+After DOD completes, inspect the newly generated package and verify at minimum:
+
+```
+Scenes: 191
+QA: True
+
+Scene 1:
+Primary: Tomorrow is my funeral.
+Focus: King Ravana
+Visible count: 0
+Ravana ID: 30
+```
+
+Then validate the complete QA result and inspect any remaining failures before declaring the package complete.
+
+## Resume instruction
+
+When returning to this project, read this file first. The current checkpoint is the active full DOD run `20260921_131806`. Continue from the recorded phase/result rather than restarting investigation from scratch.
