@@ -256,3 +256,20 @@ This was a **test fixture compatibility issue introduced by the new QA assertion
 `media.generation_intent.narrative_focus_character = None`.
 
 The next CI run must be green before sign-off.
+
+
+### Pre-DOD signoff gate
+
+Before another full DOD run, use the already rebuilt Asura structure DB for a one-scene real-data planner smoke test. This avoids spending hours before verifying the exact production path that previously failed.
+
+Required smoke-test assertions for Scene 1:
+
+- planner completes without exception
+- primary visual moment = `Tomorrow is my funeral.`
+- narrative focus = `King Ravana`
+- visible canonical characters = none
+- canonical Ravana ID = 30
+- image prompt contains `NARRATIVE FOCAL CHARACTER (CONTROLLED PRODUCTION INFERENCE): King Ravana`
+- image prompt contains `CANONICAL CHARACTER IDENTITY LOCK: King Ravana`
+
+The full DOD should not be restarted until this smoke test and the full pytest suite are green.
