@@ -256,8 +256,10 @@ def test_refresh_package_resolves_flattened_narrator_from_document_canonical_ali
     plan = _plan()
     plan["scene"]["scene_order"] = 1
     plan["scene"]["text"] = "1 The end Ravana Tomorrow is my funeral. I can hear the jackals."
+    # Deliberately reuse the authoritative DB's numeric ID with a conflicting
+    # scene-local name. The refresh index must keep the DB identity (King Ravana).
     plan["characters"] = [{
-        "canonical_character_id": 30,
+        "canonical_character_id": 10,
         "canonical_name": "Trikota",
         "scene_mentions": [{"context": "My capital, Trikota, was the greatest city in the world."}],
         "visual_profile": {"identity_anchor": "vib-trikota", "source_facts": [], "inferred_facts": []},
