@@ -382,3 +382,16 @@ def test_titled_canonical_character_is_visible_from_bare_source_name_when_physic
         "name": "King Ravana",
         "evidence": "Ravana walked through the city.",
     }]
+
+
+def test_roman_numeral_scene_heading_does_not_block_flattened_narrator():
+    characters = [{
+        "canonical_name": "King Ravana",
+        "aliases": [{"alias": "Ravana", "relationship": "source_name", "confidence": 1.0}],
+    }]
+    focus = infer_narrative_focus_character(
+        "I. The end Ravana Tomorrow is my funeral. I can hear the jackals.",
+        characters,
+    )
+    assert focus is not None
+    assert focus["canonical_name"] == "King Ravana"
