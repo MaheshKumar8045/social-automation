@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from .character_candidate_gate import physical_presence_count
-from .generation_intent import infer_narrative_focus_character
+from .generation_intent import _flattened_narrator_source, infer_narrative_focus_character
 from .visual_continuity import character_identity_block, fixed_style_block, subject_policy, overlay_contract
 from .visual_generation_policy import composition_policy, enrich_character, load_visual_policy
 
@@ -69,7 +69,7 @@ def _dialogue(scene: dict[str, Any]) -> list[str]:
 
 def _visual_moments(scene: dict[str, Any], events: list[dict[str, Any]], characters: list[dict[str, Any]]) -> list[str]:
     """Select source-grounded visual moments without changing source chronology."""
-    source = str(scene.get("text") or "")
+    source = _flattened_narrator_source(str(scene.get("text") or ""), characters)
     candidates: list[tuple[int, int, str]] = []
     seen: set[str] = set()
 
@@ -77,16 +77,23 @@ def _visual_moments(scene: dict[str, Any], events: list[dict[str, Any]], charact
         text = _clean(event.get("text"), 260)
         if not text:
             continue
-        position = source.find(text)
-        if position < 0:
-            # Event extraction can contain a prefix/suffix; only use it when it
-            # can be located in the source rather than inventing chronology.
-            continue
-        key = text.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        candidates.append((position, order, text))
+        # Event extraction may preserve the flattened chapter/narrator heading
+        # or contain several prose sentences. Never let that metadata or a
+        # whole multi-sentence event become the primary visual moment.
+        event_sentences = [
+            _clean(fragment, 260)
+            for fragment in _SENTENCE_RE.split(text)
+            if len(_clean(fragment, 260).split()) >= 3
+        ] or [text]
+        for fragment in event_sentences:
+            position = source.find(fragment)
+            if position < 0:
+                continue
+            key = fragment.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append((position, order, fragment))
 
     narrative = _strip_dialogue(source)
     normalized = re.sub(r"\s+", " ", narrative).strip()
