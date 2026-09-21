@@ -100,7 +100,12 @@ def refresh_plan(
         narrative_focus_character=narrative_focus_character,
     )
     plan = dict(plan)
-    plan["characters"] = characters
+    # Store the same enriched character records used to compile the media
+    # prompts. This is important when a document-wide canonical narrator is
+    # injected into a scene that did not have a scene-local character profile:
+    # validation must see the deterministic identity_anchor/provenance contract
+    # on the exact character record used for the prompt.
+    plan["characters"] = enriched_characters
     plan["media_prompt_package"] = media
     plan["image_prompt"] = media["image"]["prompt"]
     plan["image_dialogue_overlays"] = media["image"]["dialogue_overlays"]
