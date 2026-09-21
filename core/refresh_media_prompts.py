@@ -206,7 +206,8 @@ def _source_database_candidates(package: dict[str, Any], package_path: Path) -> 
     # Normal package layout: <db>_prompts/all_prompts.json sits beside the DB.
     parent = package_path.parent
     if parent.name.endswith("_prompts"):
-        raw_paths.append(parent.parent / f"{parent.name[:-7]}_structure.db")
+        # <name>_structure_prompts/all_prompts.json -> <name>_structure.db
+        raw_paths.append(parent.parent / f"{parent.name[:-7]}.db")
 
     candidates: list[Path] = []
     seen: set[str] = set()
