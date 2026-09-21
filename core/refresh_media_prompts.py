@@ -260,15 +260,35 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
     # source DB, then overlay scene-package records so narrator identities omitted by
     # scene-local entity extraction remain resolvable without inventing identities.
     document_characters: dict[str, dict[str, Any]] = {}
-    for database in _source_database_candidates(package, package_path):
-        for character in _load_document_canonical_characters(database, package.get("document_id")):
+    canonical_database_candidates = _source_database_candidates(package, package_path)
+    canonical_database_selected: str | None = None
+    canonical_database_character_count = 0
+    document_id = package.get("document_id")
+    for database in canonical_database_candidates:
+        loaded = _load_document_canonical_characters(database, document_id)
+        if not loaded:
+            continue
+        canonical_database_selected = str(database)
+        canonical_database_character_count = len(loaded)
+        for character in loaded:
             if not character.get("canonical_name"):
                 continue
             key = str(character.get("canonical_character_id") or character.get("canonical_name")).casefold()
             document_characters[key] = character
-        if document_characters:
-            # The first usable DB is authoritative. Do not mix unrelated DBs.
-            break
+        # The first DB that actually contains canonical identities for this
+        # document is authoritative. Do not silently fall through to a stale
+        # DB merely because the file exists but has no matching document rows.
+        break
+
+    # A source-grounded package with an available local structure DB must not
+    # silently degrade into scene-local identities. That exact failure mode can
+    # make a narrator such as "Ravana" disappear and still produce QA=pass.
+    if package.get("document_id") is not None and canonical_database_candidates and canonical_database_selected is None:
+        raise RuntimeError(
+            "Could not load canonical characters for document_id="
+            f"{package.get('document_id')} from any structure DB candidate: "
+            + ", ".join(str(path) for path in canonical_database_candidates)
+        )
     for record in scenes:
         if not isinstance(record, dict) or not isinstance(record.get("plan"), dict):
             continue
@@ -469,6 +489,10 @@ def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply
 
     summary = {
         "scene_count": len(refreshed),
+        "canonical_database_candidates": [str(path) for path in canonical_database_candidates],
+        "canonical_database_selected": canonical_database_selected,
+        "canonical_database_character_count": canonical_database_character_count,
+
         "qa_passed": not failures,
         "qa_failures": len(failures),
         "qa_failure_counts": new_package["qa_failure_counts"],
