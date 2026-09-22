@@ -23,3 +23,29 @@ def test_title_candidate_does_not_cross_sentence_boundary():
     assert "Professor. The Icelander" not in candidates
     assert "Professor. Then" not in candidates
     assert "Professor. Well" not in candidates
+
+
+
+def test_character_candidate_survives_location_collision():
+    text = (
+        "Ravana said, 'Tomorrow is my funeral.' "
+        "Later we traveled to Ravana."
+    )
+
+    entities, mentions, _ = EntityExtractor().extract([{
+        "id": 1,
+        "story_id": 1,
+        "page_start": 1,
+        "page_end": 1,
+        "text": text,
+        "title": "The end",
+    }])
+
+    assert any(
+        e.entity_type == "character" and e.canonical_name == "Ravana"
+        for e in entities
+    )
+    assert any(
+        e.entity_type == "location" and e.canonical_name == "Ravana"
+        for e in entities
+    )

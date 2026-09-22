@@ -76,15 +76,12 @@ class EntityExtractor:
 
             location_candidates = self._place_candidates(text)
             environment_candidates = self._environment_candidates(text)
-            excluded_character_names = {
-                name.lower()
-                for name in (*location_candidates.keys(), *environment_candidates.keys())
-            }
-
             candidates = self._character_candidates(text)
             for name, confidence in candidates.items():
-                if name.lower() in excluded_character_names:
-                    continue
+                # Character/location/environment heuristics are intentionally allowed
+                # to produce conflicting candidates. Downstream character gating owns
+                # the evidence-based decision; suppressing the character candidate here
+                # permanently loses valid identities such as bare "Ravana".
                 key = ("character", name)
                 entities.setdefault(
                     key,
