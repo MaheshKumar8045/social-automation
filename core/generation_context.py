@@ -8,7 +8,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .character_candidate_gate import physical_presence_count
+from .character_candidate_gate import character_name_variants, physical_presence_count
 from .generation_intent import infer_narrative_focus_character
 from .world_context import build_world_profile
 
@@ -135,10 +135,16 @@ class GenerationContext:
                 "SELECT alias FROM canonical_character_aliases WHERE canonical_character_id=? ORDER BY id",
                 (cid,),
             ).fetchall()
-            source_forms = [str(candidate["canonical_name"] or "")]
-            source_forms.extend(str(a["alias"] or "") for a in aliases)
+            source_forms: list[str] = []
+            for form in [str(candidate["canonical_name"] or ""), *(str(a["alias"] or "") for a in aliases)]:
+                # Apply the same conservative title-stripping rules used by
+                # the identity/narrative layers. This lets a canonical name
+                # such as "King Ravana" resolve a bare source form "Ravana"
+                # without requiring a manually-created database alias.
+                source_forms.extend(character_name_variants(form))
+            source_forms = list(dict.fromkeys(form for form in source_forms if form))
             if any(
-                form and re.search(rf"(?<!\w){re.escape(form)}(?!\w)", scene_text, re.I)
+                re.search(rf"(?<!\\w){re.escape(form)}(?!\\w)", scene_text, re.I)
                 for form in source_forms
             ):
                 matched_fallback.append(candidate)
