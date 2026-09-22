@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .character_candidate_gate import character_name_variants, physical_presence_count
+from .generation_intent import infer_narrative_focus_character
 from .world_context import build_world_profile
 
 
@@ -37,6 +40,10 @@ class GenerationContext:
             events = self._events(con, document_id, scene_id)
             continuity = self._continuity(con, document_id, scene_id)
             self._add_canonical_continuity_ids(continuity, characters)
+            narrative_focus_character = infer_narrative_focus_character(
+                str(scene["text"] or ""),
+                characters,
+            )
 
             world_profile = build_world_profile(self.database_path, document_id)
             narrative_top = (world_profile.get("dimensions", {}).get("narrative_type", {}).get("top") or {})
@@ -62,6 +69,7 @@ class GenerationContext:
                 "characters": characters,
                 "objects": objects,
                 "events": events,
+                "narrative_focus_character": narrative_focus_character,
                 "continuity": continuity,
                 "neighbors": {
                     "previous": self._neighbor(con, document_id, scene_id, -1),
@@ -80,13 +88,68 @@ class GenerationContext:
         rows = con.execute(
             """SELECT DISTINCT cc.id canonical_character_id, cc.canonical_name, cc.status, cc.confidence
                FROM entity_mentions em
+               JOIN entities e ON e.id=em.entity_id
                JOIN canonical_character_aliases cca ON cca.entity_id=em.entity_id
                JOIN canonical_characters cc ON cc.id=cca.canonical_character_id
                WHERE em.document_id=? AND em.scene_id=?
+                 AND e.document_id=? AND e.entity_type='character'
                  AND cc.document_id=? AND cc.status IN ('confirmed','likely','singleton')
                ORDER BY cc.id""",
-            (document_id, scene_id, document_id),
+            (document_id, scene_id, document_id, document_id),
         ).fetchall()
+        event_contexts = [
+            str(row["text"] or "")
+            for row in con.execute(
+                "SELECT text FROM events WHERE document_id=? AND scene_id=? AND text IS NOT NULL",
+                (document_id, scene_id),
+            ).fetchall()
+            if row["text"]
+        ]
+        # Entity-to-canonical linking can miss a source narrator when OCR/PDF
+        # extraction produces a bare source name that was not linked to the
+        # canonical entity mention. Recover only confirmed/likely/singleton
+        # canonical characters whose canonical name or approved alias is
+        # explicitly present in this scene. This adds reference context; the
+        # source-presence gate below still decides whether the character is
+        # physically visible.
+        scene_text = str(
+            con.execute(
+                "SELECT text FROM scenes WHERE document_id=? AND id=?",
+                (document_id, scene_id),
+            ).fetchone()["text"] or ""
+        )
+        linked_ids = {int(row["canonical_character_id"]) for row in rows}
+        fallback_rows = con.execute(
+            """SELECT id AS canonical_character_id, canonical_name, status, confidence
+               FROM canonical_characters
+               WHERE document_id=? AND status IN ('confirmed','likely','singleton')
+               ORDER BY id""",
+            (document_id,),
+        ).fetchall()
+        matched_fallback = []
+        for candidate in fallback_rows:
+            cid = int(candidate["canonical_character_id"])
+            if cid in linked_ids:
+                continue
+            aliases = con.execute(
+                "SELECT alias FROM canonical_character_aliases WHERE canonical_character_id=? ORDER BY id",
+                (cid,),
+            ).fetchall()
+            source_forms: list[str] = []
+            for form in [str(candidate["canonical_name"] or ""), *(str(a["alias"] or "") for a in aliases)]:
+                # Apply the same conservative title-stripping rules used by
+                # the identity/narrative layers. This lets a canonical name
+                # such as "King Ravana" resolve a bare source form "Ravana"
+                # without requiring a manually-created database alias.
+                source_forms.extend(character_name_variants(form))
+            source_forms = list(dict.fromkeys(form for form in source_forms if form))
+            if any(
+                re.search(rf"(?<!\\w){re.escape(form)}(?!\\w)", scene_text, re.I)
+                for form in source_forms
+            ):
+                matched_fallback.append(candidate)
+        rows = list(rows) + matched_fallback
+
         result = []
         for row in rows:
             cid = int(row["canonical_character_id"])
@@ -118,6 +181,17 @@ class GenerationContext:
                    ORDER BY em.page_start, em.id""",
                 (document_id, scene_id, cid),
             ).fetchall()]
+            # `scene` belongs to GenerationContext.build(); use the scene-local text captured above.
+            presence_contexts = [scene_text] if scene_text else []
+
+            # Event evidence is scene-local source evidence too. This matters for
+            # passive physical states such as "Kumbha was captured" where the
+            # canonical mention context may be a short reference but the event
+            # explicitly establishes the character's physical involvement.
+            physical_count = physical_presence_count(
+                str(row["canonical_name"]),
+                presence_contexts + event_contexts,
+            )
             result.append({
                 "canonical_character_id": cid,
                 "canonical_name": row["canonical_name"],
@@ -126,6 +200,11 @@ class GenerationContext:
                 "aliases": aliases,
                 "visual_facts": facts,
                 "scene_mentions": mentions,
+                "source_presence": {
+                    "physical_presence": physical_count > 0,
+                    "physical_presence_evidence_count": physical_count,
+                    "classification": "physical" if physical_count > 0 else "reference_only",
+                },
                 "unknown_visual_attributes": True,
             })
         return result

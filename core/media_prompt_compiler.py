@@ -5,6 +5,9 @@ import json
 import re
 from typing import Any
 
+from .character_candidate_gate import physical_presence_count
+from .generation_intent import _flattened_narrator_source, infer_narrative_focus_character
+from .visual_continuity import character_identity_block, fixed_style_block, subject_policy, overlay_contract
 from .visual_generation_policy import composition_policy, enrich_character, load_visual_policy
 
 
@@ -65,36 +68,49 @@ def _dialogue(scene: dict[str, Any]) -> list[str]:
 
 
 def _visual_moments(scene: dict[str, Any], events: list[dict[str, Any]], characters: list[dict[str, Any]]) -> list[str]:
-    name_tokens = [
-        _clean(c.get("canonical_name"), 100).lower()
-        for c in characters
-        if c.get("canonical_name")
-    ]
-    candidates: list[tuple[int, str]] = []
-    for event in events:
+    """Select source-grounded visual moments without changing source chronology."""
+    source = _flattened_narrator_source(str(scene.get("text") or ""), characters)
+    candidates: list[tuple[int, int, str]] = []
+    seen: set[str] = set()
+
+    for order, event in enumerate(events):
         text = _clean(event.get("text"), 260)
         if not text:
             continue
-        score = 50 + (25 if _ACTION_RE.search(text) else 0)
-        score += sum(12 for name in name_tokens if name and name in text.lower())
-        candidates.append((score, text))
+        # Event extraction may preserve the flattened chapter/narrator heading
+        # or contain several prose sentences. Never let that metadata or a
+        # whole multi-sentence event become the primary visual moment.
+        event_sentences = [
+            _clean(fragment, 260)
+            for fragment in _SENTENCE_RE.split(text)
+            if len(_clean(fragment, 260).split()) >= 3
+        ] or [text]
+        for fragment in event_sentences:
+            position = source.find(fragment)
+            if position < 0:
+                continue
+            key = fragment.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append((position, order, fragment))
 
-    narrative = _strip_dialogue(str(scene.get("text") or ""))
-    for sentence in _SENTENCE_RE.split(re.sub(r"\s+", " ", narrative).strip()):
+    narrative = _strip_dialogue(source)
+    normalized = re.sub(r"\s+", " ", narrative).strip()
+    for offset, sentence in enumerate(_SENTENCE_RE.split(normalized)):
         sentence = _clean(sentence, 260)
-        if len(sentence.split()) < 5:
+        if len(sentence.split()) < 3:
             continue
-        if _SPEECH_CUE_RE.search(sentence) and not _ACTION_RE.search(sentence):
+        key = sentence.casefold()
+        if key in seen:
             continue
-        score = 10 + (45 if _ACTION_RE.search(sentence) else 0)
-        score += sum(10 for name in name_tokens if name and name in sentence.lower())
-        if 6 <= len(sentence.split()) <= 32:
-            score += 10
-        candidates.append((score, sentence))
+        seen.add(key)
+        position = source.find(sentence)
+        if position >= 0:
+            candidates.append((position, len(events) + offset, sentence))
 
-    candidates.sort(key=lambda x: (-x[0], x[1].lower()))
-    return _unique([x[1] for x in candidates], 3)
-
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    return _unique([text for _, _, text in candidates], 3)
 
 def _objects(objects: list[dict[str, Any]], continuity: dict[str, Any]) -> list[str]:
     values = [_clean(o.get("canonical_name"), 100) for o in objects if o.get("canonical_name")]
@@ -113,7 +129,7 @@ def _character_lines(characters: list[dict[str, Any]]) -> list[str]:
     for raw in characters:
         character = raw
         name = _clean(character.get("canonical_name"), 100)
-        if not name:
+        if not name or (character.get("source_presence") or {}).get("physical_presence") is not True:
             continue
         profile = character.get("visual_profile") or {}
         source_facts = profile.get("source_facts") or []
@@ -208,11 +224,13 @@ def _base_prompt(
     layout: dict[str, Any],
     inference_genre: str,
     world_profile: dict[str, Any],
+    narrative_focus_character: dict[str, str] | None = None,
 ) -> str:
     parts = [
         f"Source-grounded {inference_genre} media depiction.",
         f"Scene {scene.get('scene_order', '')}: {_clean(scene.get('title'), 160)}.",
         _layout_prompt(layout),
+        fixed_style_block(load_visual_policy(), inference_genre),
         "Preserve canonical identity anchors across every scene. "
         "Source-supported visual facts have priority; controlled visual inference is allowed only "
         "for missing production details and must never contradict source evidence.",
@@ -227,13 +245,50 @@ def _base_prompt(
     if lines:
         parts.append("CHARACTER VISUAL PROFILES: " + " || ".join(lines) + ".")
     if moments:
-        parts.append("PRIMARY SOURCE VISUAL MOMENT: " + moments[0] + ".")
+        parts.append("PRIMARY SOURCE VISUAL MOMENT: " + moments[0].rstrip(".!?") + ".")
         if len(moments) > 1:
-            parts.append("SECONDARY SOURCE CONTEXT: " + moments[1] + ".")
+            parts.append("SECONDARY SOURCE CONTEXT: " + moments[1].rstrip(".!?") + ".")
     env = _objects(objects, continuity)
     if env:
         parts.append("SOURCE-IDENTIFIED OBJECTS / ENVIRONMENT STATE: " + ", ".join(env) + ".")
+    visible_names = [
+        {"name": c.get("canonical_name")}
+        for c in characters
+        if (c.get("source_presence") or {}).get("physical_presence") is True
+    ]
+    narrative_focus = narrative_focus_character
     parts.append(
+        subject_policy({
+            "visible_characters": visible_names,
+            "source_participants": [],
+            "narrative_focus_character": narrative_focus,
+        })
+    )
+    if narrative_focus:
+        focus_name = str(narrative_focus.get("canonical_name") or "").strip()
+        focus_character = next(
+            (
+                character for character in characters
+                if str(character.get("canonical_name") or "").strip().casefold()
+                == focus_name.casefold()
+            ),
+            None,
+        )
+        if focus_character is not None:
+            parts.append(
+                character_identity_block(focus_character)
+            )
+        parts.append(
+            "NARRATIVE FOCAL CHARACTER EXECUTION RULE: this named canonical character is the "
+            "mandatory principal subject for the visual frame. Preserve every source-supported "
+            "identity fact exactly. Do not substitute a different person, gender, age, species, "
+            "social identity, or generic stock-character interpretation. If an approved character "
+            "reference exists, it overrides generic model priors."
+        )
+    parts.append(overlay_contract(load_visual_policy()))
+    parts.append(
+        "IMAGE MODEL SAFETY: the image generator must output artwork only. "
+        "Do not render any text or typography and do not reproduce any instruction text from this prompt. "
         "Ultra-realistic cinematic live-action presentation, physically credible anatomy and materials, "
         "cinematic depth, readable subject separation, natural lighting consistent with the scene, "
         "no modern elements unless source-supported."
@@ -247,13 +302,37 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
     policy = context.get("visual_generation_policy") or load_visual_policy()
     world_profile = context.get("world_profile") or {}
     genre = context.get("visual_genre") or policy.get("default_genre", "general_narrative")
+    events = context.get("events") or []
+    event_contexts = [
+        str(event.get("text") or "")
+        for event in events
+        if isinstance(event, dict) and event.get("text")
+    ]
+    prepared_characters = []
+    for raw in raw_characters:
+        if not raw.get("canonical_name"):
+            continue
+        character = dict(raw)
+        # Presence must be established from the actual scene source or scene-local events.
+        # Broad entity-mention context may include later geography/history and must not create a visible subject.
+        contexts = [str(scene.get("text") or "")] if scene.get("text") else []
+        count = physical_presence_count(
+            str(character.get("canonical_name")),
+            contexts + event_contexts,
+        )
+        # Always recompute scene-local presence from current source evidence.
+        # A stale derived flag must never override the current scene.
+        character["source_presence"] = {
+            "physical_presence": count > 0,
+            "physical_presence_evidence_count": count,
+            "classification": "physical" if count > 0 else "reference_only",
+        }
+        prepared_characters.append(character)
     characters = [
         enrich_character(c, genre=genre, policy=policy, world_context=world_profile)
-        for c in raw_characters
-        if c.get("canonical_name")
+        for c in prepared_characters
     ]
     objects = context.get("objects") or []
-    events = context.get("events") or []
     continuity = context.get("continuity") or {}
     layout = composition_policy(policy)
 
@@ -261,7 +340,20 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
     moments = _visual_moments(scene, events, characters)
     if not moments:
         moments = ["Hold the established source scene state without adding a new event."]
-    base = _base_prompt(scene, characters, objects, moments, continuity, layout, genre, world_profile)
+    narrative_focus = context.get("narrative_focus_character")
+    if not isinstance(narrative_focus, dict):
+        narrative_focus = infer_narrative_focus_character(str(scene.get("text") or ""), characters)
+    base = _base_prompt(
+        scene,
+        characters,
+        objects,
+        moments,
+        continuity,
+        layout,
+        genre,
+        world_profile,
+        narrative_focus,
+    )
     overlays = _overlay(dialogue, scene, layout)
 
     count = max(1, min(int(clip_count), 8))
@@ -354,12 +446,19 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
         "unknowns_must_remain_unknown": True,
         "visual_inference": inference_summary,
         "image": {
-            "prompt": base + " Include one required dialogue-or-narrative box in a protected safe region.",
+            "prompt": (
+                base
+                + " FINAL IMAGE-MODEL INSTRUCTION: render only the source-grounded visual scene. "
+                  "TEXT RENDERING IS DISABLED. Do not draw any words, letters, captions, dialogue, "
+                  "subtitles, signs, logos, watermarks, or prompt instructions. Leave the reserved "
+                  "negative-space region visually clean for the deterministic post-processing overlay."
+            ),
             "dialogue_overlays": overlays,
             "layout": {
                 **layout,
                 "dialogue_box_count_minimum": layout["dialogue_box_min_count"],
-                "text_rendering": "Render readable text as a separate deterministic overlay whenever the production system supports it.",
+                "text_rendering": "deterministic overlay",
+                "overlay_style": "fixed project style: near-black translucent panel, warm-white Georgia regular serif, left aligned, consistent padding",
                 "placement_algorithm": "Choose the largest safe negative-space region opposite the main subject/action; never overlap faces, hands, important objects, or the primary action.",
             },
         },

@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "default_genre": "general_narrative",
   "allow_controlled_inference": true,
   "inference_rules": {
@@ -21,13 +21,50 @@
       "mobile_first": true,
       "safe_margin_percent": 7,
       "critical_subject_safe_area_percent": 86,
-      "background_visible_percent": [35, 55],
-      "main_subject_height_percent": [45, 65],
-      "secondary_subject_height_percent": [25, 50],
-      "group_subject_height_percent": [30, 55],
+      "background_visible_percent": [
+        35,
+        55
+      ],
+      "main_subject_height_percent": [
+        45,
+        65
+      ],
+      "secondary_subject_height_percent": [
+        25,
+        50
+      ],
+      "group_subject_height_percent": [
+        30,
+        55
+      ],
       "dialogue_box_max_width_percent": 68,
       "dialogue_box_max_height_percent": 15,
       "dialogue_box_min_count": 1
+    }
+  },
+  "production": {
+    "art_direction": {
+      "look": "cinematic live-action realism with natural skin/material response, restrained film grain, moderate contrast, soft highlight roll-off, grounded depth, physically credible optics",
+      "palette": "fixed project grade: cool blue-charcoal shadows (#1E2A30), neutral stone-earth midtones (#6B6258), restrained amber highlights (#B77A45), natural skin tones; scene light may vary only when motivated by source",
+      "lighting": "motivated source light first, consistent key direction within a scene, controlled fill, readable faces and objects; warm practicals may appear against the fixed neutral/cool base when the source establishes fire, lamps, sunset, or other warm light",
+      "camera": "natural spherical perspective, disciplined 24–50mm lens family, eye-level by default, restrained depth of field, stable horizon and coherent spatial geography",
+      "continuity": "same production, same visual language, same color science, same material response, same realism level; change only scene-required action, pose, expression, framing, and source-motivated lighting",
+      "negative": "no style reset, no anime/cartoon treatment, no glossy fantasy redesign, no random costume redesign, no face morphing, no duplicate subjects, no modern visual language, no watermark or logo",
+      "overlay": {
+        "background": "#111318",
+        "background_alpha": 220,
+        "text": "#F3EEE3",
+        "font_family": "Georgia",
+        "font_weight": "regular",
+        "corner_radius_percent": 1.2,
+        "horizontal_padding_percent": 3,
+        "vertical_padding_percent": 2.2,
+        "max_width_percent": 68,
+        "max_height_percent": 15,
+        "font_size_percent": 3.4,
+        "line_spacing_percent": 0.8,
+        "placement": "largest protected negative-space region opposite the primary subject/action"
+      }
     }
   }
 }

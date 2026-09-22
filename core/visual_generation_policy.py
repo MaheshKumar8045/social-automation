@@ -311,13 +311,26 @@ def build_inferred_visual_profile(
 
 def enrich_character(character: dict[str, Any], *, genre: str = "general_narrative", policy: dict[str, Any] | None = None, world_context: dict[str, Any] | None = None) -> dict[str, Any]:
     enriched = dict(character)
-    enriched["visual_profile"] = build_inferred_visual_profile(
+    generated = build_inferred_visual_profile(
         character,
         genre=genre,
         policy=policy,
         world_context=world_context,
     )
-    enriched["unknown_visual_attributes"] = bool(enriched["visual_profile"]["unknown_source_attributes"])
+    existing = character.get("visual_profile")
+    if isinstance(existing, dict):
+        # Preserve already-approved production identity/provenance when a stored
+        # plan is refreshed and its raw visual-fact rows are unavailable.
+        if existing.get("identity_anchor"):
+            generated["identity_anchor"] = existing["identity_anchor"]
+        if existing.get("source_facts") and not generated.get("source_facts"):
+            generated["source_facts"] = existing["source_facts"]
+        if existing.get("inferred_facts") and not generated.get("inferred_facts"):
+            generated["inferred_facts"] = existing["inferred_facts"]
+        if existing.get("visual_role") and generated.get("visual_role") == "person":
+            generated["visual_role"] = existing["visual_role"]
+    enriched["visual_profile"] = generated
+    enriched["unknown_visual_attributes"] = bool(generated["unknown_source_attributes"])
     return enriched
 
 

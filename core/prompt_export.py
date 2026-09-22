@@ -108,6 +108,58 @@ def _write_scene_media_files(output_dir: Path, record: dict[str, Any]) -> None:
     (long_dir / f"{scene_stem}.txt").write_text("\n".join(long_parts) + "\n", encoding="utf-8")
 
 
+def _visible_canonical_names(plan: dict[str, Any], characters: list[Any]) -> list[str]:
+    """Return canonical identities that source evidence requires in the visual frame.
+
+    Canonical characters are collected from scene mentions, so mention membership alone
+    is never sufficient to require a render name. Deterministic source physical-presence
+    evidence is the authority when validated LLM semantics are unavailable or rejected.
+    Validated LLM semantics may further identify visible characters, but they cannot create
+    physical presence that source evidence does not establish.
+    """
+    deterministic: list[str] = []
+    by_name: dict[str, str] = {}
+    for character in characters:
+        if not isinstance(character, dict):
+            continue
+        canonical = str(character.get("canonical_name") or "").strip()
+        if not canonical:
+            continue
+        key = canonical.casefold()
+        by_name[key] = canonical
+        presence = _mapping(character.get("source_presence"))
+        if presence.get("physical_presence") is True and key not in {x.casefold() for x in deterministic}:
+            deterministic.append(canonical)
+
+    semantics = _mapping(plan.get("llm_scene_semantics"))
+    analysis = _mapping(semantics.get("analysis"))
+    semantic_characters = analysis.get("characters")
+    if not isinstance(semantic_characters, list):
+        return [x.casefold() for x in deterministic]
+
+    visible: list[str] = []
+    for item in semantic_characters:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        key = name.casefold()
+        if (
+            name
+            and item.get("scene_role") == "visible"
+            and item.get("physical_presence") is True
+            and key in by_name
+            and key not in {x.casefold() for x in visible}
+        ):
+            visible.append(by_name[key])
+
+    # LLM semantics are advisory. Source-confirmed physical presence remains
+    # required even if the model omits a physically present canonical identity.
+    for canonical in deterministic:
+        if canonical.casefold() not in {x.casefold() for x in visible}:
+            visible.append(canonical)
+    return [x.casefold() for x in visible]
+
+
 def validate_plan(plan: dict[str, Any]) -> list[str]:
     """Validate the canonical generation-plan/media-package contract."""
     errors: list[str] = []
@@ -220,6 +272,15 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
         if not _nonempty_text(audio.get("sound_design"), minimum=20):
             errors.append("audio sound-design direction is missing or too short")
 
+    generation_intent = media.get("generation_intent")
+    if not isinstance(generation_intent, dict):
+        errors.append("unified media generation_intent is missing")
+        generation_intent = {}
+    narrative_focus = _mapping(generation_intent.get("narrative_focus_character"))
+    focus_name = str(narrative_focus.get("canonical_name") or "").strip()
+    if focus_name and focus_name.casefold() not in image_prompt.casefold():
+        errors.append("image prompt is missing the resolved narrative focal character")
+
     visual_inference = media.get("visual_inference")
     if not isinstance(visual_inference, dict):
         visual_inference = _mapping(image.get("visual_inference"))
@@ -236,9 +297,37 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
 
     if characters and _nonempty_text(image_prompt):
         lowered_prompt = image_prompt.lower()
-        names = [str(c.get("canonical_name") or "").strip().lower() for c in characters if isinstance(c, dict) and c.get("canonical_name")]
+        names = _visible_canonical_names(plan, characters)
         if names and not any(name in lowered_prompt for name in names):
             errors.append("image prompt does not contain any canonical character from the generation plan")
+
+        # Schema 6 is the production visual-continuity contract. Older stored
+        # plans remain backward compatible, while newly materialized packages
+        # must carry the locked style, subject, identity, and text-layer rules.
+        if int(media.get("schema_version") or 0) >= 6:
+            required_tokens = (
+                "global cinematic art direction (locked for every scene)",
+                "subject policy:",
+                "text / overlay policy:",
+            )
+            for token in required_tokens:
+                if token not in lowered_prompt:
+                    errors.append(f"image prompt is missing production continuity contract: {token}")
+            if names and "canonical character identity lock:" not in lowered_prompt:
+                errors.append("image prompt is missing canonical character identity lock")
+
+            narrative_focus = _mapping(media.get("generation_intent")).get("narrative_focus_character")
+            has_narrative_focus = isinstance(narrative_focus, dict) and bool(
+                str(narrative_focus.get("canonical_name") or "").strip()
+            )
+            if has_narrative_focus:
+                if "narrative focal character (controlled production inference):" not in lowered_prompt:
+                    errors.append("image prompt is missing deterministic narrative focal-character contract")
+            elif not names and not any(
+                token in lowered_prompt
+                for token in ("keep the frame free of human or humanoid subjects", "anonymous source participants")
+            ):
+                errors.append("environmental image prompt is missing explicit subject exclusion policy")
     return errors
 
 
@@ -250,6 +339,17 @@ def build_all_prompts(database: str | Path, document_id: int, output_dir: str | 
     for media_dir in (output_dir / "image", output_dir / "short_video", output_dir / "long_video"):
         if media_dir.exists():
             shutil.rmtree(media_dir)
+
+    # Never leave a previous successful package looking current after a failed
+    # scene build. The package is authoritative only when this run reaches the
+    # final write below.
+    for stale_file in (
+        output_dir / "all_prompts.json",
+        output_dir / "prompt_export_summary.json",
+        output_dir / "scene_prompts.jsonl",
+    ):
+        if stale_file.exists():
+            stale_file.unlink()
 
     stages: dict[str, Any] = {}
     stages["candidate_gate"] = build_candidate_gate(database, document_id)

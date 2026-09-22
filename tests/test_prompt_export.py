@@ -80,6 +80,9 @@ def _valid_plan():
         "media_prompt_package": {
             "source_grounded": True,
             "unknowns_must_remain_unknown": True,
+            "generation_intent": {
+                "narrative_focus_character": None,
+            },
             "visual_inference": visual_inference,
             "image": {
                 "prompt": image_prompt,
@@ -91,6 +94,17 @@ def _valid_plan():
             "long_video": {},
         },
         "source_evidence": [],
+        "llm_scene_semantics": {
+            "status": "ready",
+            "analysis": {
+                "characters": [{
+                    "name": "Lord Shiva",
+                    "scene_role": "visible",
+                    "physical_presence": True,
+                    "evidence": "Lord Shiva stood before them.",
+                }],
+            },
+        },
     }
 
 
@@ -112,6 +126,84 @@ def test_validate_plan_rejects_missing_nested_media_content():
 def test_validate_plan_rejects_character_loss_between_plan_and_image_prompt():
     plan = _valid_plan()
     plan["image_prompt"] = "Source-grounded cinematic image of the established scene with no invented visual facts or continuity changes."
+    errors = validate_plan(plan)
+    assert "image prompt does not contain any canonical character from the generation plan" in errors
+
+
+def test_validate_plan_allows_referenced_only_canonical_character_without_render_name():
+    plan = _valid_plan()
+    plan["characters"].append({
+        "canonical_name": "Professor Mayan",
+        "visual_profile": {
+            "identity_anchor": "vib-test-mayan",
+            "source_facts": [],
+            "inferred_facts": [],
+        },
+    })
+    plan["llm_scene_semantics"]["analysis"]["characters"].append({
+        "name": "Professor Mayan",
+        "scene_role": "referenced",
+        "physical_presence": False,
+        "evidence": "Professor Mayan was mentioned in the report.",
+    })
+    assert validate_plan(plan) == []
+
+
+def test_validate_plan_does_not_require_character_when_validated_scene_has_no_visible_canonical_character():
+    plan = _valid_plan()
+    plan["image_prompt"] = (
+        "Source-grounded cinematic image of the established environment, mobile-first vertical 9:16 composition, "
+        "with clear subject separation and no invented story details. Include one required narrative box in protected "
+        "negative space. SOURCE-ANCHORED SCENE INTERPRETATION: stage the supplied environmental moment. "
+        "CINEMATIC DIRECTION: use intentional camera position, framing, depth and lighting appropriate to the source."
+    )
+    plan["llm_scene_semantics"]["analysis"]["characters"] = []
+    assert validate_plan(plan) == []
+
+
+def test_validate_plan_uses_source_presence_when_llm_semantics_are_rejected():
+    plan = _valid_plan()
+    plan["characters"].append({
+        "canonical_name": "Professor Mayan",
+        "source_presence": {
+            "physical_presence": False,
+            "physical_presence_evidence_count": 0,
+            "classification": "reference_only",
+        },
+        "visual_profile": {
+            "identity_anchor": "vib-test-mayan",
+            "source_facts": [],
+            "inferred_facts": [],
+        },
+    })
+    plan["llm_scene_semantics"] = {
+        "status": "rejected",
+        "analysis": None,
+        "rejected_reasons": ["visible_character_evidence_not_in_source:Professor Mayan"],
+    }
+    assert validate_plan(plan) == []
+
+
+def test_validate_plan_requires_source_physically_present_character_even_when_llm_is_rejected():
+    plan = _valid_plan()
+    plan["characters"] = [{
+        "canonical_name": "Professor Mayan",
+        "source_presence": {
+            "physical_presence": True,
+            "physical_presence_evidence_count": 1,
+            "classification": "physical",
+        },
+        "visual_profile": {
+            "identity_anchor": "vib-test-mayan",
+            "source_facts": [],
+            "inferred_facts": [],
+        },
+    }]
+    plan["llm_scene_semantics"] = {
+        "status": "rejected",
+        "analysis": None,
+        "rejected_reasons": ["model_validation_failed"],
+    }
     errors = validate_plan(plan)
     assert "image prompt does not contain any canonical character from the generation plan" in errors
 

@@ -1,0 +1,637 @@
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import os
+import tempfile
+import re
+import sqlite3
+from collections import Counter
+from pathlib import Path
+from typing import Any
+
+from .character_candidate_gate import physical_presence_count
+from .cinematic_generation import enhance_generation_package
+from .media_prompt_compiler import compile_media_prompts
+from .visual_continuity import character_identity_block, fixed_style_block
+from .visual_generation_policy import enrich_character, load_visual_policy
+from .prompt_export import _write_scene_media_files, validate_plan
+from .generation_intent import infer_narrative_focus_character
+
+
+def _prepare_characters(characters: list[Any], events: list[Any] | None = None, scene_text: str = "") -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
+    event_contexts = [
+        str(event.get("text") or "")
+        for event in (events or [])
+        if isinstance(event, dict) and event.get("text")
+    ]
+    for raw in characters:
+        if not isinstance(raw, dict) or not raw.get("canonical_name"):
+            continue
+        character = dict(raw)
+        # Recompute presence from sentence-local evidence containing the exact
+        # canonical name, plus scene-local events. Do not pass the entire scene
+        # as one context: an unrelated later action such as "Trikota burned"
+        # must never establish Trikota as a visible person.
+        name = str(character.get("canonical_name"))
+        normalized_scene = re.sub(r"\s+", " ", scene_text or "").strip()
+        contexts = [
+            sentence.strip()
+            for sentence in re.split(r"(?<=[.!?])\s+", normalized_scene)
+            if re.search(rf"\b{re.escape(name)}\b", sentence, re.I)
+        ]
+        count = physical_presence_count(name, contexts + event_contexts)
+        # Recompute this scene-local signal on every refresh. Never trust a stale
+        # derived presence flag from an older package revision.
+        character["source_presence"] = {
+            "physical_presence": count > 0,
+            "physical_presence_evidence_count": count,
+            "classification": "physical" if count > 0 else "reference_only",
+        }
+        prepared.append(character)
+    return prepared
+
+
+def refresh_plan(
+    plan: dict[str, Any],
+    *,
+    narrative_focus_character: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    scene = plan.get("scene") or {}
+    characters = _prepare_characters(
+        plan.get("characters") or [],
+        plan.get("events") or [],
+        str(scene.get("text") or ""),
+    )
+    context = {
+        "scene": scene,
+        "characters": characters,
+        "objects": plan.get("objects") or [],
+        "events": plan.get("events") or [],
+        "continuity": plan.get("continuity") or {},
+        "world_profile": plan.get("world_profile") or {},
+        "visual_genre": plan.get("visual_genre") or "general_narrative",
+        "visual_generation_policy": plan.get("visual_generation_policy") or {},
+        "generation_constraints": plan.get("generation_constraints") or [],
+        "narrative_focus_character": narrative_focus_character,
+    }
+    media = compile_media_prompts(context, clip_count=3)
+    policy = context.get("visual_generation_policy") or load_visual_policy()
+    enriched_characters = [
+        enrich_character(
+            c,
+            genre=context["visual_genre"],
+            policy=policy,
+            world_context=context["world_profile"],
+        )
+        for c in characters
+    ]
+    media = enhance_generation_package(
+        scene=scene,
+        characters=enriched_characters,
+        objects=context["objects"],
+        events=context["events"],
+        continuity=context["continuity"],
+        world_profile=context["world_profile"],
+        genre=context["visual_genre"],
+        media=media,
+        narrative_focus_character=narrative_focus_character,
+    )
+    plan = dict(plan)
+    # Store the same enriched character records used to compile the media
+    # prompts. This is important when a document-wide canonical narrator is
+    # injected into a scene that did not have a scene-local character profile:
+    # validation must see the deterministic identity_anchor/provenance contract
+    # on the exact character record used for the prompt.
+    plan["characters"] = enriched_characters
+    plan["media_prompt_package"] = media
+    plan["image_prompt"] = media["image"]["prompt"]
+    plan["image_dialogue_overlays"] = media["image"]["dialogue_overlays"]
+    plan["image_layout"] = media["image"]["layout"]
+    plan["visual_inference"] = media["visual_inference"]
+    plan["short_video_prompt_package"] = media["short_video"]
+    plan["long_video_prompt_package"] = media["long_video"]
+    plan["audio_prompt"] = media["short_video"]["audio"]
+    plan["generation_intent"] = media.get("generation_intent")
+    return plan
+
+
+def _load_document_canonical_characters(database: Path, document_id: int) -> list[dict[str, Any]]:
+    """Load authoritative canonical identities without letting optional visual tables break the index.
+
+    The canonical character table is the identity source of truth. Visual profiles/facts are
+    enrichment only. Older DOD databases can have partial visual tables, so one bad optional
+    query must never make the entire document character index disappear.
+    """
+    if not database.is_file() or document_id is None:
+        return []
+
+    try:
+        with sqlite3.connect(database) as con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                """SELECT id, canonical_name, status, confidence
+                   FROM canonical_characters
+                   WHERE document_id=? AND status IN ('confirmed','likely','singleton')
+                   ORDER BY id""",
+                (int(document_id),),
+            ).fetchall()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        cid = int(row["id"])
+        aliases: list[dict[str, Any]] = []
+        facts: list[dict[str, Any]] = []
+        try:
+            with sqlite3.connect(database) as con:
+                con.row_factory = sqlite3.Row
+                aliases = [dict(x) for x in con.execute(
+                    "SELECT alias, relationship, confidence FROM canonical_character_aliases "
+                    "WHERE canonical_character_id=? ORDER BY id", (cid,)
+                ).fetchall()]
+                try:
+                    vp = con.execute(
+                        "SELECT id FROM canonical_visual_profiles "
+                        "WHERE document_id=? AND canonical_character_id=?",
+                        (int(document_id), cid),
+                    ).fetchone()
+                except sqlite3.Error:
+                    vp = None
+                if vp is not None:
+                    try:
+                        facts = [dict(x) for x in con.execute(
+                            """SELECT category, attribute, value, status, confidence, scene_id,
+                                      page_start, page_end, evidence
+                               FROM canonical_visual_facts
+                               WHERE canonical_visual_profile_id=?
+                               ORDER BY confidence DESC, id""", (int(vp["id"]),)
+                        ).fetchall()]
+                    except sqlite3.Error:
+                        facts = []
+        except sqlite3.Error:
+            # Identity remains authoritative even if optional alias/profile enrichment
+            # is unavailable. Never discard the canonical character because of it.
+            aliases = []
+            facts = []
+
+        result.append({
+            "canonical_character_id": cid,
+            "canonical_name": row["canonical_name"],
+            "status": row["status"],
+            "confidence": row["confidence"],
+            "aliases": aliases,
+            "visual_facts": facts,
+            "scene_mentions": [],
+            "source_presence": {"physical_presence": False, "physical_presence_evidence_count": 0, "classification": "reference_only"},
+            "unknown_visual_attributes": True,
+        })
+    return result
+
+
+def _resolve_canonical_narrator_focus(
+    source_text: str,
+    characters: list[dict[str, Any]],
+) -> dict[str, str] | None:
+    source = re.sub(r"\s+", " ", str(source_text or "")).strip()
+    first_person = re.search(r"\b(?:I(?!\s*[.!?])|me|my|mine|we|us|our|ours)\b", source, re.I)
+    if not first_person:
+        return None
+    candidates: list[tuple[int, int, dict[str, str]]] = []
+    prefix = source[:first_person.start()]
+    for character in characters:
+        if not isinstance(character, dict):
+            continue
+        canonical_name = str(character.get("canonical_name") or "").strip()
+        if not canonical_name:
+            continue
+        variants = [canonical_name]
+        parts = canonical_name.split()
+        if len(parts) > 1 and parts[0].casefold().rstrip(".") in {"king", "emperor", "maharaja", "maharani", "prince", "princess", "queen"}:
+            variants.append(" ".join(parts[1:]))
+        for alias in character.get("aliases") or []:
+            value = alias.get("alias") if isinstance(alias, dict) else alias
+            if value:
+                variants.append(str(value).strip())
+        for variant in dict.fromkeys(v for v in variants if v):
+            for match in re.finditer(rf"\b{re.escape(variant)}\b", prefix, re.I):
+                if re.search(r"[.!?]", prefix[match.end():]):
+                    continue
+                distance = first_person.start() - match.end()
+                if 0 <= distance <= 80:
+                    candidates.append((distance, match.start(), {"canonical_name": canonical_name, "reason": "first-person narrative with authoritative canonical narrator heading"}))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]["canonical_name"].casefold()))
+    best = candidates[0]
+    tied = [item for item in candidates if item[0] == best[0]]
+    if len({item[2]["canonical_name"].casefold() for item in tied}) != 1:
+        return None
+    return best[2]
+
+def _source_database_candidates(package: dict[str, Any], package_path: Path) -> list[Path]:
+    """Resolve the authoritative structure DB deterministically.
+
+    Generated prompt packages may contain an absolute/relative source_database
+    value from the machine that created them. That value is useful, but the
+    package's sibling *_structure.db is the canonical local artifact and must
+    take precedence when the package lives in the normal *_structure_prompts
+    directory. Relative paths are resolved against the package directory rather
+    than the current working directory.
+    """
+    raw_paths: list[Any] = []
+
+    # Normal package layout is authoritative: <name>_structure_prompts/all_prompts.json
+    # sits directly beside <name>_structure.db. Put this candidate first so a stale
+    # path embedded in a copied package cannot select an unrelated DB.
+    parent = package_path.parent
+    if parent.name.endswith("_prompts"):
+        raw_paths.append(parent.parent / f"{parent.name[:-8]}.db")
+        # Be tolerant of harmless naming variations while still restricting the
+        # fallback to structure databases in the same document directory.
+        raw_paths.extend(sorted(parent.parent.glob("*_structure.db")))
+
+    raw_paths.append(package.get("source_database"))
+    for record in package.get("scenes") or []:
+        if not isinstance(record, dict):
+            continue
+        raw_paths.append(record.get("source_database"))
+        plan = record.get("plan") or {}
+        if isinstance(plan, dict):
+            raw_paths.append(plan.get("source_database"))
+
+    candidates: list[Path] = []
+    seen: set[str] = set()
+    for raw in raw_paths:
+        if not raw:
+            continue
+        candidate = Path(str(raw))
+        variants = [candidate]
+        if not candidate.is_absolute():
+            variants.extend([
+                package_path.parent / candidate,
+                package_path.parent.parent / candidate,
+            ])
+        for variant in variants:
+            resolved = variant.resolve(strict=False)
+            key = str(resolved).casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(resolved)
+    return candidates
+
+
+def refresh_package(package_path: Path, output_dir: Path | None = None, *, apply: bool = False) -> dict[str, Any]:
+    if not package_path.is_file():
+        raise FileNotFoundError(f"Generation package not found: {package_path}")
+    package = json.loads(package_path.read_text(encoding="utf-8"))
+    scenes = package.get("scenes")
+    if not isinstance(scenes, list):
+        raise ValueError("all_prompts.json has no scenes list")
+
+    if output_dir is None:
+        output_dir = package_path.parent / "_visual_continuity_refresh"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    # Build a document-wide canonical character index. Start with the authoritative
+    # source DB, then overlay scene-package records so narrator identities omitted by
+    # scene-local entity extraction remain resolvable without inventing identities.
+    document_characters: dict[str, dict[str, Any]] = {}
+    canonical_database_candidates = _source_database_candidates(package, package_path)
+    canonical_database_selected: str | None = None
+    canonical_database_character_count = 0
+    document_id = package.get("document_id")
+    for database in canonical_database_candidates:
+        loaded = _load_document_canonical_characters(database, document_id)
+        if not loaded:
+            continue
+        canonical_database_selected = str(database)
+        canonical_database_character_count = len(loaded)
+        for character in loaded:
+            if not character.get("canonical_name"):
+                continue
+            key = str(character.get("canonical_character_id") or character.get("canonical_name")).casefold()
+            document_characters[key] = character
+        break
+
+    # If a real source DB is available, the DB canonical index is immutable:
+    # scene-local records may contribute evidence, aliases, and visual profile
+    # enrichment, but they can never replace a document canonical identity.
+    # Keep a separate identity map so stale numeric IDs (e.g. 30=Lord Shiva in
+    # an old scene package) cannot delete/replace DB ID 30=King Ravana.
+    canonical_by_id = {
+        str(character.get("canonical_character_id")).casefold(): character
+        for character in document_characters.values()
+        if character.get("canonical_character_id") is not None
+    }
+
+    # A source-grounded package with an available local structure DB must not
+    # silently degrade into scene-local identities. That exact failure mode can
+    # make a narrator such as "Ravana" disappear and still produce QA=pass.
+    if package.get("document_id") is not None and canonical_database_candidates and canonical_database_selected is None:
+        raise RuntimeError(
+            "Could not load canonical characters for document_id="
+            f"{package.get('document_id')} from any structure DB candidate: "
+            + ", ".join(str(path) for path in canonical_database_candidates)
+        )
+    for record in scenes:
+        if not isinstance(record, dict) or not isinstance(record.get("plan"), dict):
+            continue
+        for character in record["plan"].get("characters") or []:
+            if not isinstance(character, dict) or not character.get("canonical_name"):
+                continue
+            scene_name = str(character.get("canonical_name") or "").strip()
+            scene_id = character.get("canonical_character_id")
+
+            # Scene-local IDs are not authoritative: older packages can contain
+            # stale/colliding numeric IDs. First reconcile by canonical identity
+            # (canonical name + approved aliases), then use numeric IDs only when
+            # the identity name agrees with the authoritative record.
+            identity_match = None
+            for existing in document_characters.values():
+                existing_name = str(existing.get("canonical_name") or "").strip()
+                if existing_name.casefold() == scene_name.casefold():
+                    identity_match = existing
+                    break
+                aliases = existing.get("aliases") or []
+                for alias in aliases:
+                    alias_value = alias.get("alias") if isinstance(alias, dict) else alias
+                    if str(alias_value or "").strip().casefold() == scene_name.casefold():
+                        identity_match = existing
+                        break
+                if identity_match is not None:
+                    break
+
+            if identity_match is None and scene_id is not None:
+                by_id = canonical_by_id.get(str(scene_id).casefold())
+                if by_id is not None:
+                    # A numeric collision with a different canonical identity is
+                    # stale scene-package data. It must be discarded, not inserted
+                    # back under the same key, otherwise it silently overwrites the
+                    # authoritative DB identity (e.g. DB id 30 = King Ravana while
+                    # an older scene package incorrectly uses id 30 for Lord Shiva).
+                    if str(by_id.get("canonical_name") or "").strip().casefold() != scene_name.casefold():
+                        continue
+                    identity_match = by_id
+
+            if identity_match is None:
+                key = str(scene_id or scene_name).casefold()
+                if scene_id is not None and str(scene_id).casefold() in canonical_by_id:
+                    # The scene-local name is untrusted when its numeric ID is
+                    # already occupied by an authoritative canonical identity.
+                    # Do not insert or overwrite anything.
+                    continue
+                # Never replace an authoritative document identity with a
+                # scene-local record that arrived under a colliding numeric ID.
+                existing = document_characters.get(key)
+                if existing is not None:
+                    existing_name = str(existing.get("canonical_name") or "").strip().casefold()
+                    if existing_name != scene_name.casefold():
+                        continue
+                document_characters[key] = character
+                continue
+
+            canonical_key = str(
+                identity_match.get("canonical_character_id") or identity_match.get("canonical_name")
+            ).casefold()
+            merged = dict(identity_match)
+            for field in ("scene_mentions", "visual_facts"):
+                left = list(merged.get(field) or [])
+                right = list(character.get(field) or [])
+                merged[field] = left + [item for item in right if item not in left]
+            # Preserve DB canonical identity/aliases while allowing package
+            # scene-local evidence/profile data to enrich the canonical record.
+            for field in ("visual_profile", "source_presence"):
+                if character.get(field) is not None:
+                    merged[field] = character[field]
+            document_characters[canonical_key] = merged
+            if canonical_key != str(scene_id or "").casefold() and scene_id is not None:
+                document_characters.pop(str(scene_id).casefold(), None)
+    canonical_focus_characters = list(document_characters.values())
+
+    failures: list[dict[str, Any]] = []
+    refreshed: list[dict[str, Any]] = []
+    character_refs: dict[str, dict[str, Any]] = {}
+    active_narrative_focus: dict[str, str] | None = None
+    previous_scene_order: int | None = None
+
+    for record in scenes:
+        if not isinstance(record, dict) or not isinstance(record.get("plan"), dict):
+            failures.append({"scene_id": record.get("scene_id") if isinstance(record, dict) else None, "errors": ["invalid scene record"]})
+            continue
+        original_plan = record["plan"]
+        scene = original_plan.get("scene") or {}
+        scene_order = scene.get("scene_order")
+        characters_for_focus = original_plan.get("characters") or []
+        source_text = str(scene.get("text") or "")
+        local_focus = infer_narrative_focus_character(source_text, canonical_focus_characters)
+        if local_focus is None:
+            local_focus = _resolve_canonical_narrator_focus(source_text, canonical_focus_characters)
+        current_focus = local_focus
+        refresh_input_plan = original_plan
+        if current_focus is not None:
+            focus_name = str(current_focus.get("canonical_name") or "").strip().casefold()
+            has_focus_character = any(
+                isinstance(character, dict)
+                and str(character.get("canonical_name") or "").strip().casefold() == focus_name
+                for character in characters_for_focus
+            )
+            if not has_focus_character:
+                focus_character = next(
+                    (
+                        character for character in canonical_focus_characters
+                        if str(character.get("canonical_name") or "").strip().casefold() == focus_name
+                    ),
+                    None,
+                )
+                if focus_character is not None:
+                    refresh_input_plan = dict(original_plan)
+                    refresh_input_plan["characters"] = list(characters_for_focus) + [dict(focus_character)]
+        if current_focus is not None and not any(
+            isinstance(character, dict)
+            and str(character.get("canonical_name") or "").strip().casefold()
+            == str(current_focus.get("canonical_name") or "").strip().casefold()
+            for character in refresh_input_plan.get("characters") or []
+        ):
+            focus_character = next(
+                (
+                    character for character in canonical_focus_characters
+                    if str(character.get("canonical_name") or "").strip().casefold()
+                    == str(current_focus.get("canonical_name") or "").strip().casefold()
+                ),
+                None,
+            )
+            if focus_character is None:
+                raise RuntimeError(
+                    "Narrative focus resolved to a canonical identity that is not present "
+                    f"in the document character index: {current_focus.get('canonical_name')}"
+                )
+            refresh_input_plan = dict(refresh_input_plan)
+            refresh_input_plan["characters"] = list(
+                refresh_input_plan.get("characters") or []
+            ) + [dict(focus_character)]
+
+        if (
+            current_focus is None
+            and active_narrative_focus is not None
+            and previous_scene_order is not None
+            and isinstance(scene_order, int)
+            and scene_order == previous_scene_order + 1
+            and re.search(r"\b(?:I|me|my|mine|we|us|our|ours)\b", source_text, re.I)
+        ):
+            current_focus = dict(active_narrative_focus)
+            current_focus["reason"] = (
+                "carried deterministic first-person narrative focus from the immediately preceding scene"
+            )
+            focus_character = next(
+                (
+                    character for character in canonical_focus_characters
+                    if str(character.get("canonical_name") or "").strip().casefold()
+                    == str(current_focus.get("canonical_name") or "").strip().casefold()
+                ),
+                None,
+            )
+            if focus_character is not None and not any(
+                isinstance(character, dict)
+                and str(character.get("canonical_name") or "").strip().casefold()
+                == str(current_focus.get("canonical_name") or "").strip().casefold()
+                for character in refresh_input_plan.get("characters") or []
+            ):
+                refresh_input_plan = dict(refresh_input_plan)
+                refresh_input_plan["characters"] = list(
+                    refresh_input_plan.get("characters") or []
+                ) + [dict(focus_character)]
+
+        plan = refresh_plan(refresh_input_plan, narrative_focus_character=current_focus)
+        if current_focus is not None:
+            plan["narrative_focus_character"] = current_focus
+        errors = validate_plan(plan)
+        active_narrative_focus = current_focus
+        previous_scene_order = scene_order if isinstance(scene_order, int) else previous_scene_order
+        for character in plan.get("characters") or []:
+            if not isinstance(character, dict):
+                continue
+            presence = character.get("source_presence") or {}
+            if presence.get("physical_presence") is not True:
+                continue
+            key = str(character.get("canonical_character_id") or character.get("canonical_name") or "")
+            if not key:
+                continue
+            if key not in character_refs:
+                profile = character.get("visual_profile") or {}
+                character_refs[key] = {
+                    "canonical_character_id": character.get("canonical_character_id"),
+                    "canonical_name": character.get("canonical_name"),
+                    "identity_anchor": profile.get("identity_anchor"),
+                    "reference_required_for_strong_cross_scene_identity": not bool(profile.get("source_facts")),
+                    "identity_prompt": (
+                        "Create a neutral production character reference sheet for the canonical character. "
+                        "Use the locked identity below, neutral studio lighting, plain uncluttered background, "
+                        "front / three-quarter / side / back views plus a face close-up. Do not add scene props, "
+                        "story action, text, or dramatic lighting. "
+                        + character_identity_block(character)
+                    ),
+                }
+        updated_record = dict(record)
+        updated_record["plan"] = plan
+        updated_record["qa_status"] = "pass" if not errors else "fail"
+        updated_record["qa_errors"] = errors
+        refreshed.append(updated_record)
+        if errors:
+            failures.append({"scene_id": updated_record.get("scene_id"), "errors": errors})
+        _write_scene_media_files(output_dir, updated_record)
+
+    new_package = dict(package)
+    new_package["schema_version"] = max(2, int(package.get("schema_version") or 2))
+    new_package["scene_count"] = len(refreshed)
+    new_package["scenes"] = refreshed
+    new_package["qa_passed"] = not failures
+    new_package["qa_failures"] = failures
+    new_package["qa_failure_counts"] = Counter(error for item in failures for error in item["errors"]).most_common()
+    stages = dict(package.get("stages") or {})
+    stages["media_prompt_refresh"] = {
+        "deterministic": True,
+        "model_calls": 0,
+        "reason": "Refresh derived media prompts from existing source-grounded scene plans without rerunning LLM semantics.",
+    }
+    new_package["stages"] = stages
+
+    if apply and not failures:
+        backup_path = package_path.with_name(package_path.stem + ".pre_visual_continuity.json")
+        if not backup_path.exists():
+            shutil.copy2(package_path, backup_path)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=str(package_path.parent),
+            prefix=package_path.stem + ".",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            json.dump(new_package, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+            temp_name = handle.name
+        os.replace(temp_name, package_path)
+    # Always publish the complete refreshed package inside the requested output
+    # directory. This keeps dry-runs self-contained and makes the generated artifact
+    # independently inspectable without modifying the source package.
+    (output_dir / "all_prompts.json").write_text(
+        json.dumps(new_package, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    summary = {
+        "scene_count": len(refreshed),
+        "canonical_database_candidates": [str(path) for path in canonical_database_candidates],
+        "canonical_database_selected": canonical_database_selected,
+        "canonical_database_character_count": canonical_database_character_count,
+
+        "qa_passed": not failures,
+        "qa_failures": len(failures),
+        "qa_failure_counts": new_package["qa_failure_counts"],
+        "output_dir": str(output_dir),
+        "model_calls": 0,
+        "applied": bool(apply and not failures),
+        "source_package_modified": bool(apply and not failures),
+    }
+    (output_dir / "character_reference_manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "art_direction": fixed_style_block(load_visual_policy(), "general_narrative"),
+                "characters": list(character_refs.values()),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (output_dir / "prompt_refresh_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Deterministically refresh media prompts from an existing all_prompts.json without rerunning LLM scene semantics."
+    )
+    parser.add_argument("package", help="Path to existing all_prompts.json")
+    parser.add_argument("--output-dir", default=None, help="Directory for refreshed media files and QA report. Defaults to a sibling refresh directory.")
+    parser.add_argument("--apply", action="store_true", help="Replace the source package only when every scene passes QA. Without this flag the source package is never modified.")
+    args = parser.parse_args()
+    summary = refresh_package(
+        Path(args.package),
+        Path(args.output_dir) if args.output_dir else None,
+        apply=args.apply,
+    )
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    if not summary["qa_passed"]:
+        print("QA failed; source package was not modified.", flush=True)
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()
