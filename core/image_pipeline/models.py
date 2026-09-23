@@ -46,3 +46,4 @@ class PipelineConfig:
     keep_browser_open_on_error: bool = False
     chrome_user_data_dir: Path | None = None
     chrome_profile_directory: str | None = None
+    chrome_cdp_url: str | None = None
