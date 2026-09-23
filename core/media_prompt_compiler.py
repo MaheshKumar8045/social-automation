@@ -343,11 +343,20 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
     narrative_focus = context.get("narrative_focus_character")
     if not isinstance(narrative_focus, dict):
         narrative_focus = infer_narrative_focus_character(str(scene.get("text") or ""), characters)
+    # Keep exact source dialogue for the deterministic overlay, but never feed
+    # quoted speech into the visual description. Quoted prose is a common source
+    # of accidental model-rendered typography.
+    visual_moments = [
+        _clean(_strip_dialogue(moment), 260)
+        for moment in moments
+        if _clean(_strip_dialogue(moment), 260)
+    ] or ["Hold the established source scene state without adding a new event."]
+
     base = _base_prompt(
         scene,
         characters,
         objects,
-        moments,
+        visual_moments,
         continuity,
         layout,
         genre,
