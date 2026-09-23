@@ -146,7 +146,12 @@ def validate_image(
         return {"status": "fail", "issues": [f"image unreadable: {exc}"], "checks": {}}
 
     required = _required_dialogue(overlays)
-    ocr_text, ocr_error = _ocr_text(image_path)
+    # Clean AI-generated artwork has no text by contract, so avoid OCR work unless
+    # deterministic overlays are actually expected on this validation stage.
+    ocr_text: str | None = None
+    ocr_error: str | None = None
+    if required:
+        ocr_text, ocr_error = _ocr_text(image_path)
     result["checks"]["ocr_available"] = ocr_text is not None
     if ocr_error:
         result["checks"]["ocr_note"] = ocr_error
