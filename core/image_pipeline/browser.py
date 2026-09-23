@@ -38,8 +38,20 @@ class GoogleAIModeBrowser:
                 "'python -m playwright install chromium'."
             ) from exc
 
-        profile = self.config.output_dir / "chrome_profile"
-        profile.mkdir(parents=True, exist_ok=True)
+        # By default use an isolated pipeline profile. When a Chrome user-data
+        # directory is supplied, reuse that real profile so Google sign-in/session
+        # state is available. Playwright still launches a normal visible Chrome UI;
+        # it does not attach to or extract cookies from an already-running process.
+        profile = self.config.chrome_user_data_dir
+        if profile is None:
+            profile = self.config.output_dir / "chrome_profile"
+            profile.mkdir(parents=True, exist_ok=True)
+        else:
+            profile = Path(profile).expanduser()
+            if not profile.exists():
+                raise BrowserAutomationError(
+                    f"Chrome user-data directory does not exist: {profile}"
+                )
         self.playwright = sync_playwright().start()
         try:
             self.context = self.playwright.chromium.launch_persistent_context(
@@ -49,13 +61,16 @@ class GoogleAIModeBrowser:
                 accept_downloads=True,
                 downloads_path=str(self.config.output_dir / "downloads"),
                 viewport={"width": 1440, "height": 1000},
+                args=[f"--profile-directory={self.config.chrome_profile_directory}"]
+                if self.config.chrome_profile_directory else None,
             )
         except Exception as exc:
             self.playwright.stop()
             self.playwright = None
             raise BrowserAutomationError(
-                "Could not launch installed Google Chrome. Close any Chrome process "
-                "using the pipeline profile and retry."
+                "Could not launch installed Google Chrome. If using an existing Chrome "
+                "profile, close ALL normal Chrome windows/processes first, then retry. "
+                "Chrome profiles cannot be shared with an already-running Chrome process."
             ) from exc
 
         self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
