@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps, ImageStat
 
 
 # Text-only overlay: no opaque/translucent panel is composited over the artwork.
@@ -167,6 +167,43 @@ def _region_detail(image: Image.Image, box: tuple[int, int, int, int]) -> float:
     return edge_mean * 0.78 + min(255.0, variance ** 0.5) * 0.22
 
 
+def _region_subject_occupancy(image: Image.Image, box: tuple[int, int, int, int]) -> float:
+    """Estimate localized foreground/subject occupancy inside a candidate region.
+
+    Mean detail alone can hide a person's legs or another foreground object when
+    most of the candidate is quiet ground/background. We therefore inspect small
+    tiles and use the strongest local detail as a subject-risk signal.
+    """
+    left, top, right, bottom = box
+    if right <= left or bottom <= top:
+        return 1.0
+
+    crop = ImageOps.grayscale(image.crop(box))
+    crop = crop.resize((48, 48))
+    edges = crop.filter(ImageFilter.FIND_EDGES)
+
+    tile_scores: list[float] = []
+    rows, cols = 4, 3
+    for row in range(rows):
+        for col in range(cols):
+            x1 = col * edges.width // cols
+            x2 = (col + 1) * edges.width // cols
+            y1 = row * edges.height // rows
+            y2 = (row + 1) * edges.height // rows
+            tile = edges.crop((x1, y1, x2, y2))
+            stats = ImageStat.Stat(tile)
+            mean = float(stats.mean[0]) / 255.0
+            spread = min(1.0, float(stats.stddev[0]) / 96.0)
+            tile_scores.append(min(1.0, mean + 0.50 * spread))
+
+    if not tile_scores:
+        return 1.0
+
+    ordered = sorted(tile_scores, reverse=True)
+    top_quartile = ordered[:max(1, len(ordered) // 4)]
+    return 0.65 * sum(top_quartile) / len(top_quartile) + 0.35 * sum(tile_scores) / len(tile_scores)
+
+
 def _overlap_ratio(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
     left = max(a[0], b[0])
     top = max(a[1], b[1])
@@ -231,13 +268,21 @@ def _choose_text_position(
             continue
 
         detail = _region_detail(image, box)
+        subject_occupancy = _region_subject_occupancy(image, box)
+
+        # Mean detail can miss a localized foreground subject: a candidate may
+        # contain mostly quiet ground while a person's legs, body, weapon, or
+        # another important object occupies only one or two tiles. Strong local
+        # occupancy therefore carries a separate penalty.
+        subject_penalty = subject_occupancy * 42.0
+
         # Prefer the upper/lower thirds over the visual center when detail is
         # comparable; the center is where primary action/characters commonly sit.
         center_y = (box[1] + box[3]) / 2 / max(1, image.height)
         center_penalty = max(0.0, 1.0 - abs(center_y - 0.5) / 0.5) * 7.0
 
-        score = detail + center_penalty
-        scored.append((score, box, "low-detail text region"))
+        score = detail + subject_penalty + center_penalty
+        scored.append((score, box, "low-detail subject-safe text region"))
 
     if not scored:
         box = (
@@ -258,8 +303,8 @@ def render_overlays(
     overlays: list[dict[str, Any]],
     *,
     safe_margin_percent: float = 7.0,
-    default_max_width_percent: float = 60.0,
-    default_max_height_percent: float = 18.0,
+    default_max_width_percent: float = 80.0,
+    default_max_height_percent: float = 30.0,
 ) -> dict[str, Any]:
     source = Path(source_path)
     destination = Path(destination_path)
@@ -302,11 +347,11 @@ def render_overlays(
 
     for item in normalized:
         max_width = min(
-            round(image.width * min(60.0, float(item["max_width_percent"])) / 100.0),
+            round(image.width * min(82.0, float(item["max_width_percent"])) / 100.0),
             image.width - 2 * safe_margin,
         )
         max_height = min(
-            round(image.height * min(20.0, float(item["max_height_percent"])) / 100.0),
+            round(image.height * min(34.0, float(item["max_height_percent"])) / 100.0),
             image.height - 2 * safe_margin,
         )
         text_padding = max(4, round(image.width * 0.012))
@@ -437,6 +482,6 @@ def render_overlays(
             "font_style": "ancient serif / period book",
             "max_width_percent": default_max_width_percent,
             "max_height_percent": default_max_height_percent,
-            "placement_algorithm": "grid search over low-detail regions with overlap avoidance and center-action penalty",
+            "placement_algorithm": "grid search over low-detail subject-safe regions with localized foreground occupancy penalty, overlap avoidance, and center-action penalty",
         },
     }
