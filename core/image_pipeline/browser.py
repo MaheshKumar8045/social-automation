@@ -80,6 +80,24 @@ class GoogleAIModeBrowser:
         except Exception:
             return ""
 
+    def _diagnostic_dir(self) -> Path:
+        path = self.config.output_dir / "browser_diagnostics"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _save_diagnostics(self, reason: str) -> None:
+        stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+        safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", reason)[:80]
+        base = self._diagnostic_dir() / f"{stamp}_{safe}"
+        try:
+            self.page.screenshot(path=str(base.with_suffix(".png")), full_page=True)
+        except Exception:
+            pass
+        try:
+            base.with_suffix(".txt").write_text(self._body_text(), encoding="utf-8")
+        except Exception:
+            pass
+
     def _check_blocked_state(self) -> None:
         text = self._body_text()
         blocked = (
@@ -88,9 +106,9 @@ class GoogleAIModeBrowser:
             "captcha",
             "daily limit",
             "limit reached",
-            "try again later",
         )
         if any(token in text for token in blocked):
+            self._save_diagnostics("blocked_state")
             raise BrowserBlockedError(
                 "Google requires human intervention or a usage-limit action. "
                 "Complete the normal action in Chrome, then rerun; no bypass is attempted."
@@ -169,7 +187,7 @@ class GoogleAIModeBrowser:
                 raise BrowserAutomationError("could not submit AI Mode prompt")
             buttons.last.click()
 
-    def _large_image_snapshot(self) -> set[tuple[str, int, int]]:
+    def _large_image_snapshot(self) -> set[tuple[str, int, int, str]]:
         try:
             values = self.page.locator("img").evaluate_all(
                 """els => els.map(e => {
@@ -179,12 +197,18 @@ class GoogleAIModeBrowser:
                         nw:e.naturalWidth||0,
                         nh:e.naturalHeight||0,
                         w:r.width,
-                        h:r.height
+                        h:r.height,
+                        alt:e.alt||""
                     };
-                }).filter(x => x.w >= 400 && x.h >= 300 && x.nw >= 400 && x.nh >= 300)"""
+                }).filter(x => x.nw >= 200 && x.nh >= 200 && x.w >= 120 && x.h >= 120)"""
             )
             return {
-                (str(x.get("src", "")), int(x.get("nw", 0)), int(x.get("nh", 0)))
+                (
+                    str(x.get("src", "")),
+                    int(x.get("nw", 0)),
+                    int(x.get("nh", 0)),
+                    str(x.get("alt", "")),
+                )
                 for x in values
             }
         except Exception:
@@ -250,8 +274,10 @@ class GoogleAIModeBrowser:
             time.sleep(2)
 
         if not (new_snapshot - old_snapshot):
+            self._save_diagnostics("generation_timeout_no_new_image")
             raise BrowserAutomationError(
-                "generation timed out: no new generated image detected"
+                "generation timed out: no new generated image detected. "
+                "Browser diagnostics were saved under browser_diagnostics."
             )
 
         self._pause()
