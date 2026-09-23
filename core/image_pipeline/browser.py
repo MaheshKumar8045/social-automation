@@ -124,20 +124,12 @@ class GoogleAIModeBrowser:
 
     def _select_create_images(self) -> None:
         patterns = [r"Create Images", r"Create image"]
-        for pattern in patterns:
-            try:
-                loc = self.page.get_by_text(re.compile(pattern, re.I)).first
-                if loc.count() and loc.is_visible():
-                    loc.click()
-                    self._pause()
-                    return
-            except Exception:
-                pass
-
-        # Some layouts expose an Image menu first. Click only a clearly labelled
-        # Image control, then look again for Create Images.
+        # Prefer the documented Image menu -> Create Images path. This avoids
+        # accidentally clicking a Create Image control belonging to an older result.
         try:
-            image_control = self.page.get_by_role("button", name=re.compile(r"^Image$|Images", re.I)).first
+            image_control = self.page.get_by_role(
+                "button", name=re.compile(r"^Image$|Images", re.I)
+            ).first
             if image_control.count() and image_control.is_visible():
                 image_control.click()
                 self._pause()
@@ -149,6 +141,17 @@ class GoogleAIModeBrowser:
                         return
         except Exception:
             pass
+
+        # Fallback for layouts that expose Create Images directly.
+        for pattern in patterns:
+            try:
+                loc = self.page.get_by_text(re.compile(pattern, re.I)).first
+                if loc.count() and loc.is_visible():
+                    loc.click()
+                    self._pause()
+                    return
+            except Exception:
+                pass
 
     def _submit(self, prompt: str) -> None:
         self._select_create_images()
@@ -166,16 +169,29 @@ class GoogleAIModeBrowser:
                 raise BrowserAutomationError("could not submit AI Mode prompt")
             buttons.last.click()
 
-    def _large_image_count(self) -> int:
+    def _large_image_snapshot(self) -> set[tuple[str, int, int]]:
         try:
-            return int(self.page.locator("img").evaluate_all(
-                """els => els.filter(e => {
+            values = self.page.locator("img").evaluate_all(
+                """els => els.map(e => {
                     const r=e.getBoundingClientRect();
-                    return r.width >= 400 && r.height >= 300 && e.complete && e.naturalWidth >= 400;
-                }).length"""
-            ))
+                    return {
+                        src:e.currentSrc||e.src||"",
+                        nw:e.naturalWidth||0,
+                        nh:e.naturalHeight||0,
+                        w:r.width,
+                        h:r.height
+                    };
+                }).filter(x => x.w >= 400 && x.h >= 300 && x.nw >= 400 && x.nh >= 300)"""
+            )
+            return {
+                (str(x.get("src", "")), int(x.get("nw", 0)), int(x.get("nh", 0)))
+                for x in values
+            }
         except Exception:
-            return 0
+            return set()
+
+    def _large_image_count(self) -> int:
+        return len(self._large_image_snapshot())
 
     def _save_largest_image(self, destination: Path) -> None:
         images = self.page.locator("img")
@@ -221,18 +237,22 @@ class GoogleAIModeBrowser:
         if self.page is None:
             raise BrowserAutomationError("browser is not started")
         self._check_blocked_state()
-        old_count = self._large_image_count()
+        old_snapshot = self._large_image_snapshot()
         self._submit(prompt)
 
         deadline = time.monotonic() + self.config.generation_timeout_s
+        new_snapshot = set()
         while time.monotonic() < deadline:
             self._check_blocked_state()
-            if self._large_image_count() > old_count or self._large_image_count() > 0:
+            new_snapshot = self._large_image_snapshot()
+            if new_snapshot - old_snapshot:
                 break
             time.sleep(2)
 
-        if self._large_image_count() == 0:
-            raise BrowserAutomationError("generation timed out: no generated image detected")
+        if not (new_snapshot - old_snapshot):
+            raise BrowserAutomationError(
+                "generation timed out: no new generated image detected"
+            )
 
         self._pause()
         self._save_largest_image(destination)
