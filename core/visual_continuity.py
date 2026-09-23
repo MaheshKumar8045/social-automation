@@ -171,7 +171,11 @@ def overlay_contract(style: dict[str, Any]) -> str:
         f"{overlay.get('font_family', 'Georgia')} regular serif, warm-white text "
         f"({overlay.get('text', '#F3EEE3')}) on a near-black translucent panel "
         f"({overlay.get('background', '#111318')}, alpha {overlay.get('background_alpha', 220)}), "
-        f"maximum width {overlay.get('max_width_percent', 68)}% and maximum height {overlay.get('max_height_percent', 15)}%."
+        f"maximum width {overlay.get('max_width_percent', 68)}% and maximum height {overlay.get('max_height_percent', 15)}%. "
+        "COMPOSITION CONTRACT: reserve the largest visually quiet negative-space region for this post-processing overlay. "
+        "Keep that region low-detail and free of faces, hands, important source objects, and the primary action. "
+        "The overlay will be composited after generation; the image model must not render the panel or text itself. "
+        "Maintain enough local contrast for the near-black panel and keep the main subject/action outside the protected overlay region."
     )
 
 
