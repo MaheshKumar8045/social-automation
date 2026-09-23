@@ -91,8 +91,15 @@ class GoogleAIModeBrowser:
                 wait_until="domcontentloaded",
                 timeout=self.config.page_timeout_ms,
             )
-            self.page.wait_for_url(
-                re.compile(r"https://www\\.google\\.com/ai(?:[/?#].*)?$"),
+            # Google may redirect the /ai entry point to its canonical AI Mode
+            # search URL (for example /search?udm=50&aep=11). Navigation is
+            # successful as long as the active page is still on google.com.
+            if not self.page.url.startswith("https://www.google.com/"):
+                raise BrowserAutomationError(
+                    f"Google AI Mode navigation landed on unexpected URL: {self.page.url}"
+                )
+            self.page.wait_for_load_state(
+                "domcontentloaded",
                 timeout=self.config.page_timeout_ms,
             )
         except Exception as exc:
