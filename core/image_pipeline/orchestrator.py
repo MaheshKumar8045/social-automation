@@ -13,6 +13,8 @@ from .browser import (
     GoogleAIModeBrowser,
     GoogleAIModeDailyLimitError,
 )
+from PIL import Image, ImageOps
+
 from .models import JobStatus, PipelineConfig, SceneJob
 from .overlay_renderer import OverlayRenderError, render_overlays
 from .prompt_loader import load_jobs
@@ -83,12 +85,51 @@ class ImageGenerationPipeline:
     def _write_json(self, path: Path, data: dict[str, Any]) -> None:
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    def _normalize_portrait(self, image_path: Path) -> dict[str, Any]:
+        """Normalize every generated image to the project's exact 9:16 portrait canvas."""
+        target_width, target_height = 720, 1280
+        with Image.open(image_path) as image:
+            source_width, source_height = image.size
+            if (source_width, source_height) == (target_width, target_height):
+                return {
+                    "normalized": False,
+                    "source_dimensions": [source_width, source_height],
+                    "final_dimensions": [target_width, target_height],
+                    "aspect_ratio": 9 / 16,
+                    "method": "already_exact_9_16",
+                }
+
+            # Crop to the required aspect ratio first, then resize. This avoids
+            # stretching faces/objects while guaranteeing identical output ratios.
+            fitted = ImageOps.fit(
+                image.convert("RGB"),
+                (target_width, target_height),
+                method=Image.Resampling.LANCZOS,
+                centering=(0.5, 0.5),
+            )
+            fitted.save(image_path, format="PNG")
+
+        return {
+            "normalized": True,
+            "source_dimensions": [source_width, source_height],
+            "final_dimensions": [target_width, target_height],
+            "aspect_ratio": 9 / 16,
+            "method": "center_crop_then_lanczos_resize",
+        }
+
+    def _scene_sequence(self, jobs: list[SceneJob], scene_id: int) -> int:
+        for sequence, job in enumerate(jobs, start=1):
+            if job.scene_id == scene_id:
+                return sequence
+        raise KeyError(f"scene {scene_id} is not present in loaded jobs")
+
     def _process_job(self, job: SceneJob, jobs: list[SceneJob], index: int) -> None:
         row = self.store.get(job.scene_id)
         if row and row["status"] == JobStatus.COMPLETED:
             return
 
-        scene_dir = self.config.output_dir / f"scene_{job.scene_order:03d}_{job.scene_id:05d}"
+        scene_sequence = self._scene_sequence(jobs, job.scene_id)
+        scene_dir = self.config.output_dir / f"scene_{scene_sequence:03d}_{job.scene_id:05d}"
         scene_dir.mkdir(parents=True, exist_ok=True)
         previous = self._previous_visual_state(jobs, index)
         visible_characters = self._visible_characters(job)
@@ -116,7 +157,14 @@ class ImageGenerationPipeline:
                     destination=image_path,
                     previous_image=Path(previous["image_path"]) if previous.get("image_path") else None,
                 )
-                # Stage 1: validate the clean AI-generated artwork. Dialogue is intentionally
+                # Stage 1: enforce the production canvas before any validation or
+                # deterministic overlay. Google may return different image dimensions
+                # despite the 9:16 prompt, so this stage makes the final pipeline ratio
+                # deterministic without stretching the generated artwork.
+                portrait_normalization = self._normalize_portrait(image_path)
+                generation["portrait_normalization"] = portrait_normalization
+
+                # Stage 2: validate the clean AI-generated artwork. Dialogue is intentionally
                 # excluded here because text is a deterministic post-processing stage.
                 generation_validation = validate_image(
                     image_path,
@@ -195,7 +243,7 @@ class ImageGenerationPipeline:
                 )
 
                 if validation["status"] == "pass":
-                    final_path = scene_dir / "final.png"
+                    final_path = scene_dir / f"scene_{scene_sequence:03d}_{job.scene_id:05d}_final.png"
                     rendered_path.replace(final_path)
                     final_validation_path = scene_dir / "final_validation.json"
                     self._write_json(final_validation_path, validation)
@@ -210,7 +258,7 @@ class ImageGenerationPipeline:
                         completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                         last_error=None,
                     )
-                    self.log.info("scene %s completed", job.scene_order)
+                    self.log.info("scene %s (%s) completed", scene_sequence, job.scene_id)
                     return
 
                 reason = "; ".join(str(x) for x in validation.get("issues", [])[:5]) or "validation requested retry"
