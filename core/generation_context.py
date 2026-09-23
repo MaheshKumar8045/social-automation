@@ -178,7 +178,7 @@ class GenerationContext:
                    FROM entity_mentions em JOIN entities e ON e.id=em.entity_id
                    JOIN canonical_character_aliases cca ON cca.entity_id=em.entity_id
                    WHERE em.document_id=? AND em.scene_id=? AND cca.canonical_character_id=?
-                   ORDER BY em.page_start, em.id""",
+                   ORDER BY em.page_start, em.entity_id""",
                 (document_id, scene_id, cid),
             ).fetchall()]
             # `scene` belongs to GenerationContext.build(); use the scene-local text captured above.
