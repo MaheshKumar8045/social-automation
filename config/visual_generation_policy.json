@@ -37,8 +37,8 @@
         30,
         55
       ],
-      "dialogue_box_max_width_percent": 68,
-      "dialogue_box_max_height_percent": 15,
+      "dialogue_box_max_width_percent": 80,
+      "dialogue_box_max_height_percent": 30,
       "dialogue_box_min_count": 1
     }
   },
@@ -59,11 +59,11 @@
         "corner_radius_percent": 1.2,
         "horizontal_padding_percent": 3,
         "vertical_padding_percent": 2.2,
-        "max_width_percent": 68,
-        "max_height_percent": 15,
-        "font_size_percent": 3.4,
+        "max_width_percent": 80,
+        "max_height_percent": 30,
+        "font_size_percent": 5.8,
         "line_spacing_percent": 0.8,
-        "placement": "largest protected negative-space region opposite the primary subject/action"
+        "placement": "largest subject-safe negative-space region opposite the primary subject/action; never cover faces, bodies, legs, hands, or foreground silhouettes"
       }
     }
   }
