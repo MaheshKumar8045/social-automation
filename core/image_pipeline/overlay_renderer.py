@@ -188,25 +188,28 @@ def _candidate_positions(
     max_left = max(safe_margin, image.width - safe_margin - width)
     max_top = max(safe_margin, image.height - safe_margin - height)
 
-    # Search a grid rather than forcing every overlay into the same top/bottom
-    # banner. This lets each text block move away from characters/objects.
-    x_values = sorted({
+    # Every candidate is clamped before creating the rectangle. This is critical:
+    # never shrink the selected box after text was fitted to it, otherwise the last
+    # characters can be clipped at the image edge.
+    raw_x_values = (
         safe_margin,
-        max(safe_margin, (image.width - width) // 2),
+        (image.width - width) // 2,
         max_left,
-        max(safe_margin, round(image.width * 0.18) - width // 2),
-        max(safe_margin, round(image.width * 0.82) - width // 2),
-    })
-    y_values = sorted({
+        round(image.width * 0.18) - width // 2,
+        round(image.width * 0.82) - width // 2,
+    )
+    raw_y_values = (
         safe_margin,
-        max(safe_margin, round(image.height * 0.25) - height // 2),
-        max(safe_margin, (image.height - height) // 2),
-        max(safe_margin, round(image.height * 0.75) - height // 2),
+        round(image.height * 0.25) - height // 2,
+        (image.height - height) // 2,
+        round(image.height * 0.75) - height // 2,
         max_top,
-    })
+    )
+    x_values = sorted({min(max(safe_margin, x), max_left) for x in raw_x_values})
+    y_values = sorted({min(max(safe_margin, y), max_top) for y in raw_y_values})
 
     return [
-        (x, y, min(image.width - safe_margin, x + width), min(image.height - safe_margin, y + height))
+        (x, y, x + width, y + height)
         for y in y_values
         for x in x_values
     ]
@@ -309,7 +312,11 @@ def render_overlays(
         text_padding = max(4, round(image.width * 0.012))
         available_width = max(80, max_width - 2 * text_padding)
 
-        start_size = max(26, round(min(image.width, image.height) * 0.052))
+        # Use a stable production baseline instead of scaling from the shorter
+        # image dimension. This keeps 768px-wide and 896px-wide mobile renders
+        # visually consistent while preserving the larger, cinematic type treatment.
+        preferred_font_size = max(56, round(image.width * 0.060))
+        start_size = preferred_font_size
         font, lines, spacing, text_width, text_height = _fit_text(
             draw,
             item["text"],
@@ -340,6 +347,19 @@ def render_overlays(
         )
         actual_width = right - left
         actual_height = bottom - top
+
+        # Defensive invariant: the final rectangle must remain fully inside the
+        # safe area and must be at least as wide/high as the fitted text.
+        if actual_width < text_width + 2 * stroke_width:
+            raise OverlayRenderError(
+                f"overlay box became narrower than fitted text: "
+                f"{actual_width} < {text_width + 2 * stroke_width}"
+            )
+        if actual_height < text_height + 2 * stroke_width:
+            raise OverlayRenderError(
+                f"overlay box became shorter than fitted text: "
+                f"{actual_height} < {text_height + 2 * stroke_width}"
+            )
         occupied.append((left, top, right, bottom))
 
         # Center the text inside the selected transparent region. The region
