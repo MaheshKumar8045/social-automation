@@ -38,20 +38,31 @@ class GoogleAIModeBrowser:
                 "'python -m playwright install chromium'."
             ) from exc
 
-        # By default use an isolated pipeline profile. When a Chrome user-data
-        # directory is supplied, reuse that real profile so Google sign-in/session
-        # state is available. Playwright still launches a normal visible Chrome UI;
-        # it does not attach to or extract cookies from an already-running process.
-        profile = self.config.chrome_user_data_dir
-        if profile is None:
-            profile = self.config.output_dir / "chrome_profile"
-            profile.mkdir(parents=True, exist_ok=True)
-        else:
-            profile = Path(profile).expanduser()
-            if not profile.exists():
+        # Chrome 136+ blocks remote debugging against its normal/default
+        # user-data directory. Keep automation on a separate user-data directory,
+        # optionally seeded from a real signed-in Chrome profile.
+        profile = self.config.output_dir / "chrome_profile"
+        seed_profile = self.config.chrome_user_data_dir
+        profile.mkdir(parents=True, exist_ok=True)
+
+        if seed_profile:
+            seed_profile = Path(seed_profile).expanduser()
+            if not seed_profile.exists():
                 raise BrowserAutomationError(
-                    f"Chrome user-data directory does not exist: {profile}"
+                    f"Chrome source user-data directory does not exist: {seed_profile}"
                 )
+            try:
+                self._seed_automation_profile(
+                    source_root=seed_profile,
+                    destination_root=profile,
+                    profile_directory=self.config.chrome_profile_directory or "Default",
+                )
+            except Exception as exc:
+                raise BrowserAutomationError(
+                    "Could not prepare the dedicated automation Chrome profile. "
+                    "Close all normal Chrome windows before the first run, then retry."
+                ) from exc
+
         self.playwright = sync_playwright().start()
         try:
             self.context = self.playwright.chromium.launch_persistent_context(
@@ -61,23 +72,19 @@ class GoogleAIModeBrowser:
                 accept_downloads=True,
                 downloads_path=str(self.config.output_dir / "downloads"),
                 viewport={"width": 1440, "height": 1000},
-                args=[f"--profile-directory={self.config.chrome_profile_directory}"]
-                if self.config.chrome_profile_directory else None,
+                args=["--profile-directory=Default"],
             )
         except Exception as exc:
             self.playwright.stop()
             self.playwright = None
             raise BrowserAutomationError(
-                "Could not launch installed Google Chrome. If using an existing Chrome "
-                "profile, close ALL normal Chrome windows/processes first, then retry. "
-                "Chrome profiles cannot be shared with an already-running Chrome process."
+                "Could not launch the dedicated Chrome automation profile. "
+                "Close Chrome completely and retry."
             ) from exc
 
         self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
         self.page.set_default_timeout(self.config.page_timeout_ms)
         self.page.set_default_navigation_timeout(self.config.page_timeout_ms)
-        # A persistent profile can restore Chrome on about:blank/new-tab. Always
-        # drive the active Playwright page explicitly to AI Mode before continuing.
         try:
             self.page.goto(
                 "https://www.google.com/ai",
@@ -96,6 +103,48 @@ class GoogleAIModeBrowser:
             ) from exc
         self._check_blocked_state()
         self._ensure_ready()
+
+    def _seed_automation_profile(
+        self,
+        *,
+        source_root: Path,
+        destination_root: Path,
+        profile_directory: str,
+    ) -> None:
+        import shutil
+
+        source = source_root / profile_directory
+        if not source.exists():
+            raise BrowserAutomationError(
+                f"Chrome profile directory does not exist: {source}"
+            )
+
+        destination = destination_root / "Default"
+        if destination.exists():
+            return
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        # Copy only the profile itself, not Chrome's lock files or runtime state.
+        # This preserves the signed-in profile's stored browser state without
+        # attempting to share the live Chrome profile with Playwright.
+        ignore = shutil.ignore_patterns(
+            "Cache",
+            "Code Cache",
+            "GPUCache",
+            "ShaderCache",
+            "GrShaderCache",
+            "DawnCache",
+            "Service Worker",
+            "IndexedDB",
+            "Session Storage",
+            "Sessions",
+            "Current Session",
+            "Current Tabs",
+            "Last Session",
+            "Last Tabs",
+            "LOCK",
+        )
+        shutil.copytree(source, destination, dirs_exist_ok=True, ignore=ignore)
 
     def close(self) -> None:
         try:
