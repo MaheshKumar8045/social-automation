@@ -134,13 +134,13 @@ Verify for the first 10 generated scenes:
 
 ### CI status at checkpoint
 
-A GitHub Actions Python Tests run is currently in progress for the latest test commit. Earlier overlay-related commits triggered CI failures while the run was still using the pre-existing repository test state; the known historical unrelated failure is in `tests/test_generation_context.py`, where a query orders by `em.id` although the test fixture's `entity_mentions` table has no `id` column. Check the latest CI result before changing that unrelated area.
+The overlay test suite reached **160 passed**; the only two failures were the pre-existing `tests/test_generation_context.py` ordering bug where the query used `em.id` although the fixture's `entity_mentions` table has no `id` column. That is now fixed by ordering on the existing `em.entity_id` column. A fresh GitHub Actions run is expected from that fix; verify it before the next production pilot.
 
 ### Tomorrow's resume point
 
 1. Read this latest checkpoint first.
 2. Pull the current `image-generation-pipeline` branch.
-3. Check the latest CI result.
+3. Check the latest CI result and confirm the generation-context fix leaves the suite green.
 4. Run the fresh `generated_images_overlay_v3` 10-scene pilot.
 5. Inspect several final PNGs, especially long-dialogue scenes.
 6. If overlay placement/readability passes, continue production image generation.
