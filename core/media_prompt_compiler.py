@@ -447,11 +447,16 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
         "visual_inference": inference_summary,
         "image": {
             "prompt": (
-                base
+                "ZERO-TEXT IMAGE OUTPUT. Create the artwork only. The generated image must contain ZERO "
+                "readable words, letters, captions, dialogue, subtitles, typography, signs, labels, logos, "
+                "watermarks, UI, metadata, lens specifications, camera specifications, prompt text, or "
+                "copied phrases. Do not turn any words from this instruction into visible artwork. "
+                "Do not place text anywhere in the scene. "
+                + base
                 + " FINAL IMAGE-MODEL INSTRUCTION: render only the source-grounded visual scene. "
-                  "TEXT RENDERING IS DISABLED. Do not draw any words, letters, captions, dialogue, "
-                  "subtitles, signs, logos, watermarks, or prompt instructions. Leave the reserved "
-                  "negative-space region visually clean for the deterministic post-processing overlay."
+                  "TEXT RENDERING IS DISABLED. The final generated artwork must contain no typography. "
+                  "Leave all likely upper, lower, and side negative-space regions visually clean for the "
+                  "deterministic post-processing overlay. Compose as an exact 9:16 portrait/mobile frame."
             ),
             "dialogue_overlays": overlays,
             "layout": {
