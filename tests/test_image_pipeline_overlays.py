@@ -26,8 +26,11 @@ def test_render_overlays_creates_deterministic_final_artifact(tmp_path: Path):
     assert destination.exists()
     assert result["rendered"] is True
     assert result["boxes"][0]["text"].startswith("The end Ravana")
-    assert result["boxes"][0]["width"] <= round(720 * 0.68)
-    assert result["boxes"][0]["height"] <= round(1280 * 0.15)
+    assert result["boxes"][0]["width"] <= round(720 * 0.60)
+    assert result["boxes"][0]["height"] <= round(1280 * 0.18)
+    assert result["boxes"][0]["background"] == "transparent"
+    assert result["boxes"][0]["outline_color"] == "#080B0D"
+    assert result["boxes"][0]["font_size"] >= 22
 
     with Image.open(source).convert("RGB") as before, Image.open(destination).convert("RGB") as after:
         assert ImageChops.difference(before, after).getbbox() is not None
