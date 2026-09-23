@@ -99,7 +99,7 @@ class ImageGenerationPipeline:
             self.store.begin_attempt(job.scene_id, attempt, prompt_path)
             self.store.set_status(
                 job.scene_id, JobStatus.RUNNING, attempt=attempt,
-                prompt_path=prompt_path,
+                prompt_path=str(prompt_path),
                 started_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 last_error=None,
             )
