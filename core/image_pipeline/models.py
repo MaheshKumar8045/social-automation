@@ -47,3 +47,5 @@ class PipelineConfig:
     chrome_user_data_dir: Path | None = None
     chrome_profile_directory: str | None = None
     chrome_cdp_url: str | None = None
+    chrome_auto_launch: bool = True
+    chrome_auto_user_data_dir: Path | None = None
