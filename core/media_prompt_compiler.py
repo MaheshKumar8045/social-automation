@@ -178,7 +178,7 @@ def _overlay(dialogue: list[str], scene: dict[str, Any], layout: dict[str, Any])
                 "placement": "auto_safe_zone",
                 "max_width_percent": layout["dialogue_box_max_width_percent"],
                 "max_height_percent": layout["dialogue_box_max_height_percent"],
-                "avoid": ["faces", "hands", "important_objects", "primary_action"],
+                "avoid": ["faces", "heads", "bodies", "legs", "hands", "foreground_silhouettes", "important_objects", "primary_action"],
             }
             for line in dialogue[:2]
         ]
@@ -473,7 +473,7 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
                 "dialogue_box_count_minimum": layout["dialogue_box_min_count"],
                 "text_rendering": "deterministic overlay",
                 "overlay_style": "text only on transparent background: ancient/period serif, warm parchment text, dark outer outline and subtle shadow",
-                "placement_algorithm": "Scan multiple upper/lower/side negative-space regions, choose the lowest-detail region, avoid occupied overlay regions, and penalize the visual center where primary action commonly occurs.",
+                "placement_algorithm": "Scan multiple upper/lower/side negative-space regions, reject or penalize localized foreground/subject occupancy, avoid occupied overlay regions, and penalize the visual center where primary action commonly occurs.",
             },
         },
         "short_video": {
