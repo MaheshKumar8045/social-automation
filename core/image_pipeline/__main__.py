@@ -34,6 +34,11 @@ def main() -> int:
         default=os.getenv("SOCIAL_AUTOMATION_CHROME_PROFILE", "Default"),
         help="Chrome profile directory name inside User Data (default: Default).",
     )
+    parser.add_argument(
+        "--chrome-cdp-url",
+        default=os.getenv("SOCIAL_AUTOMATION_CHROME_CDP_URL"),
+        help="Connect to an already-running manually signed-in Chrome via CDP.",
+    )
     args = parser.parse_args()
 
     package = Path(args.package)
