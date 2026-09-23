@@ -7,7 +7,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .browser import BrowserBlockedError, BrowserAutomationError, GoogleAIModeBrowser
+from .browser import (
+    BrowserBlockedError,
+    BrowserAutomationError,
+    GoogleAIModeBrowser,
+    GoogleAIModeDailyLimitError,
+)
 from .models import JobStatus, PipelineConfig, SceneJob
 from .overlay_renderer import OverlayRenderError, render_overlays
 from .prompt_loader import load_jobs
@@ -221,6 +226,15 @@ class ImageGenerationPipeline:
                 self.store.set_status(job.scene_id, JobStatus.MANUAL_REVIEW, last_error=reason)
                 return
 
+            except GoogleAIModeDailyLimitError as exc:
+                self.log.error("BROWSER ACTION REQUIRED: %s", exc)
+                # Keep this scene resumable: after the user changes Google accounts,
+                # rerunning the same command should continue from this scene.
+                self.store.finish_attempt(
+                    job.scene_id, attempt, status="daily_limit", failure_reason=str(exc)
+                )
+                self.store.set_status(job.scene_id, JobStatus.RETRY, last_error=str(exc))
+                raise
             except BrowserBlockedError as exc:
                 self.log.error("BROWSER ACTION REQUIRED: %s", exc)
                 self.store.finish_attempt(
