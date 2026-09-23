@@ -21,6 +21,11 @@ class BrowserBlockedError(BrowserAutomationError):
     pass
 
 
+class GoogleAIModeDailyLimitError(BrowserBlockedError):
+    """Google AI Mode daily image-generation limit requires account intervention."""
+    pass
+
+
 class GoogleAIModeBrowser:
     """Visible Chrome automation through normal Playwright UI controls.
 
@@ -369,7 +374,7 @@ class GoogleAIModeBrowser:
         )
         if any(token in text for token in daily_limit_tokens):
             self._save_diagnostics("daily_limit_reached")
-            raise BrowserBlockedError(
+            raise GoogleAIModeDailyLimitError(
                 "GOOGLE AI MODE DAILY LIMIT REACHED. "
                 "The pipeline has stopped safely. Chrome is still open. "
                 "Please manually sign in/switch to another Google account in the dedicated "
