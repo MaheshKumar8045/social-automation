@@ -91,6 +91,11 @@ class GenerationStore:
             "started_at", "completed_at", "last_error"
         }
         fields = {k: v for k, v in fields.items() if k in allowed}
+        # SQLite does not bind pathlib.Path objects on Windows; persist paths as strings.
+        fields = {
+            key: str(value) if isinstance(value, Path) else value
+            for key, value in fields.items()
+        }
         fields["status"] = str(status)
         fields["updated_at"] = _now()
         assignments = ", ".join(f"{k}=?" for k in fields)
