@@ -44,3 +44,5 @@ class PipelineConfig:
     vision_model: str = "qwen2.5vl:7b"
     vision_timeout_s: float = 180.0
     keep_browser_open_on_error: bool = False
+    chrome_user_data_dir: Path | None = None
+    chrome_profile_directory: str | None = None
