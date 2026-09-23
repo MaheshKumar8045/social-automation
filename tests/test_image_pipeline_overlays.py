@@ -99,3 +99,35 @@ def test_generation_store_serializes_windows_paths(tmp_path: Path):
     store.close()
 
     assert row["validation_path"] == str(validation)
+
+
+def test_render_overlays_never_clips_long_text_at_image_edges(tmp_path: Path):
+    for width, height in ((896, 1200), (768, 1376)):
+        source = tmp_path / f"source_{width}.png"
+        destination = tmp_path / f"final_{width}.png"
+        Image.new("RGB", (width, height), (70, 80, 90)).save(source)
+
+        result = render_overlays(
+            source,
+            destination,
+            [{
+                "box_number": 1,
+                "box_type": "dialogue_box",
+                "text": (
+                    "I do not know if they will remember me like a mangy dog "
+                    "or whether I will get a funeral fit for an Emperor."
+                ),
+                "required": True,
+                "max_width_percent": 60,
+                "max_height_percent": 18,
+            }],
+        )
+
+        box = result["boxes"][0]
+        safe_margin = round(width * 0.07)
+        assert box["x"] >= safe_margin
+        assert box["y"] >= safe_margin
+        assert box["x"] + box["width"] <= width - safe_margin
+        assert box["y"] + box["height"] <= height - safe_margin
+        assert box["font_size"] >= 56
+        assert box["background"] == "transparent"
