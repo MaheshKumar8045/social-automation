@@ -55,6 +55,7 @@ def main() -> int:
         vision_model=args.vision_model,
         chrome_user_data_dir=Path(args.chrome_user_data_dir) if args.chrome_user_data_dir else None,
         chrome_profile_directory=args.chrome_profile_directory if args.chrome_user_data_dir else None,
+        chrome_cdp_url=args.chrome_cdp_url,
     )
 
     pipeline = ImageGenerationPipeline(config)
