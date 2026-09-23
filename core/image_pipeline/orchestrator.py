@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .browser import BrowserBlockedError, GoogleAIModeBrowser
+from .browser import BrowserBlockedError, BrowserAutomationError, GoogleAIModeBrowser
 from .models import JobStatus, PipelineConfig, SceneJob
 from .overlay_renderer import OverlayRenderError, render_overlays
 from .prompt_loader import load_jobs
