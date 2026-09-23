@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -122,6 +123,42 @@ class ImageGenerationPipeline:
             if job.scene_id == scene_id:
                 return sequence
         raise KeyError(f"scene {scene_id} is not present in loaded jobs")
+
+    def _migrate_legacy_artifacts(self, jobs: list[SceneJob]) -> None:
+        """Rename legacy scene directories/final.png files to deterministic sequential names."""
+        for sequence, job in enumerate(jobs, start=1):
+            new_dir = self.config.output_dir / f"scene_{sequence:03d}_{job.scene_id:05d}"
+            legacy_dir = self.config.output_dir / f"scene_{job.scene_order:03d}_{job.scene_id:05d}"
+
+            if legacy_dir != new_dir and legacy_dir.exists() and not new_dir.exists():
+                legacy_dir.rename(new_dir)
+
+            if not new_dir.exists():
+                continue
+
+            legacy_final = new_dir / "final.png"
+            new_final = new_dir / f"scene_{sequence:03d}_{job.scene_id:05d}_final.png"
+            if legacy_final.exists() and not new_final.exists():
+                legacy_final.rename(new_final)
+
+            row = self.store.get(job.scene_id)
+            if not row:
+                continue
+            final_path = Path(row["final_path"]) if row["final_path"] else None
+            validation_path = Path(row["validation_path"]) if row["validation_path"] else None
+            if final_path and final_path.name == "final.png":
+                final_path = new_final
+            if final_path and not final_path.exists() and new_final.exists():
+                final_path = new_final
+            if validation_path and not validation_path.exists():
+                candidate = new_dir / "final_validation.json"
+                if candidate.exists():
+                    validation_path = candidate
+            self.store.repoint_paths(
+                job.scene_id,
+                final_path=final_path,
+                validation_path=validation_path,
+            )
 
     def _process_job(self, job: SceneJob, jobs: list[SceneJob], index: int) -> None:
         row = self.store.get(job.scene_id)
@@ -309,6 +346,7 @@ class ImageGenerationPipeline:
         jobs = load_jobs(self.config.package_path)
         hashes = {job.scene_id: _hash_prompt(job.prompt) for job in jobs}
         self.store.ensure_jobs(jobs, hashes)
+        self._migrate_legacy_artifacts(jobs)
 
         ids = set(self.store.pending_or_retry(self.config.limit, self.config.start_order))
         selected = [job for job in jobs if job.scene_id in ids]
