@@ -124,6 +124,28 @@ class GenerationStore:
         )
         self.con.commit()
 
+    def repoint_paths(
+        self,
+        scene_id: int,
+        *,
+        final_path: Path | None = None,
+        validation_path: Path | None = None,
+    ) -> None:
+        fields = {}
+        if final_path is not None:
+            fields["final_path"] = str(final_path)
+        if validation_path is not None:
+            fields["validation_path"] = str(validation_path)
+        if not fields:
+            return
+        fields["updated_at"] = _now()
+        assignments = ", ".join(f"{key}=?" for key in fields)
+        self.con.execute(
+            f"UPDATE jobs SET {assignments} WHERE scene_id=?",
+            [*fields.values(), scene_id],
+        )
+        self.con.commit()
+
     def pending_or_retry(self, limit: int | None = None,
                          start_order: int | None = None) -> list[int]:
         clauses = ["status IN (?, ?)"]
