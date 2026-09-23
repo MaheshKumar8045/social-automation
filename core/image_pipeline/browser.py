@@ -354,14 +354,29 @@ class GoogleAIModeBrowser:
 
     def _check_blocked_state(self) -> None:
         text = self._body_text()
-        blocked = (
+        daily_limit_tokens = (
+            "daily limit",
+            "daily limit reached",
+            "you've reached your daily limit",
+            "you have reached your daily limit",
+            "try again tomorrow",
+        )
+        blocked_tokens = (
             "unusual traffic",
             "verify you are human",
             "captcha",
-            "daily limit",
             "limit reached",
         )
-        if any(token in text for token in blocked):
+        if any(token in text for token in daily_limit_tokens):
+            self._save_diagnostics("daily_limit_reached")
+            raise BrowserBlockedError(
+                "GOOGLE AI MODE DAILY LIMIT REACHED. "
+                "The pipeline has stopped safely. Chrome is still open. "
+                "Please manually sign in/switch to another Google account in the dedicated "
+                "Chrome window, confirm Google AI Mode is available, then rerun the pipeline. "
+                "No automatic account switching or limit bypass is performed."
+            )
+        if any(token in text for token in blocked_tokens):
             self._save_diagnostics("blocked_state")
             raise BrowserBlockedError(
                 "Google requires human intervention or a usage-limit action. "
