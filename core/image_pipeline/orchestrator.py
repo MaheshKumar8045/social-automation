@@ -222,6 +222,7 @@ class ImageGenerationPipeline:
                 return
 
             except BrowserBlockedError as exc:
+                self.log.error("BROWSER ACTION REQUIRED: %s", exc)
                 self.store.finish_attempt(
                     job.scene_id, attempt, status="blocked", failure_reason=str(exc)
                 )
