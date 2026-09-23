@@ -24,6 +24,16 @@ def main() -> int:
     parser.add_argument("--no-vision", action="store_true")
     parser.add_argument("--no-previous-reference", action="store_true")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--chrome-user-data-dir",
+        default=os.getenv("SOCIAL_AUTOMATION_CHROME_USER_DATA_DIR"),
+        help="Chrome User Data directory to reuse for the signed-in browser profile.",
+    )
+    parser.add_argument(
+        "--chrome-profile-directory",
+        default=os.getenv("SOCIAL_AUTOMATION_CHROME_PROFILE", "Default"),
+        help="Chrome profile directory name inside User Data (default: Default).",
+    )
     args = parser.parse_args()
 
     package = Path(args.package)
@@ -43,6 +53,8 @@ def main() -> int:
         use_previous_reference=not args.no_previous_reference,
         vision_validation=not args.no_vision,
         vision_model=args.vision_model,
+        chrome_user_data_dir=Path(args.chrome_user_data_dir) if args.chrome_user_data_dir else None,
+        chrome_profile_directory=args.chrome_profile_directory if args.chrome_user_data_dir else None,
     )
 
     pipeline = ImageGenerationPipeline(config)
