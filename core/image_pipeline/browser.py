@@ -35,6 +35,7 @@ class GoogleAIModeBrowser:
         self.page = None
         self.browser = None
         self._launched_chrome_process: subprocess.Popen[bytes] | None = None
+        self._connected_over_cdp = False
 
     def start(self) -> None:
         try:
@@ -142,6 +143,7 @@ class GoogleAIModeBrowser:
             self.browser = self.playwright.chromium.connect_over_cdp(
                 self.config.chrome_cdp_url
             )
+            self._connected_over_cdp = True
         except Exception as exc:
             self.playwright.stop()
             self.playwright = None
@@ -313,12 +315,16 @@ class GoogleAIModeBrowser:
 
     def close(self) -> None:
         try:
-            if self.context:
+            # In CDP mode Playwright is only attached to Chrome; do not close the
+            # remote browser context because the dedicated Chrome process owns the
+            # persistent Google session and should remain available for the next run.
+            if self.context and not self._connected_over_cdp:
                 self.context.close()
         finally:
             if self.playwright:
                 self.playwright.stop()
             self.page = self.context = self.browser = self.playwright = None
+            self._connected_over_cdp = False
             # Intentionally leave auto-launched Chrome running so the signed-in
             # session remains available for the next pipeline run.
 
