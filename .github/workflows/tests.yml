@@ -2,7 +2,7 @@ name: Python Tests
 
 on:
   push:
-    branches: [main, llm-local-qwen]
+    branches: [main, llm-local-qwen, image-generation-pipeline]
   pull_request:
     branches: [main]
 
