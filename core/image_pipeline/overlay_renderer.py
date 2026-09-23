@@ -8,11 +8,24 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 
-BACKGROUND = (17, 19, 24, 220)  # #111318
-TEXT = (243, 238, 227, 255)  # #F3EEE3
+# Text-only overlay: no opaque/translucent panel is composited over the artwork.
+TEXT = (247, 240, 220, 255)  # warm parchment / ivory
+STROKE = (8, 11, 13, 245)  # dark cinematic outline
+SHADOW = (0, 0, 0, 155)
+
+# Prefer period / fantasy-book serif fonts when they are installed. The environment
+# variable allows production machines to pin an exact font without changing code.
 FONT_CANDIDATES = (
+    r"C:\Windows\Fonts\CinzelDecorative-Regular.ttf",
+    r"C:\Windows\Fonts\Cinzel-Regular.ttf",
+    r"C:\Windows\Fonts\IMFellEnglish-Regular.ttf",
+    r"C:\Windows\Fonts\CormorantGaramond-Regular.ttf",
     r"C:\Windows\Fonts\georgia.ttf",
     r"C:\Windows\Fonts\Georgia.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/CinzelDecorative-Regular.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/Cinzel-Regular.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/IMFellEnglish-Regular.ttf",
+    "/usr/share/fonts/truetype/msttcorefonts/CormorantGaramond-Regular.ttf",
     "/usr/share/fonts/truetype/msttcorefonts/Georgia.ttf",
     "/usr/share/fonts/truetype/msttcorefonts/georgia.ttf",
 )
@@ -26,7 +39,10 @@ class OverlayRenderError(RuntimeError):
 
 
 def _font_path() -> str | None:
-    configured = os.getenv("SOCIAL_AUTOMATION_GEORGIA_FONT")
+    configured = (
+        os.getenv("SOCIAL_AUTOMATION_OVERLAY_FONT")
+        or os.getenv("SOCIAL_AUTOMATION_GEORGIA_FONT")
+    )
     candidates = ((configured,) if configured else ()) + FONT_CANDIDATES + FALLBACK_FONT_CANDIDATES
     for candidate in candidates:
         if candidate and Path(candidate).exists():
@@ -41,10 +57,16 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
-def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> list[str]:
+def _wrap_text(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.ImageFont,
+    max_width: int,
+) -> list[str]:
     words = " ".join(str(text or "").split()).split(" ")
     if not words:
         return []
+
     lines: list[str] = []
     current = ""
     for word in words:
@@ -52,12 +74,43 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, 
         if draw.textlength(candidate, font=font) <= max_width:
             current = candidate
             continue
+
         if current:
             lines.append(current)
-        current = word
+
+        # Keep an unusually long source word visible instead of dropping it.
+        if draw.textlength(word, font=font) <= max_width:
+            current = word
+        else:
+            chunk = ""
+            for char in word:
+                candidate_chunk = chunk + char
+                if draw.textlength(candidate_chunk, font=font) <= max_width:
+                    chunk = candidate_chunk
+                else:
+                    if chunk:
+                        lines.append(chunk)
+                    chunk = char
+            current = chunk
+
     if current:
         lines.append(current)
     return lines
+
+
+def _text_metrics(
+    draw: ImageDraw.ImageDraw,
+    lines: list[str],
+    font: ImageFont.ImageFont,
+    spacing: int,
+) -> tuple[int, int]:
+    if not lines:
+        return 0, 0
+    widths = [round(draw.textlength(line, font=font)) for line in lines]
+    bbox = font.getbbox("Ag")
+    line_height = max(1, bbox[3] - bbox[1])
+    height = len(lines) * line_height + max(0, len(lines) - 1) * spacing
+    return max(widths, default=0), height
 
 
 def _fit_text(
@@ -66,46 +119,130 @@ def _fit_text(
     max_width: int,
     max_height: int,
     start_size: int,
-    min_size: int = 14,
-) -> tuple[ImageFont.ImageFont, list[str], int]:
+    min_size: int = 22,
+) -> tuple[ImageFont.ImageFont, list[str], int, int, int]:
+    # Start noticeably larger than the previous 3.4% treatment.
     for size in range(max(start_size, min_size), min_size - 1, -1):
         font = _load_font(size)
+        spacing = max(3, round(size * 0.20))
         lines = _wrap_text(draw, text, font, max_width)
-        if not lines:
-            continue
-        spacing = max(2, int(size * 0.28))
-        bbox = font.getbbox("Ag")
-        line_height = max(1, bbox[3] - bbox[1])
-        text_height = len(lines) * line_height + max(0, len(lines) - 1) * spacing
-        if text_height <= max_height:
-            return font, lines, spacing
+        width, height = _text_metrics(draw, lines, font, spacing)
+        if lines and width <= max_width and height <= max_height:
+            return font, lines, spacing, width, height
+
     font = _load_font(min_size)
+    spacing = max(3, round(min_size * 0.20))
     lines = _wrap_text(draw, text, font, max_width)
-    return font, lines, max(2, int(min_size * 0.28))
+    width, height = _text_metrics(draw, lines, font, spacing)
+    return font, lines, spacing, width, height
 
 
-def _band_detail(image: Image.Image, top: int, bottom: int) -> float:
-    if bottom <= top:
+def _region_detail(image: Image.Image, box: tuple[int, int, int, int]) -> float:
+    """Estimate visual complexity so text is placed over quiet scenery, not subjects."""
+    left, top, right, bottom = box
+    if right <= left or bottom <= top:
         return float("inf")
-    gray = ImageOps.grayscale(image.crop((0, top, image.width, bottom)))
+
+    crop = ImageOps.grayscale(image.crop(box))
     sample_width = 128
-    sample_height = max(16, round(gray.height * sample_width / max(1, gray.width)))
-    gray = gray.resize((sample_width, sample_height))
-    edges = gray.filter(ImageFilter.FIND_EDGES)
-    stat = ImageOps.autocontrast(edges).resize((1, 1))
-    return float(stat.getpixel((0, 0)))
+    sample_height = max(16, round(crop.height * sample_width / max(1, crop.width)))
+    crop = crop.resize((sample_width, sample_height))
+
+    edges = crop.filter(ImageFilter.FIND_EDGES)
+    edge_mean = sum(edges.getdata()) / max(1, edges.width * edges.height)
+
+    # Variance catches textured rock, foliage, clothing and other busy regions
+    # that may not have strong single-pixel edges.
+    stats = crop.resize((1, 1))
+    mean = float(stats.getpixel((0, 0)))
+    squares = crop.resize((32, 32))
+    variance = sum((float(pixel) - mean) ** 2 for pixel in squares.getdata()) / max(
+        1, squares.width * squares.height
+    )
+
+    return edge_mean * 0.78 + min(255.0, variance ** 0.5) * 0.22
 
 
-def _choose_band(image: Image.Image, total_height: int, safe_margin: float) -> tuple[int, int, str]:
-    height = image.height
-    margin = round(height * safe_margin)
-    candidates = [
-        (margin, min(height - margin, margin + total_height), "top"),
-        (max(margin, height - margin - total_height), height - margin, "bottom"),
+def _overlap_ratio(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
+    left = max(a[0], b[0])
+    top = max(a[1], b[1])
+    right = min(a[2], b[2])
+    bottom = min(a[3], b[3])
+    if right <= left or bottom <= top:
+        return 0.0
+    intersection = (right - left) * (bottom - top)
+    area = max(1, (a[2] - a[0]) * (a[3] - a[1]))
+    return intersection / area
+
+
+def _candidate_positions(
+    image: Image.Image,
+    width: int,
+    height: int,
+    safe_margin: int,
+) -> list[tuple[int, int, int, int]]:
+    max_left = max(safe_margin, image.width - safe_margin - width)
+    max_top = max(safe_margin, image.height - safe_margin - height)
+
+    # Search a grid rather than forcing every overlay into the same top/bottom
+    # banner. This lets each text block move away from characters/objects.
+    x_values = sorted({
+        safe_margin,
+        max(safe_margin, (image.width - width) // 2),
+        max_left,
+        max(safe_margin, round(image.width * 0.18) - width // 2),
+        max(safe_margin, round(image.width * 0.82) - width // 2),
+    })
+    y_values = sorted({
+        safe_margin,
+        max(safe_margin, round(image.height * 0.25) - height // 2),
+        max(safe_margin, (image.height - height) // 2),
+        max(safe_margin, round(image.height * 0.75) - height // 2),
+        max_top,
+    })
+
+    return [
+        (x, y, min(image.width - safe_margin, x + width), min(image.height - safe_margin, y + height))
+        for y in y_values
+        for x in x_values
     ]
-    scored = [(_band_detail(image, top, bottom), top, bottom, name) for top, bottom, name in candidates]
-    _, top, bottom, name = min(scored, key=lambda item: (item[0], 0 if item[3] == "bottom" else 1))
-    return top, bottom, name
+
+
+def _choose_text_position(
+    image: Image.Image,
+    width: int,
+    height: int,
+    safe_margin: int,
+    occupied: list[tuple[int, int, int, int]],
+) -> tuple[int, int, int, int, str]:
+    candidates = _candidate_positions(image, width, height, safe_margin)
+    scored: list[tuple[float, tuple[int, int, int, int], str]] = []
+
+    for box in candidates:
+        overlap = max((_overlap_ratio(box, other) for other in occupied), default=0.0)
+        if overlap > 0.02:
+            continue
+
+        detail = _region_detail(image, box)
+        # Prefer the upper/lower thirds over the visual center when detail is
+        # comparable; the center is where primary action/characters commonly sit.
+        center_y = (box[1] + box[3]) / 2 / max(1, image.height)
+        center_penalty = max(0.0, 1.0 - abs(center_y - 0.5) / 0.5) * 7.0
+
+        score = detail + center_penalty
+        scored.append((score, box, "low-detail text region"))
+
+    if not scored:
+        box = (
+            safe_margin,
+            safe_margin,
+            min(image.width - safe_margin, safe_margin + width),
+            min(image.height - safe_margin, safe_margin + height),
+        )
+        return (*box, "fallback text region")
+
+    _, box, label = min(scored, key=lambda item: item[0])
+    return (*box, label)
 
 
 def render_overlays(
@@ -114,8 +251,8 @@ def render_overlays(
     overlays: list[dict[str, Any]],
     *,
     safe_margin_percent: float = 7.0,
-    default_max_width_percent: float = 68.0,
-    default_max_height_percent: float = 15.0,
+    default_max_width_percent: float = 60.0,
+    default_max_height_percent: float = 18.0,
 ) -> dict[str, Any]:
     source = Path(source_path)
     destination = Path(destination_path)
@@ -147,52 +284,86 @@ def render_overlays(
     except Exception as exc:
         raise OverlayRenderError(f"could not open generated image: {exc}") from exc
 
-    draw = ImageDraw.Draw(image, "RGBA")
-    gap = max(8, round(image.height * 0.012))
-    max_box_height = round(image.height * (default_max_height_percent / 100.0))
-    total_height = len(normalized) * max_box_height + max(0, len(normalized) - 1) * gap
-    safe_margin = safe_margin_percent / 100.0
-    band_top, band_bottom, band_name = _choose_band(image, total_height, safe_margin)
+    # Work on a transparent layer so the artwork is never covered by a box.
+    overlay_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay_layer, "RGBA")
 
-    max_width_percent = min(
-        68.0,
-        max(float(item["max_width_percent"]) for item in normalized),
-    )
-    box_width = min(image.width - 2 * round(image.width * safe_margin), round(image.width * max_width_percent / 100.0))
-    left = (image.width - box_width) // 2
-    box_height = max_box_height
+    safe_margin = round(image.width * safe_margin_percent / 100.0)
+    occupied: list[tuple[int, int, int, int]] = []
     boxes: list[dict[str, Any]] = []
+    selected_font = _font_path()
 
-    for index, item in enumerate(normalized):
-        top = band_top + index * (box_height + gap)
-        bottom = min(band_bottom, top + box_height)
-        horizontal_pad = max(12, round(box_width * 0.03))
-        vertical_pad = max(10, round(box_height * 0.10))
-        available_width = max(40, box_width - 2 * horizontal_pad)
-        available_height = max(30, (bottom - top) - 2 * vertical_pad)
-        start_size = max(16, round(min(image.width, image.height) * 0.034))
-        font, lines, spacing = _fit_text(
+    for item in normalized:
+        max_width = min(
+            round(image.width * min(60.0, float(item["max_width_percent"])) / 100.0),
+            image.width - 2 * safe_margin,
+        )
+        max_height = min(
+            round(image.height * min(20.0, float(item["max_height_percent"])) / 100.0),
+            image.height - 2 * safe_margin,
+        )
+        text_padding = max(4, round(image.width * 0.012))
+        available_width = max(80, max_width - 2 * text_padding)
+
+        start_size = max(26, round(min(image.width, image.height) * 0.052))
+        font, lines, spacing, text_width, text_height = _fit_text(
             draw,
             item["text"],
             available_width,
-            available_height,
+            max(60, max_height - 2 * text_padding),
             start_size,
+            min_size=22,
         )
 
-        draw.rounded_rectangle(
-            (left, top, left + box_width, bottom),
-            radius=max(8, round(min(image.width, image.height) * 0.012)),
-            fill=BACKGROUND,
+        stroke_width = max(2, round(getattr(font, "size", 28) * 0.055))
+        shadow_offset = max(2, round(getattr(font, "size", 28) * 0.045))
+
+        box_width = min(
+            max_width,
+            max(120, text_width + 2 * text_padding + 2 * stroke_width),
         )
-        text_y = top + vertical_pad
+        box_height = min(
+            max_height,
+            max(50, text_height + 2 * text_padding + 2 * stroke_width),
+        )
+
+        left, top, right, bottom, placement = _choose_text_position(
+            image,
+            box_width,
+            box_height,
+            safe_margin,
+            occupied,
+        )
+        actual_width = right - left
+        actual_height = bottom - top
+        occupied.append((left, top, right, bottom))
+
+        # Center the text inside the selected transparent region. The region
+        # itself has no fill; only glyphs, outline and a restrained shadow exist.
+        text_x = left + max(0, (actual_width - text_width) // 2)
+        text_y = top + max(0, (actual_height - text_height) // 2)
+
         bbox = font.getbbox("Ag")
         line_height = max(1, bbox[3] - bbox[1])
+
         for line in lines:
+            # Very subtle shadow gives readability over bright clouds/water
+            # without turning the overlay into a UI card.
             draw.text(
-                (left + horizontal_pad, text_y),
+                (text_x + shadow_offset, text_y + shadow_offset),
+                line,
+                font=font,
+                fill=SHADOW,
+                stroke_width=stroke_width + 1,
+                stroke_fill=SHADOW,
+            )
+            draw.text(
+                (text_x, text_y),
                 line,
                 font=font,
                 fill=TEXT,
+                stroke_width=stroke_width,
+                stroke_fill=STROKE,
             )
             text_y += line_height + spacing
 
@@ -203,25 +374,34 @@ def render_overlays(
             "required": item["required"],
             "x": left,
             "y": top,
-            "width": box_width,
-            "height": bottom - top,
+            "width": actual_width,
+            "height": actual_height,
             "font_size": getattr(font, "size", None),
             "line_count": len(lines),
+            "placement": placement,
+            "background": "transparent",
+            "text_color": "#F7F0DC",
+            "outline_color": "#080B0D",
+            "outline_width": stroke_width,
         })
 
-    image.convert("RGB").save(destination, format="PNG")
+    result_image = Image.alpha_composite(image, overlay_layer).convert("RGB")
+    result_image.save(destination, format="PNG")
+
     return {
         "rendered": True,
         "boxes": boxes,
-        "font": _font_path() or "Pillow default",
-        "placement": band_name,
+        "font": selected_font or "Pillow default",
+        "placement": "independent low-detail regions",
         "style": {
-            "background": "#111318",
-            "background_alpha": 220,
-            "text": "#F3EEE3",
-            "font_family": "Georgia",
-            "font_weight": "regular",
-            "max_width_percent": max_width_percent,
+            "background": "transparent",
+            "text": "#F7F0DC",
+            "outline": "#080B0D",
+            "shadow": "#000000",
+            "font_family": Path(selected_font).stem if selected_font else "Pillow default",
+            "font_style": "ancient serif / period book",
+            "max_width_percent": default_max_width_percent,
             "max_height_percent": default_max_height_percent,
+            "placement_algorithm": "grid search over low-detail regions with overlap avoidance and center-action penalty",
         },
     }
