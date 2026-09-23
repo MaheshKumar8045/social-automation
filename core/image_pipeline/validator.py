@@ -67,7 +67,12 @@ def _vision_check(path: Path, context: dict[str, Any], model: str) -> dict[str, 
             "required_dialogue": context["required_dialogue"],
             "canonical_visible_characters": context["visible_characters"],
             "story_context": context["story_context"],
-            "previous_visual_state": context["previous_visual_state"],
+            "previous_visual_state": (
+                "A previous accepted image is supplied as the second image when available. "
+                "Compare continuity only; do not require identical composition."
+                if context["previous_visual_state"].get("image_path")
+                else "No previous accepted image is available."
+            ),
             "return_json": {
                 "overall": "PASS or REVIEW",
                 "visual_match": "0..1",
@@ -87,7 +92,12 @@ def _vision_check(path: Path, context: dict[str, Any], model: str) -> dict[str, 
                     "Do not invent a failure for a plausible artistic interpretation. "
                     "Return JSON only.\n" + json.dumps(request, ensure_ascii=False)
                 ),
-                "images": [str(path)],
+                "images": [str(path)] + (
+                    [str(context["previous_visual_state"]["image_path"])]
+                    if context.get("previous_visual_state", {}).get("image_path")
+                    and Path(context["previous_visual_state"]["image_path"]).exists()
+                    else []
+                ),
             }],
             options={"temperature": 0},
         )
