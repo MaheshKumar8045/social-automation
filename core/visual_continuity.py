@@ -29,19 +29,17 @@ DEFAULT_ART_DIRECTION: dict[str, Any] = {
         "no face morphing, no duplicate subjects, no modern visual language, no watermark or logo"
     ),
     "overlay": {
-        "background": "#111318",
-        "background_alpha": 220,
-        "text": "#F3EEE3",
-        "font_family": "Georgia",
+        "background": "transparent",
+        "background_alpha": 0,
+        "text": "#F7F0DC",
+        "outline": "#080B0D",
+        "font_family": "ancient serif / period book",
         "font_weight": "regular",
-        "corner_radius_percent": 1.2,
-        "horizontal_padding_percent": 3.0,
-        "vertical_padding_percent": 2.2,
-        "max_width_percent": 68,
-        "max_height_percent": 15,
-        "font_size_percent": 3.4,
-        "line_spacing_percent": 0.8,
-        "placement": "largest protected negative-space region opposite the primary subject/action",
+        "max_width_percent": 60,
+        "max_height_percent": 18,
+        "font_size_percent": 5.2,
+        "line_spacing_percent": 0.2,
+        "placement": "independent low-detail negative-space region away from characters, faces, hands, important objects, and primary action",
     },
 }
 
@@ -167,15 +165,15 @@ def overlay_contract(style: dict[str, Any]) -> str:
         "Create clean artwork only. Leave the protected negative-space region empty for post-processing. "
         "Do not draw, spell, simulate, or invent dialogue/caption text. Do not generate words, letters, subtitles, signs, logos, watermarks, or typography. "
         "Do not copy prompt instructions into the artwork. "
-        "The exact source text is rendered later by the deterministic overlay renderer using the fixed "
-        f"{overlay.get('font_family', 'Georgia')} regular serif, warm-white text "
-        f"({overlay.get('text', '#F3EEE3')}) on a near-black translucent panel "
-        f"({overlay.get('background', '#111318')}, alpha {overlay.get('background_alpha', 220)}), "
-        f"maximum width {overlay.get('max_width_percent', 68)}% and maximum height {overlay.get('max_height_percent', 15)}%. "
-        "COMPOSITION CONTRACT: reserve the largest visually quiet negative-space region for this post-processing overlay. "
-        "Keep that region low-detail and free of faces, hands, important source objects, and the primary action. "
-        "The overlay will be composited after generation; the image model must not render the panel or text itself. "
-        "Maintain enough local contrast for the near-black panel and keep the main subject/action outside the protected overlay region."
+        "The exact source text is rendered later by the deterministic overlay renderer using an ancient/period-style serif font, "
+        f"warm parchment text ({overlay.get('text', '#F7F0DC')}) with a dark outer outline "
+        f"({overlay.get('outline', '#080B0D')}) on a fully transparent background. "
+        f"Maximum text region width is {overlay.get('max_width_percent', 60)}% and maximum height is {overlay.get('max_height_percent', 18)}%. "
+        "COMPOSITION CONTRACT: reserve one or more quiet negative-space regions for post-processing text. "
+        "Keep those regions away from faces, characters, hands, important source objects, and the primary action. "
+        "Do not place the reserved text region directly over the main subject. "
+        "The overlay will be composited after generation; the image model must not render a panel or text itself. "
+        "Leave clean, low-detail scenery in likely upper/lower/side negative-space areas so the final text can sit naturally in the environment."
     )
 
 
