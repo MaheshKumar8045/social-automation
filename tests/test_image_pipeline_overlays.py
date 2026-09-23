@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageDraw
 
 from core.image_pipeline.overlay_renderer import render_overlays
 
@@ -138,7 +138,7 @@ def test_render_overlays_avoids_busy_foreground_region(tmp_path: Path):
     destination = tmp_path / "foreground_final.png"
 
     image = Image.new("RGB", (720, 1280), (105, 110, 115))
-    draw = __import__("PIL.ImageDraw", fromlist=["ImageDraw"]).ImageDraw.Draw(image)
+    draw = ImageDraw.Draw(image)
     draw.rectangle((0, 900, 720, 1279), fill=(25, 25, 25))
     for x in range(0, 720, 24):
         draw.line((x, 900, min(720, x + 220), 1279), fill=(210, 210, 210), width=7)
