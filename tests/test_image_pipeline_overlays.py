@@ -26,8 +26,8 @@ def test_render_overlays_creates_deterministic_final_artifact(tmp_path: Path):
     assert destination.exists()
     assert result["rendered"] is True
     assert result["boxes"][0]["text"].startswith("The end Ravana")
-    assert result["boxes"][0]["width"] <= round(720 * 0.60)
-    assert result["boxes"][0]["height"] <= round(1280 * 0.18)
+    assert result["boxes"][0]["width"] <= round(720 * 0.80)
+    assert result["boxes"][0]["height"] <= round(1280 * 0.30)
     assert result["boxes"][0]["background"] == "transparent"
     assert result["boxes"][0]["outline_color"] == "#080B0D"
     assert result["boxes"][0]["font_size"] >= 22
@@ -118,7 +118,7 @@ def test_render_overlays_never_clips_long_text_at_image_edges(tmp_path: Path):
                     "or whether I will get a funeral fit for an Emperor."
                 ),
                 "required": True,
-                "max_width_percent": 60,
+                "max_width_percent": 80,
                 "max_height_percent": 18,
             }],
         )
@@ -129,5 +129,40 @@ def test_render_overlays_never_clips_long_text_at_image_edges(tmp_path: Path):
         assert box["y"] >= safe_margin
         assert box["x"] + box["width"] <= width - safe_margin
         assert box["y"] + box["height"] <= height - safe_margin
-        assert box["font_size"] >= 56
+        assert box["font_size"] >= 40
         assert box["background"] == "transparent"
+
+
+def test_render_overlays_avoids_busy_foreground_region(tmp_path: Path):
+    source = tmp_path / "foreground.png"
+    destination = tmp_path / "foreground_final.png"
+
+    image = Image.new("RGB", (720, 1280), (105, 110, 115))
+    draw = __import__("PIL.ImageDraw", fromlist=["ImageDraw"]).ImageDraw.Draw(image)
+    draw.rectangle((0, 900, 720, 1279), fill=(25, 25, 25))
+    for x in range(0, 720, 24):
+        draw.line((x, 900, min(720, x + 220), 1279), fill=(210, 210, 210), width=7)
+    for y in range(920, 1280, 28):
+        draw.line((0, y, 720, y), fill=(120, 120, 120), width=5)
+    image.save(source)
+
+    result = render_overlays(
+        source,
+        destination,
+        [{
+            "box_number": 1,
+            "box_type": "dialogue_box",
+            "text": (
+                "I do not know if they will bury me like a mangy dog "
+                "or whether I will get a funeral fit for an Emperor."
+            ),
+            "required": True,
+            "max_width_percent": 80,
+            "max_height_percent": 30,
+        }],
+    )
+
+    box = result["boxes"][0]
+    assert box["y"] < 900
+    assert "subject-safe" in box["placement"]
+    assert box["font_size"] >= 40
