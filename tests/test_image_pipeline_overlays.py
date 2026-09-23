@@ -61,3 +61,26 @@ def test_render_overlays_stacks_multiple_required_boxes(tmp_path: Path):
     assert len(result["boxes"]) == 2
     assert result["boxes"][0]["y"] < result["boxes"][1]["y"]
     assert result["boxes"][0]["x"] == result["boxes"][1]["x"]
+
+
+def test_generation_store_serializes_windows_paths(tmp_path: Path):
+    from core.image_pipeline.models import JobStatus, SceneJob
+    from core.image_pipeline.store import GenerationStore
+
+    db = tmp_path / "generation.db"
+    store = GenerationStore(db)
+    job = SceneJob(
+        scene_id=1,
+        scene_order=1,
+        title="Test",
+        prompt="test",
+        overlays=[],
+        record={},
+    )
+    store.ensure_jobs([job], {1: "hash"})
+    validation = tmp_path / "validation.json"
+    store.set_status(1, JobStatus.VALIDATED, validation_path=validation)
+    row = store.get(1)
+    store.close()
+
+    assert row["validation_path"] == str(validation)
