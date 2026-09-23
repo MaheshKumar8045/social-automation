@@ -348,6 +348,17 @@ def render_overlays(
         actual_width = right - left
         actual_height = bottom - top
 
+        if actual_width < text_width + 2 * stroke_width:
+            raise OverlayRenderError(
+                f"overlay box became narrower than fitted text: "
+                f"{actual_width} < {text_width + 2 * stroke_width}"
+            )
+        if actual_height < text_height + 2 * stroke_width:
+            raise OverlayRenderError(
+                f"overlay box became shorter than fitted text: "
+                f"{actual_height} < {text_height + 2 * stroke_width}"
+            )
+
         # Defensive invariant: the final rectangle must remain fully inside the
         # safe area and must be at least as wide/high as the fitted text.
         if actual_width < text_width + 2 * stroke_width:
