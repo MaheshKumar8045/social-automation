@@ -36,8 +36,21 @@ def main() -> int:
     )
     parser.add_argument(
         "--chrome-cdp-url",
-        default=os.getenv("SOCIAL_AUTOMATION_CHROME_CDP_URL"),
-        help="Connect to an already-running manually signed-in Chrome via CDP.",
+        default=os.getenv("SOCIAL_AUTOMATION_CHROME_CDP_URL", "http://127.0.0.1:9222"),
+        help="Chrome CDP endpoint. The pipeline automatically starts its dedicated Chrome profile if needed.",
+    )
+    parser.add_argument(
+        "--no-chrome-auto-launch",
+        action="store_true",
+        help="Do not start dedicated Chrome automatically; require an already-running CDP browser.",
+    )
+    parser.add_argument(
+        "--chrome-auto-user-data-dir",
+        default=os.getenv(
+            "SOCIAL_AUTOMATION_CHROME_AUTO_USER_DATA_DIR",
+            str(Path(os.environ.get("LOCALAPPDATA", Path.home())) / "social-automation-chrome"),
+        ),
+        help="Persistent dedicated Chrome User Data directory used by automatic CDP launch.",
     )
     args = parser.parse_args()
 
@@ -61,6 +74,8 @@ def main() -> int:
         chrome_user_data_dir=Path(args.chrome_user_data_dir) if args.chrome_user_data_dir else None,
         chrome_profile_directory=args.chrome_profile_directory if args.chrome_user_data_dir else None,
         chrome_cdp_url=args.chrome_cdp_url,
+        chrome_auto_launch=not args.no_chrome_auto_launch,
+        chrome_auto_user_data_dir=Path(args.chrome_auto_user_data_dir) if args.chrome_auto_user_data_dir else None,
     )
 
     pipeline = ImageGenerationPipeline(config)
