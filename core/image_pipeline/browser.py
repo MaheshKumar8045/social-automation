@@ -28,6 +28,7 @@ class GoogleAIModeBrowser:
         self.playwright = None
         self.context = None
         self.page = None
+        self.browser = None
 
     def start(self) -> None:
         try:
@@ -37,6 +38,12 @@ class GoogleAIModeBrowser:
                 "Playwright is required. Install requirements, then run "
                 "'python -m playwright install chromium'."
             ) from exc
+
+        # If supplied, connect to a normal Chrome instance that the user launched
+        # and signed into manually. This avoids Google rejecting a Playwright login.
+        if self.config.chrome_cdp_url:
+            self._start_from_cdp()
+            return
 
         # Chrome 136+ blocks remote debugging against its normal/default
         # user-data directory. Keep automation on a separate user-data directory,
@@ -111,6 +118,53 @@ class GoogleAIModeBrowser:
         self._check_blocked_state()
         self._ensure_ready()
 
+    def _start_from_cdp(self) -> None:
+        try:
+            from playwright.sync_api import sync_playwright
+        except Exception as exc:
+            raise BrowserAutomationError("Playwright is required.") from exc
+
+        self.playwright = sync_playwright().start()
+        try:
+            self.browser = self.playwright.chromium.connect_over_cdp(
+                self.config.chrome_cdp_url
+            )
+        except Exception as exc:
+            self.playwright.stop()
+            self.playwright = None
+            raise BrowserAutomationError(
+                f"Could not connect to Chrome at {self.config.chrome_cdp_url}. "
+                "Start a normal Chrome instance with remote debugging enabled, "
+                "sign in manually, and keep it running."
+            ) from exc
+
+        contexts = self.browser.contexts
+        if not contexts:
+            raise BrowserAutomationError("Connected Chrome has no browser context.")
+        self.context = contexts[0]
+        self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
+        self.page.set_default_timeout(self.config.page_timeout_ms)
+        self.page.set_default_navigation_timeout(self.config.page_timeout_ms)
+
+        try:
+            self.page.goto(
+                "https://www.google.com/ai",
+                wait_until="domcontentloaded",
+                timeout=self.config.page_timeout_ms,
+            )
+            if not self.page.url.startswith("https://www.google.com/"):
+                raise BrowserAutomationError(
+                    f"Google AI Mode navigation landed on unexpected URL: {self.page.url}"
+                )
+        except Exception as exc:
+            self._save_diagnostics("cdp_navigation_failed")
+            raise BrowserAutomationError(
+                f"Could not navigate the signed-in Chrome session to Google AI Mode: {exc}"
+            ) from exc
+
+        self._check_blocked_state()
+        self._ensure_ready()
+
     def _seed_automation_profile(
         self,
         *,
@@ -160,7 +214,7 @@ class GoogleAIModeBrowser:
         finally:
             if self.playwright:
                 self.playwright.stop()
-            self.page = self.context = self.playwright = None
+            self.page = self.context = self.browser = self.playwright = None
 
     def _body_text(self) -> str:
         try:
