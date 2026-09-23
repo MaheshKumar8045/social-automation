@@ -39,11 +39,6 @@ def _ocr_engine():
 def _ocr_text(path: Path) -> tuple[str | None, str | None]:
     try:
         ocr = _ocr_engine()
-            lang=os.getenv("SOCIAL_AUTOMATION_OCR_LANG", "en"),
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
-        )
         result = ocr.predict(str(path))
         chunks: list[str] = []
         for item in result or []:
