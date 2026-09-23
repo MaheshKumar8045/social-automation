@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from .models import PipelineConfig
+from .browser import GoogleAIModeDailyLimitError
 from .orchestrator import ImageGenerationPipeline
 
 
@@ -83,6 +84,21 @@ def main() -> int:
         result = pipeline.run()
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
+    except GoogleAIModeDailyLimitError as exc:
+        print()
+        print("=" * 78)
+        print("GOOGLE AI MODE DAILY LIMIT REACHED")
+        print("=" * 78)
+        print(str(exc))
+        print()
+        print("Action required:")
+        print("1. Switch/sign in to another Google account in the dedicated Chrome window.")
+        print("2. Confirm Google AI Mode is available.")
+        print("3. Run the same pipeline command again.")
+        print()
+        print("Completed scenes are preserved. The current scene is marked RETRY and")
+        print("will resume after you change accounts.")
+        return 2
     except KeyboardInterrupt:
         print("Interrupted. SQLite state preserves completed scenes; rerun to resume.")
         return 130
