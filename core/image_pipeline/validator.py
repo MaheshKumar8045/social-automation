@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -24,13 +25,20 @@ def _required_dialogue(overlays: list[dict[str, Any]]) -> list[str]:
     return values
 
 
+@lru_cache(maxsize=1)
+def _ocr_engine():
+    from paddleocr import PaddleOCR
+    return PaddleOCR(
+        lang=os.getenv("SOCIAL_AUTOMATION_OCR_LANG", "en"),
+        use_doc_orientation_classify=False,
+        use_doc_unwarping=False,
+        use_textline_orientation=False,
+    )
+
+
 def _ocr_text(path: Path) -> tuple[str | None, str | None]:
     try:
-        from paddleocr import PaddleOCR
-    except Exception as exc:
-        return None, f"PaddleOCR unavailable: {exc}"
-    try:
-        ocr = PaddleOCR(
+        ocr = _ocr_engine()
             lang=os.getenv("SOCIAL_AUTOMATION_OCR_LANG", "en"),
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
@@ -146,15 +154,24 @@ def validate_image(
         return {"status": "fail", "issues": [f"image unreadable: {exc}"], "checks": {}}
 
     required = _required_dialogue(overlays)
-    # Clean AI-generated artwork has no text by contract, so avoid OCR work unless
-    # deterministic overlays are actually expected on this validation stage.
+    # Clean AI-generated artwork must contain zero generated typography. Run OCR
+    # on the clean stage as a hard guard; the deterministic overlay stage runs OCR
+    # again to verify the exact source text.
     ocr_text: str | None = None
     ocr_error: str | None = None
-    if required:
-        ocr_text, ocr_error = _ocr_text(image_path)
+    ocr_text, ocr_error = _ocr_text(image_path)
     result["checks"]["ocr_available"] = ocr_text is not None
     if ocr_error:
         result["checks"]["ocr_note"] = ocr_error
+
+    if not required and ocr_text:
+        normalized_ocr = _norm(ocr_text)
+        tokens = [token for token in normalized_ocr.split() if token]
+        if len(tokens) >= 2 or any(len(token) >= 12 for token in tokens):
+            result["checks"]["unexpected_text"] = ocr_text[:500]
+            result["issues"].append(
+                "unexpected generated text detected in clean artwork; retrying image generation"
+            )
 
     if required and ocr_text:
         normalized_ocr = _norm(ocr_text)
@@ -196,6 +213,7 @@ def validate_image(
 
     technical_failure = any(
         item.startswith("image unreadable")
+        or item == "unexpected generated text detected in clean artwork; retrying image generation"
         or item in {"image resolution is unexpectedly small", "image file is unexpectedly small"}
         for item in result["issues"]
     )
