@@ -76,7 +76,24 @@ class GoogleAIModeBrowser:
         self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
         self.page.set_default_timeout(self.config.page_timeout_ms)
         self.page.set_default_navigation_timeout(self.config.page_timeout_ms)
-        self.page.goto("https://www.google.com/ai", wait_until="domcontentloaded")
+        # A persistent profile can restore Chrome on about:blank/new-tab. Always
+        # drive the active Playwright page explicitly to AI Mode before continuing.
+        try:
+            self.page.goto(
+                "https://www.google.com/ai",
+                wait_until="domcontentloaded",
+                timeout=self.config.page_timeout_ms,
+            )
+            self.page.wait_for_url(
+                re.compile(r"https://www\\.google\\.com/ai(?:[/?#].*)?$"),
+                timeout=self.config.page_timeout_ms,
+            )
+        except Exception as exc:
+            self._save_diagnostics("initial_navigation_failed")
+            raise BrowserAutomationError(
+                f"Could not navigate Chrome to Google AI Mode from {self.page.url!r}. "
+                "Browser diagnostics were saved under browser_diagnostics."
+            ) from exc
         self._check_blocked_state()
         self._ensure_ready()
 
