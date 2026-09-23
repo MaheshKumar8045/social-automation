@@ -9,6 +9,7 @@ from typing import Any
 
 from .browser import BrowserBlockedError, GoogleAIModeBrowser
 from .models import JobStatus, PipelineConfig, SceneJob
+from .overlay_renderer import OverlayRenderError, render_overlays
 from .prompt_loader import load_jobs
 from .store import GenerationStore
 from .validator import validate_image
@@ -110,8 +111,60 @@ class ImageGenerationPipeline:
                     destination=image_path,
                     previous_image=Path(previous["image_path"]) if previous.get("image_path") else None,
                 )
-                validation = validate_image(
+                # Stage 1: validate the clean AI-generated artwork. Dialogue is intentionally
+                # excluded here because text is a deterministic post-processing stage.
+                generation_validation = validate_image(
                     image_path,
+                    prompt=job.prompt,
+                    overlays=[],
+                    title=job.title,
+                    visible_characters=visible_characters,
+                    story_context=self._story_context(job),
+                    previous_visual_state=previous,
+                    vision_enabled=self.config.vision_validation,
+                    vision_model=self.config.vision_model,
+                )
+
+                if generation_validation["status"] != "pass":
+                    validation = {
+                        "status": generation_validation["status"],
+                        "issues": generation_validation.get("issues", []),
+                        "checks": generation_validation.get("checks", {}),
+                        "generation": generation,
+                        "stage": "generation_validation",
+                    }
+                    self._write_json(validation_path, validation)
+                    self.store.set_status(
+                        job.scene_id, JobStatus.VALIDATED, validation_path=str(validation_path)
+                    )
+                    reason = "; ".join(str(x) for x in validation.get("issues", [])[:5]) or "generated image validation failed"
+                    self.store.finish_attempt(
+                        job.scene_id, attempt, status="validation_failed",
+                        image_path=image_path, validation_path=validation_path,
+                        failure_reason=reason,
+                    )
+                    if attempt < self.config.max_attempts:
+                        self.store.set_status(job.scene_id, JobStatus.RETRY, last_error=reason)
+                        self.browser.recover()
+                        continue
+                    self.store.set_status(job.scene_id, JobStatus.MANUAL_REVIEW, last_error=reason)
+                    return
+
+                # Stage 2: render the exact source dialogue/narrative text deterministically.
+                rendered_path = attempt_dir / "rendered.png"
+                try:
+                    overlay_result = render_overlays(
+                        image_path,
+                        rendered_path,
+                        job.overlays,
+                    )
+                except OverlayRenderError as exc:
+                    raise BrowserAutomationError(f"deterministic overlay rendering failed: {exc}") from exc
+
+                # Stage 3: validate the actual final artifact, including OCR of the
+                # deterministic overlay when overlays are required.
+                final_validation = validate_image(
+                    rendered_path,
                     prompt=job.prompt,
                     overlays=job.overlays,
                     title=job.title,
@@ -121,25 +174,34 @@ class ImageGenerationPipeline:
                     vision_enabled=self.config.vision_validation,
                     vision_model=self.config.vision_model,
                 )
-                validation["generation"] = generation
+                validation = {
+                    "status": final_validation["status"],
+                    "issues": final_validation.get("issues", []),
+                    "checks": final_validation.get("checks", {}),
+                    "generation": generation,
+                    "generation_validation": generation_validation,
+                    "overlay": overlay_result,
+                    "final_validation": final_validation,
+                    "stage": "final_validation",
+                }
                 self._write_json(validation_path, validation)
                 self.store.set_status(
-                    job.scene_id, JobStatus.VALIDATED, validation_path=validation_path
+                    job.scene_id, JobStatus.VALIDATED, validation_path=str(validation_path)
                 )
 
                 if validation["status"] == "pass":
                     final_path = scene_dir / "final.png"
-                    image_path.replace(final_path)
-                    final_validation = scene_dir / "final_validation.json"
-                    self._write_json(final_validation, validation)
+                    rendered_path.replace(final_path)
+                    final_validation_path = scene_dir / "final_validation.json"
+                    self._write_json(final_validation_path, validation)
                     self.store.finish_attempt(
                         job.scene_id, attempt, status="passed",
-                        image_path=final_path, validation_path=final_validation
+                        image_path=final_path, validation_path=final_validation_path
                     )
                     self.store.set_status(
                         job.scene_id, JobStatus.COMPLETED,
                         final_path=final_path,
-                        validation_path=final_validation,
+                        validation_path=final_validation_path,
                         completed_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                         last_error=None,
                     )
