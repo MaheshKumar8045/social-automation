@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 import time
+import urllib.error
+import urllib.request
+from pathlib import Path
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +34,7 @@ class GoogleAIModeBrowser:
         self.context = None
         self.page = None
         self.browser = None
+        self._launched_chrome_process: subprocess.Popen[bytes] | None = None
 
     def start(self) -> None:
         try:
@@ -124,6 +130,13 @@ class GoogleAIModeBrowser:
         except Exception as exc:
             raise BrowserAutomationError("Playwright is required.") from exc
 
+        # CDP mode can now bootstrap the dedicated Chrome instance itself.
+        # We never launch against the user's normal Chrome profile and never
+        # automate Google credentials. The dedicated profile persists the
+        # already-authenticated Google session across runs.
+        if self.config.chrome_auto_launch:
+            self._ensure_cdp_chrome_running()
+
         self.playwright = sync_playwright().start()
         try:
             self.browser = self.playwright.chromium.connect_over_cdp(
@@ -134,8 +147,8 @@ class GoogleAIModeBrowser:
             self.playwright = None
             raise BrowserAutomationError(
                 f"Could not connect to Chrome at {self.config.chrome_cdp_url}. "
-                "Start a normal Chrome instance with remote debugging enabled, "
-                "sign in manually, and keep it running."
+                "Chrome was started automatically if auto-launch is enabled; "
+                "verify the dedicated profile can reach Google AI Mode."
             ) from exc
 
         contexts = self.browser.contexts
@@ -164,6 +177,97 @@ class GoogleAIModeBrowser:
 
         self._check_blocked_state()
         self._ensure_ready()
+
+    def _chrome_executable(self) -> Path:
+        configured = os.getenv("SOCIAL_AUTOMATION_CHROME_PATH")
+        candidates = [
+            configured,
+            os.path.join(os.environ.get("PROGRAMFILES", ""), "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(os.environ.get("PROGRAMFILES(X86)", ""), "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "Application", "chrome.exe"),
+        ]
+        for candidate in candidates:
+            if candidate:
+                path = Path(candidate).expanduser()
+                if path.exists():
+                    return path
+        raise BrowserAutomationError(
+            "Chrome executable was not found. Set SOCIAL_AUTOMATION_CHROME_PATH "
+            "to chrome.exe or install Google Chrome."
+        )
+
+    def _cdp_is_ready(self) -> bool:
+        url = str(self.config.chrome_cdp_url or "").rstrip("/")
+        if not url:
+            return False
+        try:
+            with urllib.request.urlopen(f"{url}/json/version", timeout=1.5) as response:
+                return response.status == 200
+        except (OSError, urllib.error.URLError):
+            return False
+
+    def _ensure_cdp_chrome_running(self) -> None:
+        if self._cdp_is_ready():
+            return
+
+        cdp_url = str(self.config.chrome_cdp_url or "").rstrip("/")
+        if not cdp_url.startswith(("http://", "https://")):
+            raise BrowserAutomationError(
+                f"Unsupported Chrome CDP URL: {cdp_url!r}. "
+                "Use an HTTP endpoint such as http://127.0.0.1:9222."
+            )
+
+        chrome_path = self._chrome_executable()
+        profile = Path(
+            self.config.chrome_auto_user_data_dir
+            or (Path(os.environ.get("LOCALAPPDATA", Path.home())) / "social-automation-chrome")
+        ).expanduser()
+        profile.mkdir(parents=True, exist_ok=True)
+
+        # Extract host/port from the configured CDP endpoint without requiring
+        # another dependency. The dedicated profile is reused so Google login
+        # cookies/session state survive Chrome restarts.
+        from urllib.parse import urlparse
+        parsed = urlparse(cdp_url)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 9222
+
+        command = [
+            str(chrome_path),
+            f"--remote-debugging-address={host}",
+            f"--remote-debugging-port={port}",
+            f"--user-data-dir={profile}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "https://www.google.com/ai",
+        ]
+
+        try:
+            self._launched_chrome_process = subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as exc:
+            raise BrowserAutomationError(
+                f"Could not start dedicated Chrome automatically: {exc}"
+            ) from exc
+
+        deadline = time.monotonic() + min(20.0, self.config.page_timeout_ms / 1000.0)
+        while time.monotonic() < deadline:
+            if self._cdp_is_ready():
+                return
+            if self._launched_chrome_process.poll() is not None:
+                raise BrowserAutomationError(
+                    "Dedicated Chrome exited before its CDP endpoint became ready. "
+                    f"Profile: {profile}"
+                )
+            time.sleep(0.25)
+
+        raise BrowserAutomationError(
+            f"Chrome started but CDP did not become available at {cdp_url}. "
+            f"Dedicated profile: {profile}"
+        )
 
     def _seed_automation_profile(
         self,
@@ -215,6 +319,8 @@ class GoogleAIModeBrowser:
             if self.playwright:
                 self.playwright.stop()
             self.page = self.context = self.browser = self.playwright = None
+            # Intentionally leave auto-launched Chrome running so the signed-in
+            # session remains available for the next pipeline run.
 
     def _body_text(self) -> str:
         try:
