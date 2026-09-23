@@ -47,7 +47,7 @@ def test_render_overlays_preserves_clean_art_when_no_overlay(tmp_path: Path):
     assert destination.read_bytes() == source.read_bytes()
 
 
-def test_render_overlays_stacks_multiple_required_boxes(tmp_path: Path):
+def test_render_overlays_places_multiple_boxes_in_separate_regions(tmp_path: Path):
     source = tmp_path / "generated.png"
     destination = tmp_path / "final.png"
     Image.new("RGB", (720, 1280), (90, 90, 90)).save(source)
@@ -62,8 +62,20 @@ def test_render_overlays_stacks_multiple_required_boxes(tmp_path: Path):
     )
 
     assert len(result["boxes"]) == 2
-    assert result["boxes"][0]["y"] < result["boxes"][1]["y"]
-    assert result["boxes"][0]["x"] == result["boxes"][1]["x"]
+    first = result["boxes"][0]
+    second = result["boxes"][1]
+    assert first["background"] == "transparent"
+    assert second["background"] == "transparent"
+    first_right = first["x"] + first["width"]
+    first_bottom = first["y"] + first["height"]
+    second_right = second["x"] + second["width"]
+    second_bottom = second["y"] + second["height"]
+    assert (
+        first_right <= second["x"]
+        or second_right <= first["x"]
+        or first_bottom <= second["y"]
+        or second_bottom <= first["y"]
+    )
 
 
 def test_generation_store_serializes_windows_paths(tmp_path: Path):
