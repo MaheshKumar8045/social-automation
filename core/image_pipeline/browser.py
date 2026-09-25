@@ -425,6 +425,36 @@ class GoogleAIModeBrowser:
         except Exception:
             return
 
+    def _image_mode_active(self) -> bool:
+        """Verify that the composer visibly indicates image creation mode."""
+        selectors = (
+            '[placeholder*="Describe your image" i]',
+            '[aria-label*="Describe your image" i]',
+            '[aria-label*="Create Images" i][aria-pressed="true"]',
+            '[aria-label*="Create image" i][aria-pressed="true"]',
+            '[data-state="checked"][aria-label*="Create image" i]',
+            '[data-state="selected"][aria-label*="Create image" i]',
+        )
+        for selector in selectors:
+            for item in self._visible_locators(self.page.locator(selector)):
+                return True
+
+        try:
+            controls = self.page.locator('textarea, [contenteditable="true"], input')
+            for item in self._visible_locators(controls):
+                attrs = item.evaluate(
+                    """e => ({
+                        placeholder: e.getAttribute('placeholder') || '',
+                        aria: e.getAttribute('aria-label') || ''
+                    })"""
+                )
+                haystack = " ".join(str(v) for v in attrs.values()).casefold()
+                if "describe your image" in haystack or "create image" in haystack:
+                    return True
+        except Exception:
+            pass
+        return False
+
     def _select_create_images(self) -> None:
         """Enter Google's Create Images mode and verify it before submission."""
         create_patterns = (
