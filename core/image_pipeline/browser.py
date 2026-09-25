@@ -464,13 +464,19 @@ class GoogleAIModeBrowser:
             r"^Create Images? Pro$",
         )
 
+        # Google has used several DOM/accessibility variants for the Image
+        # tool. Search broadly, including buttons whose accessible name contains
+        # Image, then inspect the visible menu for Create Images.
         image_candidates = (
-            self.page.get_by_role("button", name=re.compile(r"^Image$|^Images?$", re.I)),
-            self.page.locator('[aria-label="Image" i]'),
+            self.page.get_by_role(
+                "button", name=re.compile(r"Image|Images|Create Images", re.I)
+            ),
             self.page.locator('[aria-label*="Image" i]'),
             self.page.locator('[data-tooltip*="Image" i]'),
             self.page.locator('[title*="Image" i]'),
-            self.page.get_by_text(re.compile(r"^Create Images?$|^Create Image$", re.I)),
+            self.page.get_by_text(
+                re.compile(r"^Create Images?$|^Create Image$", re.I)
+            ),
         )
 
         for candidate_group in image_candidates:
