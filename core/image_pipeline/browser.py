@@ -426,17 +426,13 @@ class GoogleAIModeBrowser:
             return
 
     def _select_create_images(self) -> None:
-        """Select Google's Image/Create Images mode using visible UI controls."""
-        patterns = (
-            r"^Create Images?$",
-            r"^Create Image$",
-            r"^Create Images? Pro$",
-        )
+        """Select Google's image-generation mode before submitting the prompt."""
         candidates = (
-            self.page.get_by_role("button", name=re.compile(r"Image|Images|Create Images", re.I)),
+            self.page.get_by_role("button", name=re.compile(r"Image|Images", re.I)),
             self.page.locator('[aria-label*="Image" i]'),
             self.page.locator('[data-tooltip*="Image" i]'),
             self.page.locator('[title*="Image" i]'),
+            self.page.get_by_text(re.compile(r"^Create Images?$|^Create Image$", re.I)),
         )
 
         for group in candidates:
@@ -447,25 +443,17 @@ class GoogleAIModeBrowser:
                 except Exception:
                     continue
 
-                # A direct Create Images item may now be visible.
-                for pattern in patterns:
-                    items = self.page.get_by_text(re.compile(pattern, re.I))
-                    for item in self._visible_locators(items):
-                        try:
-                            item.click()
-                            self._pause()
-                            return
-                        except Exception:
-                            continue
-
-                # Or it may be exposed only through ARIA/title attributes.
-                for selector in (
-                    '[aria-label*="Create Images" i]',
-                    '[aria-label*="Create image" i]',
-                    '[data-tooltip*="Create Images" i]',
-                    '[title*="Create Images" i]',
+                # After clicking the Image tool, immediately look for the visible
+                # Create Images action. We intentionally do not depend on a specific
+                # composer placeholder or aria-pressed state.
+                for locator in (
+                    self.page.get_by_text(re.compile(r"^Create Images?$|^Create Image$", re.I)),
+                    self.page.locator('[aria-label*="Create Images" i]'),
+                    self.page.locator('[aria-label*="Create image" i]'),
+                    self.page.locator('[data-tooltip*="Create Images" i]'),
+                    self.page.locator('[title*="Create Images" i]'),
                 ):
-                    for item in self._visible_locators(self.page.locator(selector)):
+                    for item in self._visible_locators(locator):
                         try:
                             item.click()
                             self._pause()
