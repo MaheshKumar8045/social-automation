@@ -456,62 +456,75 @@ class GoogleAIModeBrowser:
         return False
 
     def _select_create_images(self) -> None:
-        """Enter Google's Create Images mode and verify it before submission."""
-        create_patterns = (
-            r"^Create Images?$",
-            r"^Create Image$",
-            r"^Create Images? Pro$",
+        """Enter Google's current AI Mode image-creation tool and verify it."""
+        # Google's documented desktop flow is: AI Mode -> Image -> Create Images.
+        # The DOM has changed across Search rollouts, so prefer exact accessible
+        # names and menu roles before falling back to broader Image controls.
+        exact_create = re.compile(r"^Create Images?(?: Pro)?$", re.I)
+
+        direct_create = (
+            self.page.get_by_role("button", name=exact_create),
+            self.page.get_by_role("menuitem", name=exact_create),
+            self.page.get_by_role("option", name=exact_create),
+            self.page.locator('[aria-label="Create Images" i]'),
+            self.page.locator('[aria-label="Create Image" i]'),
+            self.page.locator('[aria-label="Create Images Pro" i]'),
+            self.page.locator('[data-tooltip="Create Images" i]'),
+            self.page.locator('[title="Create Images" i]'),
+            self.page.get_by_text(exact_create),
         )
 
-        # Google has used several DOM/accessibility variants for the Image
-        # tool. Search broadly, including visible controls and direct
-        # Create Images actions.
-        image_candidates = (
-            self.page.get_by_role("button", name=re.compile(r"^Image$|^Images?$", re.I)),
+        def try_click_groups(groups) -> bool:
+            for group in groups:
+                for item in self._visible_locators(group):
+                    try:
+                        item.click()
+                        self._pause()
+                    except Exception:
+                        continue
+                    if self._image_mode_active():
+                        return True
+            return False
+
+        # First handle a layout where Create Images is already exposed.
+        if try_click_groups(direct_create):
+            return
+
+        # Then click the Image control which opens the tool menu.
+        image_control_names = re.compile(r"^Image$", re.I)
+        image_controls = (
+            self.page.get_by_role("button", name=image_control_names),
+            self.page.get_by_role("menuitem", name=image_control_names),
             self.page.locator('[aria-label="Image" i]'),
-            self.page.locator('[aria-label*="Image" i]'),
-            self.page.locator('[data-tooltip*="Image" i]'),
-            self.page.locator('[title*="Image" i]'),
-            self.page.get_by_text(re.compile(r"^Create Images?$|^Create Image$", re.I)),
+            self.page.locator('[data-tooltip="Image" i]'),
+            self.page.locator('[title="Image" i]'),
         )
 
-        for candidate_group in image_candidates:
-            for control in self._visible_locators(candidate_group):
+        for control_group in image_controls:
+            for control in self._visible_locators(control_group):
                 try:
                     control.click()
                     self._pause()
                 except Exception:
                     continue
 
-                for pattern in create_patterns:
-                    items = self.page.get_by_text(re.compile(pattern, re.I))
-                    for item in self._visible_locators(items):
-                        try:
-                            item.click()
-                            self._pause()
-                            if self._image_mode_active():
-                                return
-                        except Exception:
-                            continue
+                if try_click_groups(direct_create):
+                    return
 
-                for selector in (
-                    '[aria-label*="Create Images" i]',
-                    '[aria-label*="Create image" i]',
-                    '[data-tooltip*="Create Images" i]',
-                    '[title*="Create Images" i]',
-                ):
-                    for item in self._visible_locators(self.page.locator(selector)):
-                        try:
-                            item.click()
-                            self._pause()
-                            if self._image_mode_active():
-                                return
-                        except Exception:
-                            continue
+                # Some Google variants expose the item only after the menu opens,
+                # using a generic role but exact visible text.
+                menu_items = (
+                    self.page.get_by_role("menuitem").filter(has_text=exact_create),
+                    self.page.get_by_role("option").filter(has_text=exact_create),
+                    self.page.locator('[role="menuitem"]').filter(has_text=exact_create),
+                    self.page.locator('[role="option"]').filter(has_text=exact_create),
+                    self.page.get_by_text(exact_create),
+                )
+                if try_click_groups(menu_items):
+                    return
 
-                # Some layouts change the composer immediately without exposing
-                # a stable Create Images menu item. A visible image composer is
-                # sufficient evidence that the mode was selected.
+                # A visible image composer is sufficient evidence even if the
+                # menu item disappears immediately after selection.
                 if self._image_mode_active():
                     return
 
