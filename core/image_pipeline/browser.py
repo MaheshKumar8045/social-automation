@@ -483,7 +483,9 @@ class GoogleAIModeBrowser:
         image_candidates = [
             self.page.get_by_role("button", name=re.compile(r"^Image$", re.I)),
             self.page.get_by_role("button", name=re.compile(r"^Images?$", re.I)),
+            self.page.get_by_role("button", name=re.compile(r"Image", re.I)),
             self.page.locator('[aria-label="Image" i]'),
+            self.page.locator('[aria-label*="Image menu" i]'),
             self.page.locator('[data-tooltip*="Image" i]'),
             self.page.locator('[title="Image" i]'),
         ]
@@ -618,62 +620,3 @@ class GoogleAIModeBrowser:
                     }"""
                 )
                 area = float(info["w"]) * float(info["h"])
-                if info["nw"] >= 400 and info["nh"] >= 300 and area > best_area:
-                    best_area = area
-                    best = loc
-            except Exception:
-                pass
-        if best is None:
-            raise BrowserAutomationError("generated image element could not be identified")
-
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with self.page.expect_download(timeout=6000) as download_info:
-                buttons = self.page.get_by_role("button", name=re.compile(r"download", re.I))
-                if buttons.count():
-                    buttons.last.click()
-                else:
-                    raise RuntimeError("no labelled download control")
-            download_info.value.save_as(str(destination))
-            return
-        except Exception:
-            # Fallback is a screenshot of the rendered generated image, not a private
-            # network request. This remains within the visible browser workflow.
-            best.screenshot(path=str(destination), type="png")
-
-    def generate(self, *, prompt: str, destination: Path,
-                 previous_image: Path | None = None) -> dict[str, Any]:
-        if self.page is None:
-            raise BrowserAutomationError("browser is not started")
-        self._check_blocked_state()
-        old_snapshot = self._large_image_snapshot()
-        self._submit(prompt)
-
-        deadline = time.monotonic() + self.config.generation_timeout_s
-        new_snapshot = set()
-        while time.monotonic() < deadline:
-            self._check_blocked_state()
-            new_snapshot = self._large_image_snapshot()
-            if new_snapshot - old_snapshot:
-                break
-            time.sleep(2)
-
-        if not (new_snapshot - old_snapshot):
-            self._save_diagnostics("generation_timeout_no_new_image")
-            raise BrowserAutomationError(
-                "generation timed out: no new generated image detected. "
-                "Browser diagnostics were saved under browser_diagnostics."
-            )
-
-        self._pause()
-        self._save_largest_image(destination)
-        return {"url": self.page.url, "title": self.page.title(), "image_path": str(destination)}
-
-    def recover(self) -> None:
-        try:
-            self.page.reload(wait_until="domcontentloaded")
-            time.sleep(2)
-            self._check_blocked_state()
-            self._ensure_ready()
-        except Exception as exc:
-            raise BrowserAutomationError(f"browser recovery failed: {exc}") from exc
