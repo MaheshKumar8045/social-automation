@@ -44,9 +44,7 @@ def _parse_image_prompt_txt(path: Path) -> SceneJob:
         raise PromptPackageError(f"image prompt text file has invalid scene id/order: {path}") from exc
 
     title = _header_value("TITLE")
-    prompt = prompt_part.strip()
-    if not prompt:
-        raise PromptPackageError(f"scene {scene_id} text prompt is empty: {path}")
+    # The exported TXT section is the authoritative Google payload.\n    # Keep the section marker itself because manual Google AI Mode tests use the\n    # same copy/paste boundary. Layout and overlay JSON remain separate metadata.\n    prompt = "=== IMAGE GENERATION PROMPT ===\\n" + prompt_part.strip()\n    if not prompt_part.strip():\n        raise PromptPackageError(f"scene {scene_id} text prompt is empty: {path}")
 
     try:
         overlays = json.loads(overlay_part.strip() or "[]")
