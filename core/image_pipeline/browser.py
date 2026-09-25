@@ -484,6 +484,11 @@ class GoogleAIModeBrowser:
                         continue
                     if self._image_mode_active():
                         return True
+                    # Some Google rollouts do not expose a stable selected-state
+                    # after the menu closes. A successful click on the exact
+                    # Create Images control is therefore sufficient evidence;
+                    # generation validation still requires a real new image.
+                    return True
             return False
 
         # First handle a layout where Create Images is already exposed.
