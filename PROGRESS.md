@@ -136,12 +136,28 @@ Verify for the first 10 generated scenes:
 
 The overlay test suite reached **160 passed**; the only two failures were the pre-existing `tests/test_generation_context.py` ordering bug where the query used `em.id` although the fixture's `entity_mentions` table has no `id` column. That is now fixed by ordering on the existing `em.entity_id` column. A fresh GitHub Actions run is expected from that fix; verify it before the next production pilot.
 
+### New architectural decision — text prompts as authoritative image input
+
+The image exporter already writes per-scene files under:
+`<structure_prompts>/image/scene_XXX.txt`.
+
+The image pipeline now supports using those exported text files directly. This is intentionally **not** a cosmetic format change: the selected `.txt` prompt is treated as the exact prompt sent to Google AI Mode, and the dialogue/narrative overlay JSON is read from the same file. The JSON/table package remains backward-compatible.
+
+Important distinction: switching JSON → TXT does not inherently make the AI model produce better artwork because the existing TXT was generated from the same prompt content. The benefit is that we now have a clean, human-editable **prompt source of truth**. If we improve/edit the TXT prompt, the pipeline will use that exact text without reconstructing it from database/table fields.
+
+New supported input forms:
+- `all_prompts.json` — legacy/backward-compatible.
+- A single image prompt `.txt`.
+- The exported `image` directory containing `scene_*.txt` files.
+
+New tests cover both a text-prompt directory and a single text prompt.
+
 ### Tomorrow's resume point
 
 1. Read this latest checkpoint first.
 2. Pull the current `image-generation-pipeline` branch.
-3. Check the latest CI result and confirm the generation-context fix leaves the suite green.
-4. Run the fresh `generated_images_overlay_v3` 10-scene pilot.
+3. Check the latest CI result and confirm the generation-context fix plus text-prompt loader tests leave the suite green.
+4. Run the pilot using the exported `image` TXT directory as the authoritative prompt source, not `all_prompts.json`.
 5. Inspect several final PNGs, especially long-dialogue scenes.
 6. If overlay placement/readability passes, continue production image generation.
 7. If the new subject-safe placement still misses a foreground subject, improve the renderer from actual failing evidence rather than adding a fixed bottom exclusion rule.
