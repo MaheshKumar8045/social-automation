@@ -413,91 +413,40 @@ class GoogleAIModeBrowser:
         import random
         time.sleep(random.uniform(self.config.human_delay_min, self.config.human_delay_max))
 
-    def _visible_locators(self, locator):
-        """Yield visible locator matches; Google often keeps hidden duplicate controls."""
-        try:
-            for index in range(locator.count()):
-                item = locator.nth(index)
-                try:
-                    if item.is_visible():
-                        yield item
-                except Exception:
-                    continue
-        except Exception:
-            return
-
-    def _image_mode_active(self) -> bool:
-        """Verify that the composer visibly indicates image creation mode."""
-        selectors = (
-            '[placeholder*="Describe your image" i]',
-            '[aria-label*="Describe your image" i]',
-            '[aria-label*="Create Images" i][aria-pressed="true"]',
-            '[aria-label*="Create image" i][aria-pressed="true"]',
-            '[data-state="checked"][aria-label*="Create image" i]',
-            '[data-state="selected"][aria-label*="Create image" i]',
-        )
-        for selector in selectors:
-            for item in self._visible_locators(self.page.locator(selector)):
-                return True
-
-        try:
-            controls = self.page.locator('textarea, [contenteditable="true"], input')
-            for item in self._visible_locators(controls):
-                attrs = item.evaluate(
-                    """e => ({
-                        placeholder: e.getAttribute('placeholder') || '',
-                        aria: e.getAttribute('aria-label') || ''
-                    })"""
-                )
-                haystack = " ".join(str(v) for v in attrs.values()).casefold()
-                if "describe your image" in haystack or "create image" in haystack:
-                    return True
-        except Exception:
-            pass
-        return False
-
     def _select_create_images(self) -> None:
-        """Enter Google's Create Images mode and verify it before submission."""
-        create_patterns = (
+        """Select Google's Image/Create Images mode using visible UI controls."""
+        patterns = (
             r"^Create Images?$",
             r"^Create Image$",
             r"^Create Images? Pro$",
         )
-
-        # Google has used several DOM/accessibility variants for the Image
-        # tool. Search broadly, including buttons whose accessible name contains
-        # Image, then inspect the visible menu for Create Images.
-        image_candidates = (
-            self.page.get_by_role(
-                "button", name=re.compile(r"Image|Images|Create Images", re.I)
-            ),
+        candidates = (
+            self.page.get_by_role("button", name=re.compile(r"Image|Images|Create Images", re.I)),
             self.page.locator('[aria-label*="Image" i]'),
             self.page.locator('[data-tooltip*="Image" i]'),
             self.page.locator('[title*="Image" i]'),
-            self.page.get_by_text(
-                re.compile(r"^Create Images?$|^Create Image$", re.I)
-            ),
         )
 
-        for candidate_group in image_candidates:
-            for control in self._visible_locators(candidate_group):
+        for group in candidates:
+            for control in self._visible_locators(group):
                 try:
                     control.click()
                     self._pause()
                 except Exception:
                     continue
 
-                for pattern in create_patterns:
+                # A direct Create Images item may now be visible.
+                for pattern in patterns:
                     items = self.page.get_by_text(re.compile(pattern, re.I))
                     for item in self._visible_locators(items):
                         try:
                             item.click()
                             self._pause()
-                            if self._image_mode_active():
-                                return
+                            return
                         except Exception:
                             continue
 
+                # Or it may be exposed only through ARIA/title attributes.
                 for selector in (
                     '[aria-label*="Create Images" i]',
                     '[aria-label*="Create image" i]',
@@ -508,14 +457,13 @@ class GoogleAIModeBrowser:
                         try:
                             item.click()
                             self._pause()
-                            if self._image_mode_active():
-                                return
+                            return
                         except Exception:
                             continue
 
         self._save_diagnostics("image_generation_mode_not_selected")
         raise BrowserAutomationError(
-            "Could not positively select Google's Create Images mode. "
+            "Could not select Google's Create Images mode. "
             "The prompt was not submitted because normal AI Mode may otherwise "
             "return a prose/scene response instead of an image."
         )
