@@ -413,53 +413,145 @@ class GoogleAIModeBrowser:
         import random
         time.sleep(random.uniform(self.config.human_delay_min, self.config.human_delay_max))
 
+    def _image_mode_active(self) -> bool:
+        """Return True only when the composer visibly looks like image creation mode."""
+        selectors = [
+            '[aria-label*="Describe your image" i]',
+            '[placeholder*="Describe your image" i]',
+            '[aria-label*="Create images" i][aria-pressed="true"]',
+            '[aria-label*="Create image" i][aria-pressed="true"]',
+            '[data-state="checked"][aria-label*="Create image" i]',
+            '[data-state="selected"][aria-label*="Create image" i]',
+        ]
+        for selector in selectors:
+            try:
+                loc = self.page.locator(selector)
+                for index in range(loc.count()):
+                    if loc.nth(index).is_visible():
+                        return True
+            except Exception:
+                continue
+
+        try:
+            controls = self.page.locator('textarea, [contenteditable="true"], input')
+            for index in range(controls.count()):
+                loc = controls.nth(index)
+                if not loc.is_visible():
+                    continue
+                attrs = loc.evaluate(
+                    """e => ({
+                        placeholder: e.getAttribute('placeholder') || '',
+                        aria: e.getAttribute('aria-label') || '',
+                        describedby: e.getAttribute('aria-describedby') || ''
+                    })"""
+                )
+                haystack = " ".join(str(v) for v in attrs.values()).casefold()
+                if "describe your image" in haystack or "create image" in haystack:
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _visible_locators(self, locator):
+        """Yield visible matches; Google often keeps hidden duplicate controls in the DOM."""
+        try:
+            for index in range(locator.count()):
+                candidate = locator.nth(index)
+                try:
+                    if candidate.is_visible():
+                        yield candidate
+                except Exception:
+                    continue
+        except Exception:
+            return
+
     def _select_create_images(self) -> None:
         """Explicitly enter Google's image-generation mode before submitting a prompt.
 
-        This must be strict: if image mode is not selected, Google AI Mode can treat
-        the cinematic prompt as a normal writing request and return prose such as
-        "[SCENE START] ... [SCENE END]" instead of generating an image.
+        Google documents the desktop flow as Image -> Create Images. The UI has
+        multiple rolling implementations, so selection tolerates hidden duplicates,
+        ARIA labels, menu items, and direct Create Images controls. It remains
+        fail-closed: the prompt is never submitted unless image mode is positively
+        detected after selection.
         """
-        patterns = [r"^Create Images?$", r"^Create image$"]
-        image_control = None
+        create_patterns = [
+            r"^Create Images?$",
+            r"^Create image(s)?$",
+            r"^Create Images?(?: Pro)?$",
+        ]
 
-        # Prefer the Image/Images control that opens the generation-mode menu.
-        try:
-            candidate = self.page.get_by_role(
-                "button", name=re.compile(r"^Image$|Images", re.I)
-            ).first
-            if candidate.count() and candidate.is_visible():
-                image_control = candidate
-        except Exception:
-            image_control = None
+        image_candidates = [
+            self.page.get_by_role("button", name=re.compile(r"^Image$", re.I)),
+            self.page.get_by_role("button", name=re.compile(r"^Images?$", re.I)),
+            self.page.locator('[aria-label="Image" i]'),
+            self.page.locator('[data-tooltip*="Image" i]'),
+            self.page.locator('[title="Image" i]'),
+        ]
 
-        if image_control is not None:
-            try:
-                image_control.click()
-                self._pause()
-                for pattern in patterns:
-                    loc = self.page.get_by_text(re.compile(pattern, re.I)).first
-                    if loc.count() and loc.is_visible():
-                        loc.click()
-                        self._pause()
-                        return
-            except Exception:
-                pass
-
-        # Some Google AI Mode layouts expose Create Images directly.
-        for pattern in patterns:
-            try:
-                loc = self.page.get_by_text(re.compile(pattern, re.I)).first
-                if loc.count() and loc.is_visible():
-                    loc.click()
+        for candidate_group in image_candidates:
+            for image_control in self._visible_locators(candidate_group):
+                try:
+                    image_control.click()
                     self._pause()
-                    return
-            except Exception:
-                pass
+                except Exception:
+                    continue
+
+                for pattern in create_patterns:
+                    menu_items = self.page.get_by_text(re.compile(pattern, re.I))
+                    for item in self._visible_locators(menu_items):
+                        try:
+                            item.click()
+                            self._pause()
+                            if self._image_mode_active():
+                                return
+                        except Exception:
+                            continue
+
+                for selector in (
+                    '[aria-label*="Create Images" i]',
+                    '[aria-label*="Create image" i]',
+                    '[data-tooltip*="Create Images" i]',
+                    '[title*="Create Images" i]',
+                ):
+                    for item in self._visible_locators(self.page.locator(selector)):
+                        try:
+                            item.click()
+                            self._pause()
+                            if self._image_mode_active():
+                                return
+                        except Exception:
+                            continue
+
+        # Some layouts expose Create Images directly without an Image menu.
+        for pattern in create_patterns:
+            direct = self.page.get_by_text(re.compile(pattern, re.I))
+            for item in self._visible_locators(direct):
+                try:
+                    item.click()
+                    self._pause()
+                    if self._image_mode_active():
+                        return
+                except Exception:
+                    continue
+
+        for selector in (
+            '[aria-label*="Create Images" i]',
+            '[aria-label*="Create image" i]',
+            '[data-tooltip*="Create Images" i]',
+            '[title*="Create Images" i]',
+        ):
+            for item in self._visible_locators(self.page.locator(selector)):
+                try:
+                    item.click()
+                    self._pause()
+                    if self._image_mode_active():
+                        return
+                except Exception:
+                    continue
 
         self._save_diagnostics("image_generation_mode_not_selected")
         raise BrowserAutomationError(
-            "Could not select Google's Create Images mode. "
+            "Could not positively select Google's Create Images mode. "
             "The prompt was not submitted because normal AI Mode may otherwise "
             "return a prose/scene response instead of an image."
         )
