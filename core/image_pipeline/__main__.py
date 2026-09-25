@@ -15,7 +15,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate source-grounded images through visible Google AI Mode in Chrome."
     )
-    parser.add_argument("package")
+    parser.add_argument(
+        "package",
+        help="Prompt source: all_prompts.json, one exported image .txt file, or an image prompt directory such as *_prompts/image.",
+    )
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--start-order", type=int, default=None)
