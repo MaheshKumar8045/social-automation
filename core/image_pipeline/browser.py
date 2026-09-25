@@ -413,6 +413,18 @@ class GoogleAIModeBrowser:
         import random
         time.sleep(random.uniform(self.config.human_delay_min, self.config.human_delay_max))
 
+    def _visible_locators(self, locator):
+        try:
+            for index in range(locator.count()):
+                item = locator.nth(index)
+                try:
+                    if item.is_visible():
+                        yield item
+                except Exception:
+                    continue
+        except Exception:
+            return
+
     def _select_create_images(self) -> None:
         """Select Google's Image/Create Images mode using visible UI controls."""
         patterns = (
