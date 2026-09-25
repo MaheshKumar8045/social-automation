@@ -178,7 +178,7 @@ def _overlay(dialogue: list[str], scene: dict[str, Any], layout: dict[str, Any])
                 "placement": "auto_safe_zone",
                 "max_width_percent": layout["dialogue_box_max_width_percent"],
                 "max_height_percent": layout["dialogue_box_max_height_percent"],
-                "avoid": ["faces", "hands", "important_objects", "primary_action"],
+                "avoid": ["faces", "heads", "bodies", "legs", "hands", "foreground_silhouettes", "important_objects", "primary_action"],
             }
             for line in dialogue[:2]
         ]
@@ -343,11 +343,20 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
     narrative_focus = context.get("narrative_focus_character")
     if not isinstance(narrative_focus, dict):
         narrative_focus = infer_narrative_focus_character(str(scene.get("text") or ""), characters)
+    # Keep exact source dialogue for the deterministic overlay, but never feed
+    # quoted speech into the visual description. Quoted prose is a common source
+    # of accidental model-rendered typography.
+    visual_moments = [
+        _clean(_strip_dialogue(moment), 260)
+        for moment in moments
+        if _clean(_strip_dialogue(moment), 260)
+    ] or ["Hold the established source scene state without adding a new event."]
+
     base = _base_prompt(
         scene,
         characters,
         objects,
-        moments,
+        visual_moments,
         continuity,
         layout,
         genre,
@@ -447,19 +456,24 @@ def compile_media_prompts(context: dict[str, Any], clip_count: int = 3) -> dict[
         "visual_inference": inference_summary,
         "image": {
             "prompt": (
-                base
+                "ZERO-TEXT IMAGE OUTPUT. Create the artwork only. The generated image must contain ZERO "
+                "readable words, letters, captions, dialogue, subtitles, typography, signs, labels, logos, "
+                "watermarks, UI, metadata, lens specifications, camera specifications, prompt text, or "
+                "copied phrases. Do not turn any words from this instruction into visible artwork. "
+                "Do not place text anywhere in the scene. "
+                + base
                 + " FINAL IMAGE-MODEL INSTRUCTION: render only the source-grounded visual scene. "
-                  "TEXT RENDERING IS DISABLED. Do not draw any words, letters, captions, dialogue, "
-                  "subtitles, signs, logos, watermarks, or prompt instructions. Leave the reserved "
-                  "negative-space region visually clean for the deterministic post-processing overlay."
+                  "TEXT RENDERING IS DISABLED. The final generated artwork must contain no typography. "
+                  "Leave all likely upper, lower, and side negative-space regions visually clean for the "
+                  "deterministic post-processing overlay. Compose as an exact 9:16 portrait/mobile frame."
             ),
             "dialogue_overlays": overlays,
             "layout": {
                 **layout,
                 "dialogue_box_count_minimum": layout["dialogue_box_min_count"],
                 "text_rendering": "deterministic overlay",
-                "overlay_style": "fixed project style: near-black translucent panel, warm-white Georgia regular serif, left aligned, consistent padding",
-                "placement_algorithm": "Choose the largest safe negative-space region opposite the main subject/action; never overlap faces, hands, important objects, or the primary action.",
+                "overlay_style": "text only on transparent background: ancient/period serif, warm parchment text, dark outer outline and subtle shadow",
+                "placement_algorithm": "Scan multiple upper/lower/side negative-space regions, reject or penalize localized foreground/subject occupancy, avoid occupied overlay regions, and penalize the visual center where primary action commonly occurs.",
             },
         },
         "short_video": {

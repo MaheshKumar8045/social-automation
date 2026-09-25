@@ -112,3 +112,11 @@ def test_flattened_narrator_heading_is_not_visual_moment():
     prompt = media["image"]["prompt"]
     assert "PRIMARY SOURCE VISUAL MOMENT: Tomorrow is my funeral." in prompt
     assert "PRIMARY SOURCE VISUAL MOMENT: 1 The end Ravana" not in prompt
+
+
+def test_image_prompt_excludes_quoted_dialogue_but_preserves_overlay():
+    context = _context('Lord Shiva said, "Come with me now." Lord Shiva walks toward the gate.')
+    media = compile_media_prompts(context)
+    prompt = media["image"]["prompt"]
+    assert "Come with me now" not in prompt
+    assert media["image"]["dialogue_overlays"][0]["text"] == "Come with me now."

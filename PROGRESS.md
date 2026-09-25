@@ -1,5 +1,172 @@
 # Project Progress Checkpoint
 
+## Latest checkpoint — 2026-09-23
+
+### Current focus
+
+The active production work is now the **cinematic image-generation pipeline** for:
+
+- Source PDF: `M:\\social-automation\\data\\Asura\\Asura - Tale Of The Vanquished.pdf`
+- Source: 442 pages
+- Planned scenes: 191
+- Output goal: consistent 9:16 portrait images, zero model-generated text, deterministic source-dialogue overlays, canonical character continuity, resumable generation, and clean QA.
+
+### Image-generation pipeline status
+
+The following production fixes are now implemented on `image-generation-pipeline`:
+
+1. **Google AI Mode / Chrome CDP**
+   - Supports attaching to a manually signed-in dedicated Chrome profile through `--chrome-cdp-url`.
+   - Avoids the earlier login/profile automation problem.
+
+2. **Google AI Mode daily-limit handling**
+   - Dedicated `GoogleAIModeDailyLimitError`.
+   - Interrupted scene is persisted as `RETRY`, not permanently `BLOCKED`.
+   - CLI exits cleanly when the Google daily limit is reached.
+   - Rerunning after switching account/profile can therefore resume the interrupted scene.
+
+3. **Sequential scene artifact naming**
+   - `scene_order` is not unique in the real data, so it must not be used as the directory sequence.
+   - New artifact directories use loaded-job sequence plus actual scene ID:
+     - `scene_001_00001`
+     - `scene_002_00004`
+     - `scene_003_00006`
+   - Final artifacts use:
+     - `scene_001_00001_final.png`
+     - `scene_002_00004_final.png`
+   - Legacy directories/final names are migrated on pipeline startup and SQLite paths are repointed.
+
+4. **Exact portrait output**
+   - Generated artwork is normalized to exactly **720x1280 / 9:16** before validation and overlay rendering.
+   - Current normalization uses a centered crop followed by Lanczos resize; revisit with subject-aware cropping if future scenes show important side-subject loss.
+
+5. **Zero generated-text protection**
+   - Image prompt explicitly requires zero readable text/typography.
+   - Quoted source dialogue is kept for deterministic overlays but removed from visual moments sent to the image model.
+   - Clean generated artwork is OCR-checked before overlay rendering.
+   - Meaningful unexpected OCR text causes image-generation retry.
+   - PaddleOCR initialization is cached.
+
+6. **Deterministic overlay renderer**
+   - Source dialogue is rendered after image generation.
+   - Transparent text-only overlay; no opaque dialogue panel.
+   - Warm parchment text with dark outline and restrained shadow.
+
+### Latest overlay issue and fix — 2026-09-23
+
+The latest real image exposed two overlay problems:
+
+- The lower dialogue block became too small because the renderer's maximum height was too restrictive.
+- The lower dialogue was placed over a character's legs because mean visual-detail scoring could treat a mostly quiet foreground region as safe even when a localized subject occupied part of it.
+
+Implemented fix:
+
+- Increased dialogue overlay working area from roughly **68% width / 15% height** to **80% width / 30% height**.
+- Increased the production overlay font baseline so long dialogue does not collapse into tiny typography.
+- Added localized **foreground/subject occupancy scoring** using tiled edge/contrast analysis.
+- Placement now penalizes concentrated detail from bodies, legs, hands, weapons, foreground silhouettes, and other localized subjects instead of relying only on average region detail.
+- Existing overlay-overlap and center-action penalties remain.
+- Updated the media-generation contract to explicitly avoid faces, heads, bodies, legs, hands, foreground silhouettes, important objects, and primary action.
+- Added a regression test with a busy foreground region to ensure long dialogue moves away from that area.
+
+### Latest relevant commits
+
+- `3bc4522` — protect foreground subjects during dialogue overlay placement
+- `60d5f32` — enlarge dialogue overlay safe area
+- `d3a97a9` — strengthen overlay subject-avoidance contract
+- `3355c2d` — clean overlay regression-test fixture imports
+
+### Last real local generation evidence
+
+The recent local pilot used:
+
+```powershell
+.venv\\Scripts\\python.exe -m core.image_pipeline `
+  "data\\Asura\\Asura - Tale Of The Vanquished_structure_prompts\\all_prompts.json" `
+  --output-dir "data\\Asura\\Asura - Tale Of The Vanquished_structure_prompts\\generated_images_overlay_v2" `
+  --limit 3 `
+  --max-attempts 3 `
+  --generation-timeout 300 `
+  --no-vision `
+  --chrome-cdp-url "http://127.0.0.1:9222" `
+  --verbose
+```
+
+Observed summary after switching account/profile:
+
+```
+blocked: 1
+completed: 3
+pending: 187
+```
+
+The logs initially appeared to repeat "scene 1", but the actual output showed multiple jobs with `scene_order=1`; this directly motivated the sequential directory-name fix. The interrupted daily-limit scene was therefore retriable rather than lost.
+
+### What still needs local verification
+
+Do **not** assume the new overlay fix is production-proven until the local pipeline generates a fresh sample.
+
+Next run should use a fresh output directory so completed SQLite records do not hide the new behavior:
+
+```powershell
+cd M:\\social-automation
+git pull origin image-generation-pipeline
+.venv\\Scripts\\python.exe -m core.image_pipeline `
+  "data\\Asura\\Asura - Tale Of The Vanquished_structure_prompts\\all_prompts.json" `
+  --output-dir "data\\Asura\\Asura - Tale Of The Vanquished_structure_prompts\\generated_images_overlay_v3" `
+  --limit 10 `
+  --max-attempts 3 `
+  --generation-timeout 300 `
+  --no-vision `
+  --chrome-cdp-url "http://127.0.0.1:9222" `
+  --verbose
+```
+
+Verify for the first 10 generated scenes:
+
+- final dimensions are exactly 720x1280;
+- no model-generated text survives clean validation;
+- deterministic dialogue is readable at a consistent size;
+- dialogue does not cover faces/bodies/legs/hands/important foreground subjects;
+- directories are sequential by loaded job order;
+- final filenames follow `scene_00x_0000x_final.png`;
+- daily-limit interruption still persists as `RETRY` and resumes after account/profile change.
+
+### CI status at checkpoint
+
+The overlay test suite reached **160 passed**; the only two failures were the pre-existing `tests/test_generation_context.py` ordering bug where the query used `em.id` although the fixture's `entity_mentions` table has no `id` column. That is now fixed by ordering on the existing `em.entity_id` column. A fresh GitHub Actions run is expected from that fix; verify it before the next production pilot.
+
+### New architectural decision — text prompts as authoritative image input
+
+The image exporter already writes per-scene files under:
+`<structure_prompts>/image/scene_XXX.txt`.
+
+The image pipeline now supports using those exported text files directly. This is intentionally **not** a cosmetic format change: the selected `.txt` prompt is treated as the exact prompt sent to Google AI Mode, and the dialogue/narrative overlay JSON is read from the same file. The JSON/table package remains backward-compatible.
+
+Important distinction: switching JSON → TXT does not inherently make the AI model produce better artwork because the existing TXT was generated from the same prompt content. The benefit is that we now have a clean, human-editable **prompt source of truth**. If we improve/edit the TXT prompt, the pipeline will use that exact text without reconstructing it from database/table fields.
+
+New supported input forms:
+- `all_prompts.json` — legacy/backward-compatible.
+- A single image prompt `.txt`.
+- The exported `image` directory containing `scene_*.txt` files.
+
+New tests cover both a text-prompt directory and a single text prompt.
+
+### Tomorrow's resume point
+
+1. Read this latest checkpoint first.
+2. Pull the current `image-generation-pipeline` branch.
+3. Check the latest CI result and confirm the generation-context fix plus text-prompt loader tests leave the suite green.
+4. Run the pilot using the exported `image` TXT directory as the authoritative prompt source, not `all_prompts.json`.
+5. Inspect several final PNGs, especially long-dialogue scenes.
+6. If overlay placement/readability passes, continue production image generation.
+7. If the new subject-safe placement still misses a foreground subject, improve the renderer from actual failing evidence rather than adding a fixed bottom exclusion rule.
+8. Preserve existing v2 artifacts for comparison; do not delete `data\\Asura\\`.
+
+---
+
+# Project Progress Checkpoint
+
 ## Checkpoint date
 
 2026-09-21
