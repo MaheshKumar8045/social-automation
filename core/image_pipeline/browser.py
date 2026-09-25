@@ -414,14 +414,27 @@ class GoogleAIModeBrowser:
         time.sleep(random.uniform(self.config.human_delay_min, self.config.human_delay_max))
 
     def _select_create_images(self) -> None:
-        patterns = [r"Create Images", r"Create image"]
-        # Prefer the documented Image menu -> Create Images path. This avoids
-        # accidentally clicking a Create Image control belonging to an older result.
+        """Explicitly enter Google's image-generation mode before submitting a prompt.
+
+        This must be strict: if image mode is not selected, Google AI Mode can treat
+        the cinematic prompt as a normal writing request and return prose such as
+        "[SCENE START] ... [SCENE END]" instead of generating an image.
+        """
+        patterns = [r"^Create Images?$", r"^Create image$"]
+        image_control = None
+
+        # Prefer the Image/Images control that opens the generation-mode menu.
         try:
-            image_control = self.page.get_by_role(
+            candidate = self.page.get_by_role(
                 "button", name=re.compile(r"^Image$|Images", re.I)
             ).first
-            if image_control.count() and image_control.is_visible():
+            if candidate.count() and candidate.is_visible():
+                image_control = candidate
+        except Exception:
+            image_control = None
+
+        if image_control is not None:
+            try:
                 image_control.click()
                 self._pause()
                 for pattern in patterns:
@@ -430,10 +443,10 @@ class GoogleAIModeBrowser:
                         loc.click()
                         self._pause()
                         return
-        except Exception:
-            pass
+            except Exception:
+                pass
 
-        # Fallback for layouts that expose Create Images directly.
+        # Some Google AI Mode layouts expose Create Images directly.
         for pattern in patterns:
             try:
                 loc = self.page.get_by_text(re.compile(pattern, re.I)).first
@@ -443,6 +456,13 @@ class GoogleAIModeBrowser:
                     return
             except Exception:
                 pass
+
+        self._save_diagnostics("image_generation_mode_not_selected")
+        raise BrowserAutomationError(
+            "Could not select Google's Create Images mode. "
+            "The prompt was not submitted because normal AI Mode may otherwise "
+            "return a prose/scene response instead of an image."
+        )
 
     def _submit(self, prompt: str) -> None:
         self._select_create_images()
