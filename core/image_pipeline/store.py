@@ -80,6 +80,13 @@ class GenerationStore:
                     (job.scene_order, job.title, JobStatus.PENDING,
                      prompt_hashes[job.scene_id], _now(), job.scene_id),
                 )
+        # A process interruption can leave a job RUNNING even though no worker
+        # is alive anymore. Make those jobs resumable on the next invocation.
+        self.con.execute(
+            "UPDATE jobs SET status=?, last_error='recovered stale running job', updated_at=? "
+            "WHERE status=?",
+            (JobStatus.RETRY, _now(), JobStatus.RUNNING),
+        )
         self.con.commit()
 
     def get(self, scene_id: int) -> sqlite3.Row | None:
