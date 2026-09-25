@@ -426,44 +426,68 @@ class GoogleAIModeBrowser:
             return
 
     def _select_create_images(self) -> None:
-        """Select Google's image-generation mode before submitting the prompt."""
-        candidates = (
-            self.page.get_by_role("button", name=re.compile(r"Image|Images", re.I)),
+        """Enter Google's Create Images mode and verify it before submission."""
+        create_patterns = (
+            r"^Create Images?$",
+            r"^Create Image$",
+            r"^Create Images? Pro$",
+        )
+
+        # Google has used several DOM/accessibility variants for the Image
+        # tool. Search broadly, including visible controls and direct
+        # Create Images actions.
+        image_candidates = (
+            self.page.get_by_role("button", name=re.compile(r"^Image$|^Images?$", re.I)),
+            self.page.locator('[aria-label="Image" i]'),
             self.page.locator('[aria-label*="Image" i]'),
             self.page.locator('[data-tooltip*="Image" i]'),
             self.page.locator('[title*="Image" i]'),
             self.page.get_by_text(re.compile(r"^Create Images?$|^Create Image$", re.I)),
         )
 
-        for group in candidates:
-            for control in self._visible_locators(group):
+        for candidate_group in image_candidates:
+            for control in self._visible_locators(candidate_group):
                 try:
                     control.click()
                     self._pause()
                 except Exception:
                     continue
 
-                # After clicking the Image tool, immediately look for the visible
-                # Create Images action. We intentionally do not depend on a specific
-                # composer placeholder or aria-pressed state.
-                for locator in (
-                    self.page.get_by_text(re.compile(r"^Create Images?$|^Create Image$", re.I)),
-                    self.page.locator('[aria-label*="Create Images" i]'),
-                    self.page.locator('[aria-label*="Create image" i]'),
-                    self.page.locator('[data-tooltip*="Create Images" i]'),
-                    self.page.locator('[title*="Create Images" i]'),
-                ):
-                    for item in self._visible_locators(locator):
+                for pattern in create_patterns:
+                    items = self.page.get_by_text(re.compile(pattern, re.I))
+                    for item in self._visible_locators(items):
                         try:
                             item.click()
                             self._pause()
-                            return
+                            if self._image_mode_active():
+                                return
                         except Exception:
                             continue
 
+                for selector in (
+                    '[aria-label*="Create Images" i]',
+                    '[aria-label*="Create image" i]',
+                    '[data-tooltip*="Create Images" i]',
+                    '[title*="Create Images" i]',
+                ):
+                    for item in self._visible_locators(self.page.locator(selector)):
+                        try:
+                            item.click()
+                            self._pause()
+                            if self._image_mode_active():
+                                return
+                        except Exception:
+                            continue
+
+                # Some layouts change the composer immediately without exposing
+                # a stable Create Images menu item. A visible image composer is
+                # sufficient evidence that the mode was selected.
+                if self._image_mode_active():
+                    return
+
         self._save_diagnostics("image_generation_mode_not_selected")
         raise BrowserAutomationError(
-            "Could not select Google's Create Images mode. "
+            "Could not positively select Google's Create Images mode. "
             "The prompt was not submitted because normal AI Mode may otherwise "
             "return a prose/scene response instead of an image."
         )
