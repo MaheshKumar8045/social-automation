@@ -425,153 +425,156 @@ class GoogleAIModeBrowser:
         except Exception:
             return
 
+    def _describe_controls(self) -> list[dict[str, Any]]:
+        controls = []
+        locator = self.page.locator(
+            'button, [role="button"], [role="menuitem"], [role="option"], '
+            '[role="tab"], [aria-label], [data-tooltip], [title]'
+        )
+        for item in self._visible_locators(locator):
+            try:
+                attrs = item.evaluate(
+                    """e => ({
+                        tag: e.tagName || '',
+                        role: e.getAttribute('role') || '',
+                        aria: e.getAttribute('aria-label') || '',
+                        title: e.getAttribute('title') || '',
+                        tooltip: e.getAttribute('data-tooltip') || '',
+                        text: e.innerText || '',
+                        disabled: !!e.disabled
+                    })"""
+                )
+                controls.append(attrs)
+            except Exception:
+                continue
+        return controls
+
     def _image_mode_active(self) -> bool:
-        """Verify that Google visibly switched the composer to image creation mode."""
+        """Detect the image composer using multiple stable visible signals."""
         selectors = (
             '[placeholder*="Describe your image" i]',
             '[aria-label*="Describe your image" i]',
-            '[aria-label*="Create Images" i][aria-pressed="true"]',
-            '[aria-label*="Create image" i][aria-pressed="true"]',
-            '[data-state="checked"][aria-label*="Create image" i]',
-            '[data-state="selected"][aria-label*="Create image" i]',
+            '[contenteditable="true"][aria-label*="image" i]',
+            'textarea[aria-label*="image" i]',
+            '[aria-pressed="true"][aria-label*="image" i]',
+            '[data-state="checked"][aria-label*="image" i]',
+            '[data-state="selected"][aria-label*="image" i]',
         )
         for selector in selectors:
             for item in self._visible_locators(self.page.locator(selector)):
                 return True
-
-        # Google can expose the mode as visible text/chips without any stable
-        # aria state. Inspect the rendered page rather than depending on one DOM
-        # implementation.
         try:
-            body = self._body_text()
-            if "create images" in body or "create image" in body:
-                return True
-        except Exception:
-            pass
-
-        try:
-            controls = self.page.locator('textarea, [contenteditable="true"], input')
-            for item in self._visible_locators(controls):
-                attrs = item.evaluate(
-                    """e => ({
-                        placeholder: e.getAttribute('placeholder') || '',
-                        aria: e.getAttribute('aria-label') || ''
-                    })"""
+            for attrs in self._describe_controls():
+                blob = " ".join(
+                    str(attrs.get(key) or "").casefold()
+                    for key in ("aria", "title", "tooltip", "text")
                 )
-                haystack = " ".join(str(v) for v in attrs.values()).casefold()
-                if "describe your image" in haystack or "create image" in haystack:
+                if (
+                    "create images" in blob
+                    or "create image" in blob
+                    or "describe your image" in blob
+                ) and not attrs.get("disabled"):
                     return True
         except Exception:
             pass
         return False
 
-    def _select_create_images(self) -> None:
-        """Select Google's image-generation tool from the visible AI Mode composer."""
-        def norm(value: str) -> str:
-            return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
-
-        def visible_controls():
-            locator = self.page.locator(
+    def _find_image_controls(self):
+        candidates = []
+        for item in self._visible_locators(
+            self.page.locator(
                 'button, [role="button"], [role="menuitem"], [role="option"], '
                 '[role="tab"], [aria-label], [data-tooltip], [title]'
             )
-            for item in self._visible_locators(locator):
-                try:
-                    attrs = item.evaluate(
-                        """e => ({
-                            tag: e.tagName || '',
-                            role: e.getAttribute('role') || '',
-                            aria: e.getAttribute('aria-label') || '',
-                            title: e.getAttribute('title') || '',
-                            tooltip: e.getAttribute('data-tooltip') || '',
-                            text: e.innerText || '',
-                            disabled: !!e.disabled,
-                            tabIndex: e.tabIndex
-                        })"""
-                    )
-                    yield item, attrs
-                except Exception:
-                    continue
-
-        def score(attrs: dict[str, Any]) -> int:
-            values = [
-                norm(attrs.get("aria")),
-                norm(attrs.get("title")),
-                norm(attrs.get("tooltip")),
-                norm(attrs.get("text")),
-            ]
-            best = 0
-            for value in values:
-                if value in {"create images", "create image", "image creation", "image"}:
-                    best = max(best, 100)
-                elif value.startswith("create images") or value.startswith("create image"):
-                    best = max(best, 95)
-                elif value == "images":
-                    best = max(best, 90)
-                elif "create images" in value or "create image" in value:
-                    best = max(best, 85)
-                elif value == "image":
-                    best = max(best, 70)
-            return best
-
-        candidates = []
-        for item, attrs in visible_controls():
+        ):
+            try:
+                attrs = item.evaluate(
+                    """e => ({
+                        aria: e.getAttribute('aria-label') || '',
+                        title: e.getAttribute('title') || '',
+                        tooltip: e.getAttribute('data-tooltip') || '',
+                        text: e.innerText || '',
+                        disabled: !!e.disabled
+                    })"""
+                )
+            except Exception:
+                continue
             if attrs.get("disabled"):
                 continue
-            value_score = score(attrs)
-            if value_score:
-                candidates.append((value_score, item, attrs))
+            blob = " ".join(
+                str(attrs.get(key) or "").strip().casefold()
+                for key in ("aria", "title", "tooltip", "text")
+            )
+            score = 0
+            if "create images" in blob:
+                score = 100
+            elif "create image" in blob:
+                score = 95
+            elif "image creation" in blob:
+                score = 90
+            elif re.search(r"(^|\\s)images?($|\\s)", blob):
+                score = 80
+            elif "image" in blob:
+                score = 60
+            if score:
+                candidates.append((score, item, blob))
         candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates
 
-        for _, control, _ in candidates:
-            try:
-                control.click()
-                self._pause()
-            except Exception:
-                continue
-
-            try:
-                self.page.wait_for_timeout(700)
-            except Exception:
-                pass
-
-            if self._image_mode_active():
-                return
-
-            submenu = []
-            for item, attrs in visible_controls():
-                if attrs.get("disabled"):
-                    continue
-                value_score = score(attrs)
-                text_blob = " ".join(
-                    norm(attrs.get(key))
-                    for key in ("aria", "title", "tooltip", "text")
+    def _select_create_images(self) -> None:
+        """Select the visible Google image-generation control without brittle DOM assumptions."""
+        # Search the current page first. If "Create Images" is already exposed,
+        # click it directly. Otherwise click the strongest Image control and
+        # rescan the resulting menu.
+        for _ in range(3):
+            candidates = self._find_image_controls()
+            if not candidates:
+                self._save_diagnostics("no_visible_image_control")
+                raise BrowserAutomationError(
+                    "Google AI Mode exposes no visible Image/Create Images control. "
+                    "The normal Google UI may be in a different mode or the account may not have image generation."
                 )
-                if value_score >= 85 or "create images" in text_blob or "create image" in text_blob:
-                    submenu.append((value_score, item, attrs))
-            submenu.sort(key=lambda x: x[0], reverse=True)
-
-            for _, submenu_item, _ in submenu:
+            for score, control, blob in candidates:
                 try:
-                    submenu_item.click()
+                    control.click(force=False)
                     self._pause()
                 except Exception:
                     continue
+
                 try:
-                    self.page.wait_for_timeout(700)
+                    self.page.wait_for_timeout(900)
                 except Exception:
                     pass
+
                 if self._image_mode_active():
                     return
 
-            body = self._body_text()
-            if "create images" in body or "describe your image" in body:
-                return
+                # A menu action may expose the composer after another click.
+                followups = self._find_image_controls()
+                for follow_score, follow_control, follow_blob in followups:
+                    if follow_control == control:
+                        continue
+                    try:
+                        follow_control.click(force=False)
+                        self._pause()
+                    except Exception:
+                        continue
+                    try:
+                        self.page.wait_for_timeout(900)
+                    except Exception:
+                        pass
+                    if self._image_mode_active():
+                        return
+
+                body = self._body_text()
+                if "describe your image" in body:
+                    return
 
         self._save_diagnostics("image_generation_mode_not_selected")
+        diagnostics = self._diagnostic_dir()
         raise BrowserAutomationError(
-            "Could not select Google's image-generation tool from the visible AI Mode UI. "
-            "No prompt was submitted."
+            "Could not select Google's image-generation mode from the visible UI. "
+            f"Diagnostics: {diagnostics}"
         )
 
     def _submit(self, prompt: str) -> None:
