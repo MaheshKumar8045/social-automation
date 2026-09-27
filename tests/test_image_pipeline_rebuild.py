@@ -12,8 +12,8 @@ def test_txt_scene_is_authoritative(tmp_path):
     assert jobs[0].prompt=="A cinematic test image."
     assert jobs[0].overlays[0]["text"]=="Hello"
 
-def test_txt_loader_does_not_try_json():
-    p=tmp_path = Path(__file__).parent / "_not_a_real_scene.txt"
+def test_txt_loader_does_not_try_json(tmp_path):
+    p = tmp_path / "scene_002.txt"
     try:
         p.write_text("SCENE ID: 2\nSCENE ORDER: 2\nTITLE: X\n=== IMAGE GENERATION PROMPT ===\nPrompt\n=== IMAGE LAYOUT ===\n{}\n=== DIALOGUE / NARRATIVE OVERLAYS ===\n[]\n",encoding="utf-8")
         jobs=load_jobs(p)
