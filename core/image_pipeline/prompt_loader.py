@@ -14,7 +14,7 @@ def _txt(path:Path)->SceneJob:
     layout,sep,over=rest.partition("=== DIALOGUE / NARRATIVE OVERLAYS ===")
     if not sep: raise PromptPackageError(f"missing DIALOGUE / NARRATIVE OVERLAYS section: {path}")
     def hv(n):
-        m=re.search(rf"(?m)^{re.escape(n)}:\\s*(.+?)\\s*$",header); return m.group(1).strip() if m else ""
+        m=re.search(rf"(?m)^{re.escape(n)}:\s*(.+?)\s*$",header); return m.group(1).strip() if m else ""
     try: sid=int(hv("SCENE ID")); order=int(hv("SCENE ORDER"))
     except ValueError as e: raise PromptPackageError(f"invalid scene id/order: {path}") from e
     title=hv("TITLE"); p=prompt.strip()
