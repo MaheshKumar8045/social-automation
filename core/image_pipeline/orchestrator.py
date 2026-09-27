@@ -11,7 +11,7 @@ from .validator import validate_image
 def _hash(p):return hashlib.sha256(p.encode()).hexdigest()
 class ImageGenerationPipeline:
     def __init__(self,config): self.config=config; config.output_dir.mkdir(parents=True,exist_ok=True); self.store=GenerationStore(config.output_dir/"generation.db"); self.browser=GoogleAIModeBrowser(config); self.log=logging.getLogger("image_pipeline")
-    def close(self): self.store.close(); self.browser.close()
+    def close(self):\n        try: self.browser.close()\n        finally:\n            try: self.store.close()\n            except Exception: pass
     def _normalize(self,path):
         with Image.open(path) as im:
             src=list(im.size)
