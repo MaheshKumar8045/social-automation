@@ -49,7 +49,7 @@ def _parse_image_prompt_txt(path: Path) -> SceneJob:
     prompt_body = prompt_part.strip()
     if not prompt_body:
         raise PromptPackageError(f"scene {scene_id} text prompt is empty: {path}")
-    prompt = "=== IMAGE GENERATION PROMPT ===\n" + prompt_body
+    prompt = prompt_body
 
     try:
         overlays = json.loads(overlay_part.strip() or "[]")
