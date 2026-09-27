@@ -426,7 +426,7 @@ class GoogleAIModeBrowser:
             return
 
     def _image_mode_active(self) -> bool:
-        """Verify that the composer visibly indicates image creation mode."""
+        """Verify that Google visibly switched the composer to image creation mode."""
         selectors = (
             '[placeholder*="Describe your image" i]',
             '[aria-label*="Describe your image" i]',
@@ -438,6 +438,16 @@ class GoogleAIModeBrowser:
         for selector in selectors:
             for item in self._visible_locators(self.page.locator(selector)):
                 return True
+
+        # Google can expose the mode as visible text/chips without any stable
+        # aria state. Inspect the rendered page rather than depending on one DOM
+        # implementation.
+        try:
+            body = self._body_text()
+            if "create images" in body or "create image" in body:
+                return True
+        except Exception:
+            pass
 
         try:
             controls = self.page.locator('textarea, [contenteditable="true"], input')
@@ -456,13 +466,31 @@ class GoogleAIModeBrowser:
         return False
 
     def _select_create_images(self) -> None:
-        """Enter Google's current AI Mode image-creation tool and verify it."""
-        # Google's documented desktop flow is: AI Mode -> Image -> Create Images.
-        # The DOM has changed across Search rollouts, so prefer exact accessible
-        # names and menu roles before falling back to broader Image controls.
+        """Select Google's Image -> Create Images UI using visible controls."""
         exact_create = re.compile(r"^Create Images?(?: Pro)?$", re.I)
+        image_name = re.compile(r"^Image$", re.I)
 
-        direct_create = (
+        def visible_click(groups, require_mode=False) -> bool:
+            for group in groups:
+                for item in self._visible_locators(group):
+                    try:
+                        item.click()
+                        self._pause()
+                    except Exception:
+                        continue
+                    if not require_mode or self._image_mode_active():
+                        return True
+                    # Give Google a brief chance to render its new composer.
+                    try:
+                        self.page.wait_for_timeout(400)
+                    except Exception:
+                        pass
+                    if self._image_mode_active():
+                        return True
+            return False
+
+        # Case 1: Create Images is already visible.
+        direct = (
             self.page.get_by_role("button", name=exact_create),
             self.page.get_by_role("menuitem", name=exact_create),
             self.page.get_by_role("option", name=exact_create),
@@ -473,51 +501,28 @@ class GoogleAIModeBrowser:
             self.page.locator('[title="Create Images" i]'),
             self.page.get_by_text(exact_create),
         )
-
-        def try_click_groups(groups) -> bool:
-            for group in groups:
-                for item in self._visible_locators(group):
-                    try:
-                        item.click()
-                        self._pause()
-                    except Exception:
-                        continue
-                    if self._image_mode_active():
-                        return True
-                    # Some Google rollouts do not expose a stable selected-state
-                    # after the menu closes. A successful click on the exact
-                    # Create Images control is therefore sufficient evidence;
-                    # generation validation still requires a real new image.
-                    return True
-            return False
-
-        # First handle a layout where Create Images is already exposed.
-        if try_click_groups(direct_create):
+        if visible_click(direct):
             return
 
-        # Then click the Image control which opens the tool menu.
-        image_control_names = re.compile(r"^Image$", re.I)
+        # Case 2: open Image tool, then choose Create Images.
         image_controls = (
-            self.page.get_by_role("button", name=image_control_names),
-            self.page.get_by_role("menuitem", name=image_control_names),
+            self.page.get_by_role("button", name=image_name),
+            self.page.get_by_role("menuitem", name=image_name),
             self.page.locator('[aria-label="Image" i]'),
             self.page.locator('[data-tooltip="Image" i]'),
             self.page.locator('[title="Image" i]'),
         )
-
-        for control_group in image_controls:
-            for control in self._visible_locators(control_group):
+        for group in image_controls:
+            for control in self._visible_locators(group):
                 try:
                     control.click()
                     self._pause()
                 except Exception:
                     continue
 
-                if try_click_groups(direct_create):
+                if visible_click(direct):
                     return
 
-                # Some Google variants expose the item only after the menu opens,
-                # using a generic role but exact visible text.
                 menu_items = (
                     self.page.get_by_role("menuitem").filter(has_text=exact_create),
                     self.page.get_by_role("option").filter(has_text=exact_create),
@@ -525,19 +530,16 @@ class GoogleAIModeBrowser:
                     self.page.locator('[role="option"]').filter(has_text=exact_create),
                     self.page.get_by_text(exact_create),
                 )
-                if try_click_groups(menu_items):
+                if visible_click(menu_items):
                     return
 
-                # A visible image composer is sufficient evidence even if the
-                # menu item disappears immediately after selection.
                 if self._image_mode_active():
                     return
 
         self._save_diagnostics("image_generation_mode_not_selected")
         raise BrowserAutomationError(
-            "Could not positively select Google's Create Images mode. "
-            "The prompt was not submitted because normal AI Mode may otherwise "
-            "return a prose/scene response instead of an image."
+            "Could not select Google's Create Images mode. "
+            "No prompt was submitted."
         )
 
     def _submit(self, prompt: str) -> None:
