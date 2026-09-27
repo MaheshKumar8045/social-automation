@@ -466,79 +466,111 @@ class GoogleAIModeBrowser:
         return False
 
     def _select_create_images(self) -> None:
-        """Select Google's Image -> Create Images UI using visible controls."""
-        exact_create = re.compile(r"^Create Images?(?: Pro)?$", re.I)
-        image_name = re.compile(r"^Image$", re.I)
+        """Select Google's image-generation tool from the visible AI Mode composer."""
+        def norm(value: str) -> str:
+            return re.sub(r"\s+", " ", str(value or "")).strip().casefold()
 
-        def visible_click(groups, require_mode=False) -> bool:
-            for group in groups:
-                for item in self._visible_locators(group):
-                    try:
-                        item.click()
-                        self._pause()
-                    except Exception:
-                        continue
-                    if not require_mode or self._image_mode_active():
-                        return True
-                    # Give Google a brief chance to render its new composer.
-                    try:
-                        self.page.wait_for_timeout(400)
-                    except Exception:
-                        pass
-                    if self._image_mode_active():
-                        return True
-            return False
-
-        # Case 1: Create Images is already visible.
-        direct = (
-            self.page.get_by_role("button", name=exact_create),
-            self.page.get_by_role("menuitem", name=exact_create),
-            self.page.get_by_role("option", name=exact_create),
-            self.page.locator('[aria-label="Create Images" i]'),
-            self.page.locator('[aria-label="Create Image" i]'),
-            self.page.locator('[aria-label="Create Images Pro" i]'),
-            self.page.locator('[data-tooltip="Create Images" i]'),
-            self.page.locator('[title="Create Images" i]'),
-            self.page.get_by_text(exact_create),
-        )
-        if visible_click(direct):
-            return
-
-        # Case 2: open Image tool, then choose Create Images.
-        image_controls = (
-            self.page.get_by_role("button", name=image_name),
-            self.page.get_by_role("menuitem", name=image_name),
-            self.page.locator('[aria-label="Image" i]'),
-            self.page.locator('[data-tooltip="Image" i]'),
-            self.page.locator('[title="Image" i]'),
-        )
-        for group in image_controls:
-            for control in self._visible_locators(group):
+        def visible_controls():
+            locator = self.page.locator(
+                'button, [role="button"], [role="menuitem"], [role="option"], '
+                '[role="tab"], [aria-label], [data-tooltip], [title]'
+            )
+            for item in self._visible_locators(locator):
                 try:
-                    control.click()
-                    self._pause()
+                    attrs = item.evaluate(
+                        """e => ({
+                            tag: e.tagName || '',
+                            role: e.getAttribute('role') || '',
+                            aria: e.getAttribute('aria-label') || '',
+                            title: e.getAttribute('title') || '',
+                            tooltip: e.getAttribute('data-tooltip') || '',
+                            text: e.innerText || '',
+                            disabled: !!e.disabled,
+                            tabIndex: e.tabIndex
+                        })"""
+                    )
+                    yield item, attrs
                 except Exception:
                     continue
 
-                if visible_click(direct):
-                    return
+        def score(attrs: dict[str, Any]) -> int:
+            values = [
+                norm(attrs.get("aria")),
+                norm(attrs.get("title")),
+                norm(attrs.get("tooltip")),
+                norm(attrs.get("text")),
+            ]
+            best = 0
+            for value in values:
+                if value in {"create images", "create image", "image creation", "image"}:
+                    best = max(best, 100)
+                elif value.startswith("create images") or value.startswith("create image"):
+                    best = max(best, 95)
+                elif value == "images":
+                    best = max(best, 90)
+                elif "create images" in value or "create image" in value:
+                    best = max(best, 85)
+                elif value == "image":
+                    best = max(best, 70)
+            return best
 
-                menu_items = (
-                    self.page.get_by_role("menuitem").filter(has_text=exact_create),
-                    self.page.get_by_role("option").filter(has_text=exact_create),
-                    self.page.locator('[role="menuitem"]').filter(has_text=exact_create),
-                    self.page.locator('[role="option"]').filter(has_text=exact_create),
-                    self.page.get_by_text(exact_create),
+        candidates = []
+        for item, attrs in visible_controls():
+            if attrs.get("disabled"):
+                continue
+            value_score = score(attrs)
+            if value_score:
+                candidates.append((value_score, item, attrs))
+        candidates.sort(key=lambda x: x[0], reverse=True)
+
+        for _, control, _ in candidates:
+            try:
+                control.click()
+                self._pause()
+            except Exception:
+                continue
+
+            try:
+                self.page.wait_for_timeout(700)
+            except Exception:
+                pass
+
+            if self._image_mode_active():
+                return
+
+            submenu = []
+            for item, attrs in visible_controls():
+                if attrs.get("disabled"):
+                    continue
+                value_score = score(attrs)
+                text_blob = " ".join(
+                    norm(attrs.get(key))
+                    for key in ("aria", "title", "tooltip", "text")
                 )
-                if visible_click(menu_items):
-                    return
+                if value_score >= 85 or "create images" in text_blob or "create image" in text_blob:
+                    submenu.append((value_score, item, attrs))
+            submenu.sort(key=lambda x: x[0], reverse=True)
 
+            for _, submenu_item, _ in submenu:
+                try:
+                    submenu_item.click()
+                    self._pause()
+                except Exception:
+                    continue
+                try:
+                    self.page.wait_for_timeout(700)
+                except Exception:
+                    pass
                 if self._image_mode_active():
                     return
 
+            body = self._body_text()
+            if "create images" in body or "describe your image" in body:
+                return
+
         self._save_diagnostics("image_generation_mode_not_selected")
         raise BrowserAutomationError(
-            "Could not select Google's Create Images mode. "
+            "Could not select Google's image-generation tool from the visible AI Mode UI. "
             "No prompt was submitted."
         )
 
