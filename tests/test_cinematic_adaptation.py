@@ -56,6 +56,7 @@ def test_adaptation_expands_scene_to_multiple_shots(tmp_path):
     assert package["shot_count"] == 3
     assert [shot["shot_id"] for shot in package["shots"]] == [1, 2, 3]
     assert all(shot["source_grounded"] is True for shot in package["shots"])
+    assert all(shot["duration_seconds"] >= 3.5 for shot in package["shots"])
 
 
 def test_adaptation_preserves_source_focus_and_identity_lock(tmp_path):
@@ -76,6 +77,8 @@ def test_outputs_are_consumable_by_existing_image_pipeline(tmp_path):
     assert len(jobs) == package["shot_count"]
     assert all(job.prompt for job in jobs)
     assert jobs[0].scene_id == 1
+    assert (out / "episode_001_narration.txt").exists()
+    assert (out / "episode_001.srt").exists()
 
 
 def test_story_change_starts_new_episode(tmp_path):
