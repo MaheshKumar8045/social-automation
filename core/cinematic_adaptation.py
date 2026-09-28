@@ -148,13 +148,29 @@ def _moments(record: dict[str, Any]) -> list[str]:
     return []
 
 
+def _characters(record: dict[str, Any]) -> list[dict[str, Any]]:
+    value = record.get("characters")
+    if isinstance(value, list):
+        return [x for x in value if isinstance(x, dict)]
+    value = _plan(record).get("characters")
+    return [x for x in value if isinstance(x, dict)] if isinstance(value, list) else []
+
+
+def _events(record: dict[str, Any]) -> list[dict[str, Any]]:
+    value = record.get("events")
+    if isinstance(value, list):
+        return [x for x in value if isinstance(x, dict)]
+    value = _plan(record).get("events")
+    return [x for x in value if isinstance(x, dict)] if isinstance(value, list) else []
+
+
 def _complexity(record: dict[str, Any]) -> int:
     text = _source_text(record)
     words = len(text.split())
     intent = _intent(record)
     signal = str(intent.get("emotional_signal") or "").lower()
-    events = record.get("events") if isinstance(record.get("events"), list) else []
-    characters = record.get("characters") if isinstance(record.get("characters"), list) else []
+    events = _events(record)
+    characters = _characters(record)
     score = 1
     if words > 120:
         score += 1
@@ -215,8 +231,8 @@ def _continuity_snapshot(record: dict[str, Any]) -> dict[str, Any]:
     for key in ("location", "time", "weather", "lighting", "physical_state", "active_characters", "objects", "relationships"):
         if key in continuity:
             result[key] = continuity[key]
-    characters = record.get("characters")
-    if isinstance(characters, list):
+    characters = _characters(record)
+    if characters:
         locks = []
         for item in characters:
             if not isinstance(item, dict):
@@ -352,8 +368,15 @@ def build_adaptation(
     episode_index = 0
     current_episode: dict[str, Any] | None = None
 
+    previous_story_id = None
     for record in records:
-        if current_episode is None or len(current_episode["scenes"]) >= scenes_per_episode:
+        story_id = _positive_int(record.get("story_id"))
+        boundary = (
+            current_episode is None
+            or len(current_episode["scenes"]) >= scenes_per_episode
+            or (previous_story_id not in (None, 0) and story_id not in (0, previous_story_id))
+        )
+        if boundary:
             episode_index += 1
             current_episode = {
                 "episode_id": episode_index,
@@ -366,7 +389,6 @@ def build_adaptation(
             }
             episodes.append(current_episode)
 
-        story_id = _positive_int(record.get("story_id"))
         if story_id and story_id not in current_episode["story_ids"]:
             current_episode["story_ids"].append(story_id)
 
@@ -406,6 +428,7 @@ def build_adaptation(
                 "direction": audio,
             })
         all_shots.extend(shots)
+        previous_story_id = story_id
 
     for episode in episodes:
         episode["shot_count"] = len(episode["shots"])
