@@ -60,3 +60,13 @@ python -m core.cinematic_assembly ^
   --output-dir "data\Asura\Asura - Tale Of The Vanquished_structure_cinematic\assembly"
 
 The command creates per-episode concat manifests and ffmpeg commands. Add --render after ffmpeg is installed and all shot images exist to render MP4 episodes locally.
+
+## Local narration
+
+On Windows, narration can be synthesized locally through Windows SAPI without an external API key:
+
+python -m core.cinematic_tts ^
+  "data\Asura\Asura - Tale Of The Vanquished_structure_cinematic\cinematic_adaptation.json" ^
+  --output-dir "data\Asura\Asura - Tale Of The Vanquished_structure_cinematic\audio"
+
+The default Windows voice and rate are used unless --voice and --rate are supplied.
