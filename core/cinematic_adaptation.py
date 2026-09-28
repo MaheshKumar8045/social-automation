@@ -322,6 +322,10 @@ def _build_shots(
         if isinstance(dialogue_source, list) and index < len(dialogue_source):
             dialogue = _clean(dialogue_source[index], 500)
 
+        base_duration = 4.0 if role in {"establish", "consequence", "transition"} else 3.5
+        voice_words = len(dialogue.split())
+        overlay_words = len(shot_overlay.split())
+        duration = max(base_duration, voice_words / 2.5 + 0.6, overlay_words / 3.0 + 0.5)
         shots.append({
             "shot_id": shot_id,
             "shot_order": index + 1,
@@ -332,7 +336,7 @@ def _build_shots(
             "source_visual_focus": focus,
             "prompt": prompt,
             "image_prompt": prompt,
-            "duration_seconds": 4.0 if role in {"establish", "consequence", "transition"} else 3.5,
+            "duration_seconds": round(duration, 2),
             "overlay_text": shot_overlay,
             "voiceover_text": dialogue,
             "audio_direction": audio,
@@ -485,6 +489,44 @@ def _write_shot_txt(path: Path, shot: dict[str, Any], scene: dict[str, Any]) -> 
     path.write_text(text, encoding="utf-8")
 
 
+def _write_episode_text_artifacts(out: Path, episode: dict[str, Any]) -> None:
+    episode_id = int(episode["episode_id"])
+    narration = []
+    srt = []
+    elapsed = 0.0
+    subtitle_index = 1
+
+    def srt_time(seconds: float) -> str:
+        total_ms = max(0, round(seconds * 1000))
+        hours, rem = divmod(total_ms, 3600000)
+        minutes, rem = divmod(rem, 60000)
+        secs, millis = divmod(rem, 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+    for shot in episode.get("shots", []):
+        duration = float(shot.get("duration_seconds") or 0.0)
+        voice = _clean(shot.get("voiceover_text"), 1000)
+        overlay = _clean(shot.get("overlay_text"), 1000)
+        if voice:
+            narration.append(f"[{int(shot['shot_id']):06d}] {voice}")
+        if overlay:
+            srt.extend([
+                str(subtitle_index),
+                f"{srt_time(elapsed)} --> {srt_time(elapsed + duration)}",
+                overlay,
+                "",
+            ])
+            subtitle_index += 1
+        elapsed += duration
+
+    (out / f"episode_{episode_id:03d}_narration.txt").write_text(
+        "\n".join(narration) + ("\n" if narration else ""), encoding="utf-8"
+    )
+    (out / f"episode_{episode_id:03d}.srt").write_text(
+        "\n".join(srt), encoding="utf-8"
+    )
+
+
 def write_adaptation_outputs(
     adaptation: dict[str, Any],
     output_dir: str | Path,
@@ -521,6 +563,7 @@ def write_adaptation_outputs(
 
     for episode in adaptation["episodes"]:
         (out / f"episode_{episode['episode_id']:03d}.json").write_text(json.dumps(episode, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_episode_text_artifacts(out, episode)
 
     package_path = out / "cinematic_adaptation.json"
     package_path.write_text(json.dumps(adaptation, ensure_ascii=False, indent=2), encoding="utf-8")
