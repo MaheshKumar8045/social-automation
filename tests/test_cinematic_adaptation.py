@@ -1,6 +1,6 @@
 import json
 
-from core.cinematic_adaptation import build_adaptation, write_adaptation_outputs
+from core.cinematic_adaptation import build_adaptation, validate_adaptation, write_adaptation_outputs
 from core.image_pipeline.prompt_loader import load_jobs
 
 
@@ -57,6 +57,7 @@ def test_adaptation_expands_scene_to_multiple_shots(tmp_path):
     assert [shot["shot_id"] for shot in package["shots"]] == [1, 2, 3]
     assert all(shot["source_grounded"] is True for shot in package["shots"])
     assert all(shot["duration_seconds"] >= 3.5 for shot in package["shots"])
+    assert validate_adaptation(package, [_record()]) == []
 
 
 def test_adaptation_preserves_source_focus_and_identity_lock(tmp_path):
