@@ -639,8 +639,10 @@ def main() -> int:
         "scene_count": package["scene_count"],
         "episode_count": package["episode_count"],
         "shot_count": package["shot_count"],
+        "qa_passed": package.get("qa_passed", False),
+        "qa_error_count": len(package.get("qa_errors") or []),
     }, ensure_ascii=False, indent=2))
-    return 0
+    return 0 if package.get("qa_passed") else 2
 
 
 if __name__ == "__main__":
