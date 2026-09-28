@@ -384,7 +384,7 @@ def build_adaptation(
             episode_index += 1
             current_episode = {
                 "episode_id": episode_index,
-                "episode_title": f"Episode {episode_index:03d} - {_clean(record.get("title"), 120) or "Untitled"}",
+                "episode_title": f"Episode {episode_index:03d} - {_clean(record.get('title'), 120) or 'Untitled'}",
                 "story_ids": [],
                 "scenes": [],
                 "shots": [],
