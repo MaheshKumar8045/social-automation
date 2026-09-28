@@ -456,6 +456,32 @@ def build_adaptation(
     }
 
 
+def validate_adaptation(adaptation: dict[str, Any], source_records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    scene_text = {
+        _positive_int(record.get("scene_id")): _source_text(record)
+        for record in source_records
+    }
+    errors: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+    for shot in adaptation.get("shots", []):
+        shot_id = _positive_int(shot.get("shot_id"))
+        scene_id = _positive_int(shot.get("scene_id"))
+        focus = _clean(shot.get("source_visual_focus"), 1000)
+        if shot_id in seen_ids:
+            errors.append({"shot_id": shot_id, "error": "duplicate_shot_id"})
+        seen_ids.add(shot_id)
+        source = scene_text.get(scene_id, "")
+        if not source:
+            errors.append({"shot_id": shot_id, "error": "missing_source_scene"})
+        elif focus and focus.casefold() not in source.casefold():
+            errors.append({"shot_id": shot_id, "error": "source_visual_focus_not_found_in_source"})
+        if shot.get("source_grounded") is not True:
+            errors.append({"shot_id": shot_id, "error": "shot_not_marked_source_grounded"})
+        if not str(shot.get("image_prompt") or "").strip():
+            errors.append({"shot_id": shot_id, "error": "missing_image_prompt"})
+    return errors
+
+
 def _write_shot_txt(path: Path, shot: dict[str, Any], scene: dict[str, Any]) -> None:
     overlay = shot.get("overlay_text") or ""
     payload = [{
@@ -565,8 +591,16 @@ def write_adaptation_outputs(
         (out / f"episode_{episode['episode_id']:03d}.json").write_text(json.dumps(episode, ensure_ascii=False, indent=2), encoding="utf-8")
         _write_episode_text_artifacts(out, episode)
 
+    qa_errors = validate_adaptation(adaptation, source_records)
+    adaptation["qa_passed"] = not qa_errors
+    adaptation["qa_errors"] = qa_errors
     package_path = out / "cinematic_adaptation.json"
     package_path.write_text(json.dumps(adaptation, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out / "qa_report.json").write_text(json.dumps({
+        "qa_passed": not qa_errors,
+        "error_count": len(qa_errors),
+        "errors": qa_errors,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
     (out / "README.txt").write_text(
         "Cinematic adaptation package.\n"
         "The source-grounded image pipeline remains unchanged.\n"
